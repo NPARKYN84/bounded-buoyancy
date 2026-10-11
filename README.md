@@ -1,5 +1,7 @@
 # Bounded Buoyancy
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23305637.svg)](https://doi.org/10.5281/zenodo.23305637)
+
 **Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle without added damping, rafts, crates and boats tilt and right themselves, ride the waves and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
 
 ![Usual engine buoyancy (left) against Bounded Buoyancy (right): light balls released under water](docs/release.gif)
@@ -161,6 +163,8 @@ Added mass is classical (Lamb, 1932; Brennen, 1982). Engineering simulators such
 ## Cite
 
 Parkyn, N. (2026). *Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines*, v1.1. Companion paper to *ValerieX (VXXX): The Density-State Drive*, v2.2. Zenodo. https://doi.org/10.5281/zenodo.23304509
+
+To cite the plugin itself: Parkyn, N. (2026). *Bounded Buoyancy: stable, accurate buoyancy for Godot and Unity* (version 2.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23305637
 
 The physics behind it, the density-state drive and its geometry family, is set out in the ValerieX (VXXX) paper.
 
