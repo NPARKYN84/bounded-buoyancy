@@ -1,0 +1,41 @@
+{
+    "title": "Bounded Buoyancy: stable, accurate buoyancy for Godot and Unity",
+    "upload_type": "software",
+    "version": "2.0.0",
+    "access_right": "open",
+    "license": "mit",
+    "language": "eng",
+    "creators": [
+        {
+            "name": "Parkyn, Nicholas",
+            "orcid": "0009-0007-9843-9722"
+        }
+    ],
+    "description": "<p>Stable, accurate buoyancy for game and simulation engines: plugins for Godot 4.4+ and for Unity 2022.3 LTS and Unity 6, in 3D and 2D. The added mass of the water a body displaces goes into its inertia every physics step, so buoyancy drives no fall faster than g and no rise faster than g/C, for every density, and the first frame after a release is the classical value. Bodies of any shape tilt and right themselves; water volumes have waves and currents; air, balloons and thin air, wind with gusts and sails, splashes, and a 2D version are included, with tests that reproduce the benchmarks of the companion paper.</p><p>Companion paper: Parkyn, N. (2026). Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines, v1.1. Zenodo. https://doi.org/10.5281/zenodo.23304509. Companion to ValerieX (VXXX): The Density-State Drive, v2.2. Zenodo. https://doi.org/10.5281/zenodo.23304469.</p>",
+    "keywords": [
+        "buoyancy",
+        "added mass",
+        "game physics",
+        "real-time simulation",
+        "Godot",
+        "Unity",
+        "ValerieX"
+    ],
+    "communities": [
+        {
+            "identifier": "valeriex"
+        }
+    ],
+    "related_identifiers": [
+        {
+            "identifier": "https://doi.org/10.5281/zenodo.23304509",
+            "relation": "isSupplementTo",
+            "resource_type": "publication-preprint"
+        },
+        {
+            "identifier": "https://doi.org/10.5281/zenodo.23304469",
+            "relation": "references",
+            "resource_type": "publication-preprint"
+        }
+    ]
+}

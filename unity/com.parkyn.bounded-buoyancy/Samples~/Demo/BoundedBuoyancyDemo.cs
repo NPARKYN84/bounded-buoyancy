@@ -1,0 +1,475 @@
+// Bounded Buoyancy for Unity: 3D demo. Add this component to an empty GameObject in an empty scene and press
+// Play (or use Tools > Bounded Buoyancy > Play 3D Demo). Everything is built in code, in any render pipeline.
+// Copyright (c) 2026 Nicholas Parkyn. MIT licence.
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace BoundedBuoyancy.Samples
+{
+    public class BoundedBuoyancyDemo : MonoBehaviour
+    {
+        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind }
+
+        static readonly string[] Captions =
+        {
+            "RELEASE: light balls let go 2 m under water. Left row: the usual model, which shoots them out of the water. Right row: Bounded Buoyancy, which caps the rise at g/C, so they come up briskly and settle.",
+            "FLOAT: crates of different densities, a ball, a log and a stone. Each floats as deep as its density says; the stone sinks. Drop more in.",
+            "TILT: buoyancy acts at the centre of the part under water. A raft dropped at an angle settles flat, a tall block lies down, and a boat with a low centre of mass comes back upright.",
+            "WAVES: two travelling sine waves with deep-water speeds. Bodies rise, fall and rock with them.",
+            "SKY: the same law with air's density. Helium balloons rise until the thinning air holds them; the hot-air balloon lifts off when you light the burner (its density changes while running).",
+            "MANY: 300 bodies of mixed shapes on waves, every one cut at the waterline every step.",
+            "RIVER: the water flows, slower along the banks. Bodies drift with it by drag on their speed through the water.",
+            "WIND: gusty wind over a lake. Boats with sails run before it and heel; balloons drift with it; crates barely move.",
+        };
+
+        Scene scene = Scene.Release;
+        Transform root;
+        Camera cam;
+        Material baseMaterial;
+        readonly Dictionary<Color, Material> materials = new Dictionary<Color, Material>();
+        readonly List<BoundedBuoyancyBody> bodies = new List<BoundedBuoyancyBody>();
+        readonly List<Transform> sails = new List<Transform>();
+        BoundedBuoyancyBody hotAir;
+        float burner;
+        Vector3 focus;
+        float distance = 12f, pitch = 25f, yaw = -30f;
+        bool orbit = true;
+        float wrapMin = float.NegativeInfinity, wrapMax = float.PositiveInfinity;
+        Vector3 wrapAxis = Vector3.right;
+        System.Random rnd = new System.Random(7);
+
+        void Start()
+        {
+            cam = Camera.main;
+            if (cam == null)
+            {
+                var go = new GameObject("Main Camera") { tag = "MainCamera" };
+                cam = go.AddComponent<Camera>();
+            }
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 500f;
+            if (FindAnyLight() == null)
+            {
+                var light = new GameObject("Sun").AddComponent<Light>();
+                light.type = LightType.Directional;
+                light.intensity = 1.1f;
+                light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            }
+            GameObject probe = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            baseMaterial = probe.GetComponent<Renderer>().sharedMaterial;
+            Destroy(probe);
+            Load(Scene.Release);
+        }
+
+        static Light FindAnyLight()
+        {
+            return Object.FindAnyObjectByType<Light>();
+        }
+
+        void Load(Scene s)
+        {
+            scene = s;
+            if (root != null)
+                Destroy(root.gameObject);
+            root = new GameObject("Demo " + s).transform;
+            bodies.Clear();
+            sails.Clear();
+            hotAir = null;
+            burner = 0f;
+            wrapMin = float.NegativeInfinity;
+            wrapMax = float.PositiveInfinity;
+            orbit = true;
+            switch (s)
+            {
+                case Scene.Release: BuildRelease(); break;
+                case Scene.Float: BuildFloat(); break;
+                case Scene.Tilt: BuildTilt(); break;
+                case Scene.Waves: BuildWaves(); break;
+                case Scene.Sky: BuildSky(); break;
+                case Scene.Many: BuildMany(); break;
+                case Scene.River: BuildRiver(); break;
+                case Scene.Wind: BuildWind(); break;
+            }
+        }
+
+        // Scenes ---------------------------------------------------------------------------------------------------
+
+        void BuildRelease()
+        {
+            Pool(Vector3.zero, new Vector3(9f, 3f, 4f));
+            float[] densities = { 30f, 80f, 250f, 500f, 800f };
+            for (int i = 0; i < densities.Length; i++)
+            {
+                Ball(0.2f, densities[i], new Vector3(-3.6f + 0.7f * i, -2f, 0f), Shade(i), BoundedBuoyancyBody.Model.Usual);
+                Ball(0.2f, densities[i], new Vector3(0.8f + 0.7f * i, -2f, 0f), Shade(i));
+            }
+            Frame(new Vector3(0f, -0.3f, 0f), 10f, 12f, 0f);
+            orbit = false;
+        }
+
+        void BuildFloat()
+        {
+            Pool(Vector3.zero, new Vector3(8f, 3f, 8f));
+            float[] densities = { 200f, 400f, 600f, 800f, 950f };
+            for (int i = 0; i < densities.Length; i++)
+                Crate(new Vector3(0.6f, 0.6f, 0.6f), densities[i], new Vector3(-2.4f + 1.2f * i, 1.5f + 0.3f * i, -1.5f), Shade(i));
+            Ball(0.35f, 300f, new Vector3(-1.5f, 2.5f, 1.5f), new Color(0.95f, 0.45f, 0.2f));
+            Log(0.2f, 2f, 600f, new Vector3(1.2f, 2f, 1.5f), new Color(0.55f, 0.36f, 0.2f));
+            Ball(0.2f, 2600f, new Vector3(0f, 3f, 0f), new Color(0.45f, 0.45f, 0.48f));
+            Frame(Vector3.zero, 12f, 28f, -30f);
+        }
+
+        void BuildTilt()
+        {
+            Pool(Vector3.zero, new Vector3(10f, 3f, 6f));
+            Crate(new Vector3(1.6f, 0.35f, 1.1f), 400f, new Vector3(-3f, 1f, 0f), new Color(0.75f, 0.6f, 0.4f), 30f);
+            Crate(new Vector3(0.3f, 1.2f, 0.3f), 600f, new Vector3(0f, 0.4f, 0f), new Color(0.4f, 0.65f, 0.85f), 3f);
+            Boat(new Vector3(3f, 0.6f, 0f), 60f, false);
+            Frame(Vector3.zero, 12f, 22f, -20f);
+        }
+
+        void BuildWaves()
+        {
+            BoundedBuoyancyWater sea = Pool(Vector3.zero, new Vector3(40f, 6f, 40f));
+            sea.waveHeight = 0.35f;
+            sea.waveLength = 7f;
+            sea.waveDirection = 20f;
+            Boat(new Vector3(-3f, 0.3f, -2f), 0f, false);
+            Boat(new Vector3(3f, 0.3f, 2f), 0f, false);
+            for (int i = 0; i < 6; i++)
+                Crate(new Vector3(0.6f, 0.6f, 0.6f), 350f + 80f * i, new Vector3(-5f + 2f * i, 0.5f, 4f), Shade(i));
+            for (int i = 0; i < 5; i++)
+                Ball(0.3f, 300f, new Vector3(-4f + 2f * i, 0.5f, -5f), Shade(i + 2));
+            Log(0.25f, 3f, 550f, new Vector3(0f, 0.5f, 0f), new Color(0.55f, 0.36f, 0.2f));
+            Frame(Vector3.zero, 16f, 22f, -30f);
+        }
+
+        void BuildSky()
+        {
+            // The ground, and a raised tank: once a scene has water, bodies float only inside it.
+            Ground(new Vector3(0f, 0f, 0f), 60f);
+            Pool(new Vector3(9f, 1.2f, 0f), new Vector3(4f, 1.2f, 4f), false);
+            Crate(new Vector3(0.6f, 0.6f, 0.6f), 400f, new Vector3(9f, 2.5f, 0f), new Color(0.75f, 0.6f, 0.4f));
+            Color[] colors = { new Color(0.95f, 0.3f, 0.35f), new Color(0.3f, 0.6f, 0.95f), new Color(0.95f, 0.8f, 0.25f), new Color(0.5f, 0.85f, 0.45f), new Color(0.85f, 0.45f, 0.9f) };
+            for (int i = 0; i < 5; i++)
+            {
+                // Helium balloons of slightly different fill: each rises to where the air is as dense as it is.
+                BoundedBuoyancyBody b = Ball(0.3f, 0.35f + 0.12f * i, new Vector3(-4f + 1.4f * i, 0.5f, -2f), colors[i]);
+                b.airDensity = 1.2f;
+                b.airHalfHeight = 8f;
+            }
+            // A hot-air balloon: envelope and basket, centre of mass low in the basket.
+            GameObject env = Shape(PrimitiveType.Sphere, new Vector3(0f, 2.2f, 3f), Vector3.one * 3f, new Color(0.95f, 0.55f, 0.2f));
+            GameObject basket = Shape(PrimitiveType.Cube, env.transform.position + new Vector3(0f, -2.1f, 0f), new Vector3(0.6f, 0.5f, 0.6f), new Color(0.5f, 0.35f, 0.2f));
+            DropCollider(basket);
+            basket.transform.SetParent(env.transform, true);
+            hotAir = Floater(env, 1.3f);
+            hotAir.airDensity = 1.2f;
+            hotAir.airHalfHeight = 8f;
+            hotAir.angularDrag = 2f;
+            hotAir.centreOfMassOffset = new Vector3(0f, -1.6f, 0f);
+            Ball(0.25f, 2600f, new Vector3(-2f, 9f, 2f), new Color(0.45f, 0.45f, 0.48f)).airDensity = 1.2f;
+            Frame(new Vector3(0f, 4f, 0f), 18f, 12f, -20f);
+        }
+
+        void BuildMany()
+        {
+            BoundedBuoyancyWater sea = Pool(Vector3.zero, new Vector3(40f, 6f, 40f));
+            sea.waveHeight = 0.3f;
+            sea.waveLength = 6f;
+            sea.splashes = false;
+            sea.ripples = false;
+            for (int i = 0; i < 300; i++)
+            {
+                var p = new Vector3(Rand(-17f, 17f), Rand(0.5f, 4f), Rand(-17f, 17f));
+                int k = i % 3;
+                if (k == 0)
+                    Crate(new Vector3(0.5f, 0.4f, 0.7f), Rand(250f, 800f), p, Shade(i), Rand(-30f, 30f));
+                else if (k == 1)
+                    Ball(0.25f, Rand(200f, 800f), p, Shade(i));
+                else
+                    Log(0.15f, 1.2f, Rand(300f, 800f), p, Shade(i));
+            }
+            Frame(Vector3.zero, 30f, 35f, -30f);
+        }
+
+        void BuildRiver()
+        {
+            BoundedBuoyancyWater river = Pool(Vector3.zero, new Vector3(60f, 3f, 12f));
+            river.current = new Vector3(2f, 0f, 0f);
+            river.currentEdge = 3f;
+            for (int i = 0; i < 12; i++)
+            {
+                var p = new Vector3(Rand(-28f, 10f), 0.3f, Rand(-5f, 5f));
+                if (i % 3 == 0)
+                    Log(0.2f, 2f, 550f, p, new Color(0.55f, 0.36f, 0.2f));
+                else if (i % 3 == 1)
+                    Crate(new Vector3(0.6f, 0.5f, 0.6f), 450f, p, Shade(i));
+                else
+                    Ball(0.3f, 400f, p, Shade(i));
+            }
+            wrapAxis = Vector3.right;
+            wrapMin = -29f;
+            wrapMax = 29f;
+            Frame(new Vector3(0f, 0f, 0f), 26f, 40f, -10f);
+        }
+
+        void BuildWind()
+        {
+            Pool(Vector3.zero, new Vector3(50f, 4f, 30f));
+            var wind = new GameObject("Wind").AddComponent<BoundedBuoyancyWind>();
+            wind.transform.SetParent(root, false);
+            wind.velocity = new Vector3(6f, 0f, 0f);
+            wind.gustStrength = 0.35f;
+            wind.gustPeriod = 6f;
+            wind.directionSwing = 12f;
+            for (int i = 0; i < 3; i++)
+                Boat(new Vector3(-15f + 4f * i, 0.3f, -6f + 6f * i), 0f, true);
+            for (int i = 0; i < 4; i++)
+            {
+                BoundedBuoyancyBody b = Ball(0.3f, 0.7f, new Vector3(-14f + 3f * i, 4f, 8f), Shade(i + 1));
+                b.airDensity = 1.2f;
+                b.airHalfHeight = 8f;
+            }
+            for (int i = 0; i < 3; i++)
+                Crate(new Vector3(0.6f, 0.6f, 0.6f), 500f, new Vector3(-12f + 4f * i, 0.4f, 3f), Shade(i));
+            wrapAxis = Vector3.right;
+            wrapMin = -24f;
+            wrapMax = 24f;
+            Frame(new Vector3(-4f, 1f, 0f), 24f, 25f, -20f);
+        }
+
+        // Building blocks ------------------------------------------------------------------------------------------
+
+        BoundedBuoyancyWater Pool(Vector3 surface, Vector3 size, bool floor = true)
+        {
+            var go = new GameObject("Water");
+            go.transform.SetParent(root, false);
+            go.transform.position = surface;
+            var w = go.AddComponent<BoundedBuoyancyWater>();
+            w.size = size;
+            if (floor)
+                Ground(surface - new Vector3(0f, size.y, 0f), Mathf.Max(size.x, size.z) + 4f);
+            return w;
+        }
+
+        void Ground(Vector3 at, float width)
+        {
+            GameObject g = Shape(PrimitiveType.Cube, at - new Vector3(0f, 0.25f, 0f), new Vector3(width, 0.5f, width), new Color(0.76f, 0.7f, 0.55f));
+            g.name = "Ground";
+        }
+
+        GameObject Shape(PrimitiveType type, Vector3 at, Vector3 scale, Color color, float roll = 0f)
+        {
+            GameObject go = GameObject.CreatePrimitive(type);
+            go.transform.SetParent(root, false);
+            go.transform.position = at;
+            go.transform.rotation = Quaternion.Euler(0f, 0f, roll);
+            go.transform.localScale = scale;
+            go.GetComponent<Renderer>().sharedMaterial = Paint(color);
+            return go;
+        }
+
+        static void DropCollider(GameObject go)
+        {
+            Collider c = go.GetComponent<Collider>();
+            if (c != null)
+            {
+                c.enabled = false;
+                Destroy(c);
+            }
+        }
+
+        BoundedBuoyancyBody Floater(GameObject go, float density, BoundedBuoyancyBody.Model model = BoundedBuoyancyBody.Model.Bounded)
+        {
+            Rigidbody rb = go.AddComponent<Rigidbody>();
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
+            var b = go.AddComponent<BoundedBuoyancyBody>();
+            b.Density = density;
+            b.model = model;
+            bodies.Add(b);
+            return b;
+        }
+
+        BoundedBuoyancyBody Crate(Vector3 size, float density, Vector3 at, Color color, float roll = 0f)
+        {
+            return Floater(Shape(PrimitiveType.Cube, at, size, color, roll), density);
+        }
+
+        BoundedBuoyancyBody Ball(float radius, float density, Vector3 at, Color color, BoundedBuoyancyBody.Model model = BoundedBuoyancyBody.Model.Bounded)
+        {
+            return Floater(Shape(PrimitiveType.Sphere, at, Vector3.one * (2f * radius), color), density, model);
+        }
+
+        BoundedBuoyancyBody Log(float radius, float length, float density, Vector3 at, Color color)
+        {
+            // Unity's capsule is 2 high and 1 across, along Y: lay it along X.
+            BoundedBuoyancyBody b = Floater(Shape(PrimitiveType.Capsule, at, new Vector3(2f * radius, 0.5f * length, 2f * radius), color, 90f), density);
+            b.addedMassCoefficient = 1f;   // a long cylinder moving side-on
+            return b;
+        }
+
+        void Boat(Vector3 at, float roll, bool withSail)
+        {
+            // A small hull, 1.8 m long, as a convex mesh.
+            var pts = new[]
+            {
+                new Vector3(-0.9f, 0.25f, -0.5f), new Vector3(0.9f, 0.25f, -0.5f), new Vector3(-0.7f, -0.25f, -0.3f), new Vector3(0.7f, -0.25f, -0.3f),
+                new Vector3(-0.9f, 0.25f, 0.5f), new Vector3(0.9f, 0.25f, 0.5f), new Vector3(-0.7f, -0.25f, 0.3f), new Vector3(0.7f, -0.25f, 0.3f),
+                new Vector3(1.25f, 0.25f, 0f), new Vector3(1.0f, -0.2f, 0f),
+            };
+            // Its faces: the convex hull of the points, wound to face outwards (flat-shaded).
+            var hullPoints = new List<Core.V3>();
+            foreach (Vector3 p in pts)
+                hullPoints.Add(new Core.V3(p.x, p.y, p.z));
+            List<Core.V3> faces = Core.ConvexHull.Build(hullPoints);
+            var verts = new Vector3[faces.Count];
+            var tris = new int[faces.Count];
+            for (int i = 0; i < faces.Count; i++)
+            {
+                verts[i] = new Vector3((float)faces[i].x, (float)faces[i].y, (float)faces[i].z);
+                tris[i] = i;
+            }
+            var mesh = new Mesh { name = "Hull" };
+            mesh.vertices = verts;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            var go = new GameObject("Boat");
+            go.transform.SetParent(root, false);
+            go.transform.position = at;
+            go.transform.rotation = Quaternion.Euler(0f, 0f, roll);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = Paint(new Color(0.85f, 0.85f, 0.9f));
+            var mc = go.AddComponent<MeshCollider>();
+            mc.sharedMesh = mesh;
+            mc.convex = true;
+            BoundedBuoyancyBody b = Floater(go, 280f);
+            b.centreOfMassOffset = new Vector3(0f, -0.15f, 0f);   // ballast
+            b.airDensity = 1.2f;
+            if (withSail)
+            {
+                GameObject mast = Shape(PrimitiveType.Cube, at + new Vector3(0f, 1.2f, 0f), new Vector3(0.06f, 2f, 0.06f), new Color(0.4f, 0.3f, 0.2f));
+                DropCollider(mast);
+                mast.transform.SetParent(go.transform, true);
+                var pivot = new GameObject("Sail");
+                pivot.transform.SetParent(go.transform, false);
+                pivot.transform.localPosition = new Vector3(0f, 1.2f, 0f);
+                GameObject cloth = Shape(PrimitiveType.Cube, Vector3.zero, new Vector3(0.02f, 1.6f, 1.1f), new Color(0.97f, 0.97f, 0.95f));
+                DropCollider(cloth);
+                cloth.transform.SetParent(pivot.transform, false);
+                cloth.transform.localPosition = Vector3.zero;
+                b.sailArea = 1.6f;
+                b.sailCentre = new Vector3(0f, 1.2f, 0f);
+                sails.Add(pivot.transform);
+            }
+        }
+
+        Material Paint(Color c)
+        {
+            Material m;
+            if (!materials.TryGetValue(c, out m))
+            {
+                m = new Material(baseMaterial) { color = c };
+                materials[c] = m;
+            }
+            return m;
+        }
+
+        static Color Shade(int i)
+        {
+            Color[] palette =
+            {
+                new Color(0.93f, 0.42f, 0.36f), new Color(0.98f, 0.73f, 0.3f), new Color(0.55f, 0.78f, 0.42f),
+                new Color(0.36f, 0.64f, 0.9f), new Color(0.66f, 0.5f, 0.86f), new Color(0.9f, 0.9f, 0.86f),
+            };
+            return palette[((i % palette.Length) + palette.Length) % palette.Length];
+        }
+
+        float Rand(float lo, float hi) { return lo + (float)rnd.NextDouble() * (hi - lo); }
+
+        void Frame(Vector3 target, float dist, float pitchDegrees, float yawDegrees)
+        {
+            focus = target;
+            distance = dist;
+            pitch = pitchDegrees;
+            yaw = yawDegrees;
+        }
+
+        // Running --------------------------------------------------------------------------------------------------
+
+        void Update()
+        {
+            if (orbit)
+                yaw += 4f * Time.deltaTime;
+            Quaternion q = Quaternion.Euler(pitch, yaw, 0f);
+            cam.transform.position = focus - q * Vector3.forward * distance;
+            cam.transform.rotation = q;
+
+            // Sails turn to face the wind they feel, like a sail let out to run before the wind.
+            foreach (Transform sail in sails)
+            {
+                if (sail == null)
+                    continue;
+                var body = sail.GetComponentInParent<BoundedBuoyancyBody>();
+                Vector3 felt = body.WindHere - Velocity(body.Body);
+                Vector3 local = body.transform.InverseTransformDirection(felt);
+                if (new Vector2(local.x, local.z).sqrMagnitude > 1e-4f)
+                    sail.localRotation = Quaternion.Euler(0f, Mathf.Atan2(-local.z, local.x) * Mathf.Rad2Deg, 0f);
+            }
+
+            if (hotAir != null)
+                hotAir.Density = Mathf.Lerp(1.3f, 0.9f, burner);   // heating the air in the envelope
+
+            // Bodies carried off the end come back upstream (or upwind).
+            foreach (BoundedBuoyancyBody b in bodies)
+            {
+                if (b == null)
+                    continue;
+                float s = Vector3.Dot(b.Body.position, wrapAxis);
+                if (s > wrapMax)
+                    b.Body.position += wrapAxis * (wrapMin - s);
+            }
+        }
+
+        static Vector3 Velocity(Rigidbody rb)
+        {
+#if UNITY_6000_0_OR_NEWER
+            return rb.linearVelocity;
+#else
+            return rb.velocity;
+#endif
+        }
+
+        GUIStyle captionStyle;
+
+        void OnGUI()
+        {
+            if (captionStyle == null)
+                captionStyle = new GUIStyle(GUI.skin.box) { wordWrap = true, alignment = TextAnchor.UpperLeft, fontSize = 14 };
+            GUILayout.BeginArea(new Rect(10f, 10f, 190f, Screen.height - 20f));
+            GUILayout.Label("Bounded Buoyancy");
+            string[] names = System.Enum.GetNames(typeof(Scene));
+            for (int i = 0; i < names.Length; i++)
+                if (GUILayout.Button((i + 1) + "  " + names[i]))
+                    Load((Scene)i);
+            GUILayout.Space(8f);
+            orbit = GUILayout.Toggle(orbit, " Turn the camera");
+            if (scene == Scene.Release && GUILayout.Button("Release again"))
+                Load(Scene.Release);
+            if ((scene == Scene.Float || scene == Scene.Waves || scene == Scene.Tilt) && GUILayout.Button("Drop a crate"))
+                Crate(new Vector3(0.6f, 0.6f, 0.6f), Rand(250f, 900f), focus + new Vector3(Rand(-1.5f, 1.5f), 4f, Rand(-1.5f, 1.5f)), Shade(rnd.Next(6)), Rand(-40f, 40f));
+            if ((scene == Scene.Float || scene == Scene.Waves) && GUILayout.Button("Drop a stone"))
+                Ball(0.2f, 2600f, focus + new Vector3(Rand(-1.5f, 1.5f), 5f, Rand(-1.5f, 1.5f)), new Color(0.45f, 0.45f, 0.48f));
+            if (scene == Scene.Sky)
+            {
+                GUILayout.Label("Burner: " + Mathf.RoundToInt(100f * burner) + "%");
+                burner = GUILayout.HorizontalSlider(burner, 0f, 1f);
+            }
+            if (scene == Scene.Many)
+                GUILayout.Label(bodies.Count + " bodies, " + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-4f)) + " fps");
+            GUILayout.EndArea();
+            GUI.Box(new Rect(210f, Screen.height - 80f, Mathf.Min(900f, Screen.width - 220f), 70f), Captions[(int)scene], captionStyle);
+        }
+    }
+}

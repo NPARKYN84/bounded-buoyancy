@@ -1,0 +1,15 @@
+# Godot 4 cache (the .import and .uid files next to assets are kept)
+.godot/
+# Python
+__pycache__/
+# Native kernel build files (the finished libraries in addons/bounded_buoyancy_native/bin are kept)
+native/godot-cpp/
+native/src/*.os
+native/src/*.o
+native/src/*.obj
+native/.sconsign.dblite
+# Unity checks build output
+unity/checks/**/bin/
+unity/checks/**/obj/
+unity/checks/Split/2022_3/
+unity/checks/Split/6000_0/

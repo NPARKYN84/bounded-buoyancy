@@ -1,0 +1,28 @@
+{
+  "name": "com.parkyn.bounded-buoyancy",
+  "version": "2.0.0",
+  "displayName": "Bounded Buoyancy",
+  "description": "Stable, accurate buoyancy for Rigidbody and Rigidbody2D. The added mass of the water a body displaces goes into its inertia every physics step, so buoyancy drives no fall faster than g and no rise faster than g/C, for every density. Any collider shape tilts and rights itself; water volumes with waves and currents; air, balloons and thin air; wind with gusts and sails; splashes with events; and a 2D version. Method and benchmarks: Parkyn, N. (2026), Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines.",
+  "unity": "2022.3",
+  "documentationUrl": "https://github.com/NPARKYN84/bounded-buoyancy/tree/main/unity",
+  "changelogUrl": "https://github.com/NPARKYN84/bounded-buoyancy/blob/main/unity/com.parkyn.bounded-buoyancy/CHANGELOG.md",
+  "licensesUrl": "https://github.com/NPARKYN84/bounded-buoyancy/blob/main/unity/com.parkyn.bounded-buoyancy/LICENSE.md",
+  "license": "MIT",
+  "keywords": ["buoyancy", "water", "physics", "floating", "boat", "waves", "wind", "balloon", "added mass", "2D"],
+  "author": {
+    "name": "Nicholas Parkyn",
+    "email": "nikparkyn@googlemail.com"
+  },
+  "dependencies": {
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.physics2d": "1.0.0",
+    "com.unity.modules.particlesystem": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Demo",
+      "description": "Eight 3D scenes (release, float, tilt, waves, sky, many, river, wind) and a 2D scene, built in code. After importing, use Tools > Bounded Buoyancy > Play 3D Demo (or Play 2D Demo).",
+      "path": "Samples~/Demo"
+    }
+  ]
+}

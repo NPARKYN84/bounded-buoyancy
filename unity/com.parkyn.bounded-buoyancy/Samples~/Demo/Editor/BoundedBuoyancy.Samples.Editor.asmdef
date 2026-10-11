@@ -1,0 +1,19 @@
+{
+    "name": "BoundedBuoyancy.Samples.Editor",
+    "rootNamespace": "BoundedBuoyancy.Samples.EditorTools",
+    "references": [
+        "Parkyn.BoundedBuoyancy",
+        "BoundedBuoyancy.Samples"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

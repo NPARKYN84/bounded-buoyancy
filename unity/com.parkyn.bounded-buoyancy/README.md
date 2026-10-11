@@ -1,0 +1,110 @@
+# Bounded Buoyancy for Unity
+
+**Stable, accurate buoyancy for Unity 2022.3 LTS and Unity 6, in 3D and 2D.** Light objects stop launching out of the water, floats settle without added damping, crates, rafts and boats of any collider shape tilt and right themselves, ride the waves and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, and hundreds of bodies can cross the surface at once. It is the Unity version of the Bounded Buoyancy plugin for Godot, with the same physics and the same benchmarks.
+
+Most engines apply buoyancy as a force on the body's own mass. For anything lighter than water that has no upper limit: released under water, an air bubble accelerates at 815g in its first frame and moves 2.2 m in one 60 Hz step. Real light spheres and bubbles start at no more than about 2g, because the water around them has to be set moving too. That water is the *added mass* of classical hydrodynamics.
+
+Bounded Buoyancy puts the added mass of the submerged part into the body's inertia every physics step:
+
+```
+M = ρ_body · V  +  C · ρ_water · V_submerged
+```
+
+Buoyancy then drives no fall faster than g and no rise faster than g/C (2g for a sphere), for every density, and the first frame after a release is the classical value. Drag and collisions act on top, as usual.
+
+| Released from rest under water (60 Hz) | Usual engine method | Bounded Buoyancy |
+| --- | ---: | ---: |
+| Air bubble | 815g | 1.99g |
+| Foam ball (3% of water's density) | 32.3g | 1.83g |
+| Table-tennis ball | 11.4g | 1.58g |
+| Cork | 3.0g | 1.00g |
+
+## Try it in a minute
+
+1. **Install.** In Unity, open *Window → Package Manager*, click **+**, and choose *Add package from git URL…* with
+   `https://github.com/NPARKYN84/bounded-buoyancy.git?path=/unity/com.parkyn.bounded-buoyancy`
+   or *Add package from disk…* and pick this folder's `package.json`.
+2. **See it.** In the package's page in the Package Manager, open *Samples* and import **Demo**. Then choose *Tools → Bounded Buoyancy → Play 3D Demo* (or *Play 2D Demo*). It opens a new scene with the demo in it and presses Play. The buttons on the left switch between eight scenes: release, float, tilt, waves, sky, many, river and wind.
+3. **Check it.** Add `"testables": ["com.parkyn.bounded-buoyancy"]` to your project's `Packages/manifest.json`, open *Window → General → Test Runner*, and press *Run All* on the **PlayMode** tab (about a minute: long runs go at 20 times real speed) and the **EditMode** tab (a second). The play-mode tests run the paper's benchmarks in Unity's own physics engine and should all pass.
+
+The drawn water, splashes and demo use Unity's built-in Sprites/Default shader, which renders in the Built-in and Universal render pipelines. In HDRP it renders too dark (it has no exposure handling), so give the water an HDRP material of your own (**Surface Material**, **Effects Material**); the physics is the same in every pipeline.
+
+## Use (3D)
+
+1. Give a GameObject a **Rigidbody** and colliders: box, sphere, capsule or convex mesh, on it or on its children (several make one shape).
+2. Add **Bounded Buoyancy Body** and set its **Density** (kg/m³; water is 1000).
+3. Add a GameObject with **Bounded Buoyancy Water** where the middle of the water's surface should be, and set its **Size**: the water fills that box below it. (Without any water in the scene, bodies use their **Water Level**, a flat surface at that height.)
+
+Press Play. The component sets the Rigidbody's mass, turns off its gravity and damping, and applies weight, buoyancy, drag and the righting moment itself, every physics step. Collisions, your own forces and joints act as usual and are resisted by the full inertia, water included. Disable the component and the Rigidbody is handed back as it was: it falls and damps as before.
+
+Bodies step themselves in FixedUpdate, where Unity runs physics by default. If you set *Physics → Simulation Mode* to Update, they are stepped each frame for you. If you set it to Script, call `BoundedBuoyancySimulation.Step(dt)` (and `Step2D(dt)` for 2D) just before your own `Physics.Simulate(dt)`.
+
+To give a boat ballast, set **Centre Of Mass Offset** below zero: the lower it is, the harder the boat rights itself. For a detailed hull, set **Buoyancy Mesh** to a simple closed mesh with Read/Write enabled. If you add or change colliders while the game runs, call `RebuildShape()`.
+
+### Bounded Buoyancy Body
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Model | Bounded, or Usual (buoyancy on the body's own mass, as most engines do) for comparisons | Bounded |
+| Density | kg/m³; set `Density` from a script while running (ballast tanks, a hot-air balloon's burner) | 500 (wood) |
+| Added Mass Coefficient | C for the shape: 0.5 sphere, about 1 long cylinder side-on | 0.5 |
+| Water Level / Water Surface | Flat surface used when the scene has no water volume; Water Surface (a water volume, or any object whose Y is the surface) takes priority | 0 / none |
+| Water Density | kg/m³ for Water Level (a water volume uses its own) | 1000 |
+| Drag Coefficient | Quadratic drag, in the water and in the air | 0.47 |
+| Angular Drag | Damping of rolling and pitching in the water, per second when fully under; in air, in proportion to how light the body is against the air | 3 |
+| Keep Momentum On Entry | The water set moving takes its share of momentum as the body enters | on |
+| Air Density / Air Half Height | Air at height 0 (0 leaves air out), and the height over which it halves (0: the same at every height) | 1.2 / 0 |
+| Sail Area / Sail Centre | Area for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
+| Buoyancy Mesh | Optional closed mesh used instead of the colliders, in the object's local space | none |
+| Curve Segments | Facets round capsules, and spheres that share a body (volumes are corrected to the exact value) | 16 |
+| Set Centre Of Mass / Offset | Put the centre of mass at the centre of the volume, plus the offset; off keeps the Rigidbody's own | on / 0 |
+| Set Inertia | Work out the rotational inertia (with its principal axes) from the shape; off keeps the Rigidbody's own | on |
+| Water Entered / Water Exited | Events with the speed through the water (m/s) and the point on the surface, for sounds | |
+
+Read from scripts: `OwnMass`, `Volume`, `SubmergedVolume`, `AddedMass`, `CentreOfBuoyancy`, `LastAcceleration`, `AirDensityHere`, `WindHere`, `Water`, and `Core` for everything else.
+
+### Bounded Buoyancy Water
+
+**Size** and **Density** (1000 fresh, about 1025 sea); **Wave Height**, **Wave Length** and **Wave Direction** (two travelling sine waves with deep-water speeds); **Current** (in the object's own frame, so turning it turns the river) and **Current Edge** (slower water along the banks); **Splashes**, **Ripples**, **Splash Min Speed** and **Splash Color**; **Show Surface**, **Surface Color**, and optional **Surface Material** and **Effects Material**. Turn the object about Y to turn the waves and the current; keep its scale at 1 and set the size instead. Once a scene has any water volume, bodies float only inside one, so a pond, a pool and the sea can sit at different heights.
+
+From scripts: `HeightAt(point)`, `CurrentAt(point)`, `Contains(point)`, `MaxWave`, `WaveTime`, and `Splash(point, speed, width)` to throw up a splash of your own.
+
+### Bounded Buoyancy Wind
+
+**Velocity** (in the object's own frame: turn it to aim the wind), **Gust Strength**, **Gust Period** and **Direction Swing**; gusts travel downwind, so nearby bodies feel each one in turn. Turn off **Everywhere** to fill only a box of **Size** round the object, such as a gap between buildings or a fan. The wind pushes on the part of each body out of the water, so balloons drift with it, a body with a sail runs before it and heels, and a crate barely moves.
+
+## 2D
+
+**Bounded Buoyancy Body 2D**, **Bounded Buoyancy Water 2D** and **Bounded Buoyancy Wind 2D** do the same in a side view for **Rigidbody2D**: circle, box (rounded corners too), capsule and polygon colliders; tipping and righting; waves, currents, air, wind, sails and splashes. Lengths are in metres with y up, as in Unity 2D. **Thickness** (depth into the screen, 0.2 m) turns areas into kilograms, so collisions with other bodies are fair; it does not change how anything floats. A circle's added-mass coefficient in 2D is 1, so a light ball rises no faster than g. The 2D water is drawn in front of sprites (**Sorting Order** 10), so bodies look under water.
+
+## How it is checked
+
+- **The physics, in plain C#.** All the physics lives in an engine-free core (`Runtime/Core`), with no Unity types. The repository's `unity/checks/CoreTests` runs it in .NET with a small integrator standing in for the engine, against every benchmark the Godot plugin passes: 87 checks, all passing. First-frame accelerations agree with the formula to the printed digits (an air bubble's 7995.62 m/s² usual against 19.54 m/s² bounded); the release-and-surfacing times are 0.517, 0.533, 0.617 and 0.783 s, as in the paper's Table 4; a ball in a 1.5 m/s river drifts at 1.486 m/s after a minute; a helium balloon starts at 16.34 m/s² usual against 7.00 m/s² bounded.
+- **In Unity.** The package's 15 play-mode tests run the same benchmarks in Unity's physics engines (B1 to B12: first frames, surfacing, every collider type, righting, water volumes and waves, air and balloons, density changed while running, fast bodies, rivers, wind and sails, splashes and events, and 2D), plus a check that Unity measures a Rigidbody2D's inertia about its centre of mass, as the 2D body assumes. The 9 edit-mode tests check the core in a second.
+- **The Unity API.** Every Unity call was checked against Unity's published C# reference source for 2022.3 and Unity 6, and the runtime, tests and sample compile against both, each as its own assembly as Unity builds them, with warnings as errors (`unity/checks/Split`). In Unity 6 it uses `linearVelocity`, `linearDamping` and `angularDamping`; in 2022.3, `velocity`, `drag` and `angularDrag`.
+
+## Speed
+
+The buoyancy work for 300 bodies riding waves, measured in plain .NET 8 on a 2.1 GHz server processor, takes 0.1 to 0.4 ms per physics step for spheres, 0.3 to 0.7 ms for boxes and convex hulls, and about 2.5 ms for capsules (which have the most facets; lower **Curve Segments** to make them cheaper). Unity's Mono and IL2CPP runtimes are usually somewhat slower than .NET 8, and Unity's own physics step comes on top. Nothing is allocated per step.
+
+## Limits
+
+- Submerged volumes are exact for every shape (capsules, and spheres in compound bodies, to within the facets, corrected to the exact total). Overlapping colliders in one body are counted twice, and a buoyancy mesh must be closed.
+- A mesh collider counts as the convex hull of its points, as Unity's physics treats a dynamic body's mesh. Its mesh (or the buoyancy mesh) must have Read/Write enabled for builds; otherwise its bounding box is used, with a warning.
+- One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
+- Waves move the surface only, and bodies make no waves of their own; splashes are drawn, not simulated. The volume under a wave is accurate while the waves are long compared with the body.
+- Drag acts at the body's centre, so a current or wind does not turn a body by itself, and a sail always faces the wind it feels, like a sail let out to run before the wind; sailing across or into the wind would need a keel and lift.
+- Gravity is read from Physics.gravity (Physics2D.gravity in 2D), straight down. Water volumes should be turned only about the vertical, and water and wind kept at scale 1 (set their sizes instead).
+- Floating bodies apply a small force every step, so they do not go to sleep.
+
+## Differences from the Godot version
+
+The physics and the settings are the same. In Unity the centre of mass is moved with **Centre Of Mass Offset** (from the centre of the volume) rather than set directly; the inertia is worked out with its principal axes, not just its diagonal; 2D is in metres with y up; water and wind ignore their objects' scale; there is no cylinder (Unity has no cylinder collider; use a convex mesh or a buoyancy mesh); and C# needs no native kernel.
+
+## Cite
+
+Parkyn, N. (2026). *Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines*, v1.1. Companion paper to *ValerieX (VXXX): The Density-State Drive*, v2.2. Zenodo. https://doi.org/10.5281/zenodo.23304509
+
+## Licence
+
+MIT. Free for any use, including commercial, as long as the licence notice stays with the code.

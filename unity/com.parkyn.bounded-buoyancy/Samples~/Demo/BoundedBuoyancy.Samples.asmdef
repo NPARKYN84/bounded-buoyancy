@@ -1,0 +1,16 @@
+{
+    "name": "BoundedBuoyancy.Samples",
+    "rootNamespace": "BoundedBuoyancy.Samples",
+    "references": [
+        "Parkyn.BoundedBuoyancy"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

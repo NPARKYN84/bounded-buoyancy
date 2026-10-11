@@ -1,0 +1,13 @@
+# Keep downloads from the Asset Library (which uses GitHub's zip) to the plugin and its demo.
+/docs export-ignore
+/tests export-ignore
+/reference export-ignore
+/native export-ignore
+/.github export-ignore
+/project.godot export-ignore
+/icon.svg export-ignore
+/icon.svg.import export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/unity export-ignore
+/.zenodo.json export-ignore

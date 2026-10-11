@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+# Builds the optional native kernel. Needs godot-cpp (branch 4.4) in ./godot-cpp:
+#   git clone --depth 1 --branch godot-4.4-stable https://github.com/godotengine/godot-cpp.git
+#   scons platform=windows target=template_release        (or linux, macos, android, ios, web)
+env = SConscript("godot-cpp/SConstruct")
+env.Append(CPPPATH=["src/"])
+sources = Glob("src/*.cpp")
+out = "../addons/bounded_buoyancy_native/bin/"
+if env["platform"] == "macos":
+    library = env.SharedLibrary(out + "libbounded_buoyancy{}.dylib".format(env["suffix"]), source=sources)
+else:
+    library = env.SharedLibrary(out + "libbounded_buoyancy{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=sources)
+Default(library)

@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use Bounded Buoyancy, please cite the paper below."
+title: "Bounded Buoyancy"
+type: software
+authors:
+  - family-names: Parkyn
+    given-names: Nicholas
+    orcid: "https://orcid.org/0009-0007-9843-9722"
+version: 2.0.0
+license: MIT
+repository-code: "https://github.com/NPARKYN84/bounded-buoyancy"
+keywords: [buoyancy, added mass, game physics, Godot, Unity, real-time simulation]
+preferred-citation:
+  type: article
+  title: "Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines"
+  authors:
+    - family-names: Parkyn
+      given-names: Nicholas
+  year: 2026
+  doi: "10.5281/zenodo.23304509"
+  notes: "Version 1.1. Companion paper to ValerieX (VXXX) v2.2. Zenodo."
+references:
+  - type: article
+    title: "ValerieX (VXXX): The Density-State Drive - A single-drive account of weight and buoyancy, with two predictions the two-force account does not make"
+    authors:
+      - family-names: Parkyn
+        given-names: Nicholas
+    year: 2026
+    doi: "10.5281/zenodo.23304469"
+    notes: "Version 2.2, with Supplementary Information. Zenodo."

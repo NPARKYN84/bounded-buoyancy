@@ -1,0 +1,19 @@
+; Bounded Buoyancy demo project for Godot 4.4+
+
+config_version=5
+
+[application]
+
+config/name="Bounded Buoyancy demo"
+run/main_scene="res://demo/demo.tscn"
+config/features=PackedStringArray("4.4")
+config/icon="res://icon.svg"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/bounded_buoyancy/plugin.cfg")
+
+[physics]
+
+3d/default_gravity=9.80665
+common/physics_ticks_per_second=60

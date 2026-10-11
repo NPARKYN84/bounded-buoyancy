@@ -1,0 +1,169 @@
+# Bounded Buoyancy
+
+**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle without added damping, rafts, crates and boats tilt and right themselves, ride the waves and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
+
+![Usual engine buoyancy (left) against Bounded Buoyancy (right): light balls released under water](docs/release.gif)
+
+Most engines apply buoyancy as a force on the body's own mass. For anything lighter than water that has no upper limit: released under water, an air bubble accelerates at 815g in its first frame and moves 2.2 m in one 60 Hz step. Real light spheres and bubbles start at no more than about 2g, because the water around them has to be set moving too. That water is the *added mass* of classical hydrodynamics.
+
+Bounded Buoyancy puts the added mass of the submerged part into the body's inertia every physics step:
+
+```
+M = ρ_body · V  +  C · ρ_water · V_submerged
+```
+
+Buoyancy then drives no fall faster than g and no rise faster than g/C (2g for a sphere), for every density, and the first frame after a release is the classical value. Drag and collisions act on top, as usual.
+
+| Released from rest under water (60 Hz) | Usual engine method | Bounded Buoyancy |
+| --- | ---: | ---: |
+| Air bubble | 815g | 1.99g |
+| Foam ball (3% of water's density) | 32.3g | 1.83g |
+| Table-tennis ball | 11.4g | 1.58g |
+| Cork | 3.0g | 1.00g |
+
+The plugin reproduces these values exactly, in both of Godot's physics engines (Godot Physics and Jolt). Run `tests/run_tests.gd` to check them yourself.
+
+**Using Unity?** A Unity version with the same physics, settings and benchmarks, for Unity 2022.3 LTS and Unity 6 in 3D and 2D, is in [`unity/`](unity/): install it from the Package Manager with the git URL `https://github.com/NPARKYN84/bounded-buoyancy.git?path=/unity/com.parkyn.bounded-buoyancy`.
+
+## Any shape, tilting and righting
+
+Buoyancy acts at the centre of the immersed volume, worked out exactly each step by cutting the body's shape at the waterline. So bodies tip and roll the way real ones do: a raft settles flat, a tall block tips onto its side, and a boat with a low centre of mass rights itself.
+
+![A raft, a tall block and a boat dropped into the water](docs/tilt.gif)
+
+Supported shapes: sphere, box, cylinder, capsule and convex polygon (including the shapes Godot makes with *Create Convex Collision Sibling*), alone or several in one body. For anything else, such as a detailed hull, set **Buoyancy Mesh** to a closed mesh.
+
+## Water you can place, with waves
+
+Add a **BoundedBuoyancyWater** node where you want the surface and set its **Size**: the water fills that box below the node. Once a scene has one, bodies float only inside water nodes, so a pond, a pool and the sea can sit at different heights with different densities (1000 kg/m³ fresh, about 1025 sea). Give it a **Wave Height** and **Wave Length** and every body rides and rocks on the surface it sits on, each part of it measured against the water above that part. The node draws a simple surface that moves with the waves; turn **Show Surface** off to use your own.
+
+![A boat, a raft, a crate, a log and a ball on waves](docs/waves.gif)
+
+## Rivers and currents
+
+Give a water node a **Current** and the water flows. Drag acts on each body's speed through the water, so everything is carried along, quickly at first and then at the speed of the stream, and **Current Edge** slows the water near the banks. Turn the node to turn the river; join several to make bends. The surface shows faint streaks moving downstream.
+
+![A river carrying crates, barrels, balls and boats](docs/river.gif)
+
+## Wind and sails
+
+Add a **BoundedBuoyancyWind** node and the air moves, with gusts that change its strength and swing its direction, travelling downwind. The wind pushes on whatever part of a body is out of the water, so balloons drift, a crate barely moves, and a body with a **Sail Area** runs before the wind. The sail pushes at **Sail Centre**, so a boat heels, and ballast (a low centre of mass) holds it up. Limit a wind node to a box for a gap between buildings or a fan.
+
+![Boats with sails, balloons, crates and a log in a gusty wind](docs/wind.gif)
+
+## Splashes
+
+When a body hits a water node fast enough, the node throws up a splash of droplets, and every entry leaves rings spreading out over the surface, riding the waves. Bodies emit **water_entered** and **water_exited** with the speed and the point on the surface, for sounds. The effects are for show and do not move anything; turn them off on the water node, or call `splash()` yourself.
+
+## Air: balloons and hot-air balloons
+
+The same law covers air, with air's density (1.2 kg/m³) in place of water's. Whatever part of a body is out of the water is in air, so a helium balloon rises while a crate barely notices. Released from rest, a helium party balloon (0.45 kg/m³ with its skin) starts at 0.71g, not the 1.67g of the usual method, because it has to set the air around it moving. For the same reason a push moves it off as sluggishly as a real one. It then rises at about 2 m/s, held back by drag in the air.
+
+**Density** can be changed while the game runs: heat a hot-air balloon and it lifts off, let it cool and it comes down, or fill and empty a submarine's ballast tanks. Set **Air Half Height** and the air thins with height, so a balloon that keeps its volume (a foil balloon, a hot-air balloon, an airship) rises until the air around it is as light as it is, and floats there. Real air halves about every 6 km; a game can use far less.
+
+![Two foil helium balloons and a hot-air balloon, at twice real speed](docs/sky.gif)
+
+| Released from rest in air (60 Hz) | Usual engine method | Bounded Buoyancy |
+| --- | ---: | ---: |
+| Helium party balloon (0.45 kg/m³) | 1.67g up | 0.71g up |
+| Stone (2,700 kg/m³) | 1.00g down | 1.00g down |
+
+## 2D
+
+`BoundedBuoyancyBody2D`, `BoundedBuoyancyWater2D` and `BoundedBuoyancyWind2D` do the same in a side view, for `RigidBody2D`: circles, rectangles, capsules, convex polygons and collision polygons; tipping and righting; waves, currents, air, wind, sails and splashes. Lengths and speeds are in pixels, as everywhere in Godot 2D, and densities in kg/m³. A circle's added-mass coefficient in 2D is 1, so a light ball rises no faster than g.
+
+![The 2D version: boats with sails, crates, barrels, a log and balloons](docs/2d.gif)
+
+## Hundreds of bodies, and fast ones
+
+The waterline cut runs in compiled code when the optional native kernel is installed (`addons/bounded_buoyancy_native`, included for Windows and Linux), and in GDScript otherwise. The results are the same either way. With the kernel, 300 bodies riding waves at once take 2.5 to 4.5 ms per frame, of the 16.7 ms a 60 fps frame allows:
+
+![300 crates, barrels, balls and buoys dropped onto waves](docs/many.gif)
+
+| 300 bodies on waves, ms per frame | Native kernel | GDScript only |
+| --- | ---: | ---: |
+| Spheres | 2.4 | 2.5 |
+| Boxes | 3.3 | 6.8 |
+| Convex hulls (boats) | 3.0 | 7.2 |
+| Cylinders | 3.6 | 20.1 |
+| Capsules | 4.5 | 45.9 |
+
+Measured with `tests/bench_scale.gd` on a 2.1 GHz server processor, including Godot's own physics step for the bodies; faster desktop processors take less. In calm water the GDScript times are about a third lower. The plugin's own share per body is about 5 µs plus the waterline cut, and the added mass itself costs about 9 ns (`reference/cost_bench.c`).
+
+Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows straight to its sinking speed of 3.1 m/s; a light ball fired into the water at 30 m/s comes back up and floats; a box skimming the surface at 25 m/s slows without tipping. The tests check all three.
+
+## Install
+
+- **From the Godot Asset Library (listing coming soon):** search for *Bounded Buoyancy* in the AssetLib tab, install, then enable it under Project Settings → Plugins.
+- **By hand:** copy the `addons/bounded_buoyancy` folder into your project's `addons/` folder and enable the plugin. Copy `addons/bounded_buoyancy_native` as well for the speed-up on Windows and Linux; on other platforms leave it out, or build it from the `native/` folder (its README says how, and the repository's GitHub workflow builds Windows, Linux and macOS automatically).
+
+## Use
+
+1. Add a `BoundedBuoyancyBody` node (it is a `RigidBody3D`), or attach `bounded_buoyancy_body.gd` to an existing one.
+2. Give it one or more `CollisionShape3D` children: sphere, box, cylinder, capsule or convex polygon.
+3. Set **Density** (kg/m³). Then either add a **BoundedBuoyancyWater** node for the water, or set **Water Level** (the height of a flat surface), or point **Water Surface** at a node whose height is the surface. Out of the water the body is in air (**Air Density**, 1.2 kg/m³); set that to 0 to leave air out.
+
+The script sets the body's mass, turns off its built-in gravity and damping, and applies weight, buoyancy, drag and the righting moment itself. Collisions, pushes and other forces act as usual and are resisted by the full inertia, water included. If you add or change a body's shapes while the game runs, call `rebuild_shape()`; shapes added just after the body joins the scene are picked up by themselves.
+
+Once a world has a water node, bodies float only inside water nodes; if the last one is removed, bodies go back to Water Level. Size water nodes with **Size** rather than by scaling them.
+
+To give a boat ballast, set the body's **Center of Mass** to Custom and move it down; the lower it is, the harder the boat rights itself. Left on Auto, the centre of mass is put at the centre of the shape's volume.
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Model | `BOUNDED`, or `USUAL` for side-by-side comparisons | BOUNDED |
+| Density | Density of the body, kg/m³ (water is 1000); can be changed while running | 500 (wood) |
+| Added Mass Coefficient | C for the shape: 0.5 sphere, about 1 long cylinder side-on | 0.5 |
+| Water Level / Water Surface | Water Level is the height of a flat surface, used when the body's world has no BoundedBuoyancyWater; Water Surface, if set, takes priority over both | 0 / none |
+| Water Density | kg/m³ (a BoundedBuoyancyWater uses its own) | 1000 |
+| Drag Coefficient | Quadratic drag, in the water and in the air | 0.47 |
+| Angular Drag | Damping of rolling and pitching in the water, per second when fully submerged; in air, in proportion to how light the body is against the air | 3.0 |
+| Keep Momentum On Entry | Water set moving takes its share of momentum as the body enters | on |
+| Air Density | Density of the air at height 0, kg/m³; 0 leaves air out | 1.2 |
+| Air Half Height | Height over which the air's density halves; 0 keeps it the same at every height | 0 |
+| Sail Area / Sail Centre | Area of a sail for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
+| Buoyancy Mesh | Optional closed mesh used instead of the collision shapes | none |
+| Curve Segments | Facets around cylinders and capsules (the volume is corrected to the exact value) | 16 |
+
+The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, and **Splashes**, **Ripples** and **Splash Min Speed**. The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
+
+## Demo
+
+Open the project folder in Godot 4.4 or later and press Play. The first scene releases four light balls under water, usual method on the left and Bounded Buoyancy on the right, and shows each ball's first-frame acceleration. Press **Tab** for the second scene, a light float dropped onto the water; again for the third, a raft, a tall block and a boat finding their floating positions (**T** tips them over); again for the fourth, five bodies on waves (**W** switches between calm and rough); again for the fifth, two foil helium balloons and a hot-air balloon in air that thins with height (**B** turns the burner on and off, **G** gives both balloons the same push); again for the sixth, 300 bodies dropped onto waves with the time the buoyancy takes each frame (**N** switches the native kernel on and off); again for the seventh, a river carrying everything dropped into it; again for the eighth, a gusty wind over a lake (the arrow keys turn it and make it stronger or weaker); and again for the ninth, the 2D version (click to drop things in). **Space** runs any scene again.
+
+## Check the numbers
+
+```
+godot --headless --fixed-fps 60 --script res://tests/run_tests.gd
+```
+
+prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, and the 2D version, and ends with PASS. The paper's benchmarks leave out air, so those checks set Air Density to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`) and the cost benchmark (`cost_bench.c`).
+
+Without the native kernel, lower **Curve Segments** to make cylinders and capsules cheaper (`tests/bench_immerse.gd` times each shape).
+
+## Limits
+
+- Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice, and a buoyancy mesh must be closed.
+- One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
+- Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
+- Waves move the surface only, and bodies make no waves of their own: the momentum rule on water entry is the only loss beyond drag, and splashes are drawn, not simulated. The volume under a wave is accurate while the waves are long compared with the body.
+- A current is the same everywhere in its water node (apart from the banks), and so is the wind in its node (apart from gusts). Drag acts at the body's centre, so a current or wind does not turn a body by itself, and a sail always faces the wind it feels, like a sail let out to run before the wind; sailing across or into the wind would need a keel and lift.
+- A latex balloon stretches as it rises and keeps going until it bursts; that is not modelled. Balloons that keep their volume (foil balloons, hot-air balloons, airships) are.
+- For very shallow floats (drafts of a few millimetres on a large ball) the submerged-volume added mass is several times too small, so their bobbing is faster than real. Any added-mass value can be set instead.
+- Floats with drafts below about a millimetre need sub-steps at 60 Hz, as in any explicit buoyancy scheme.
+- Gravity is read from the project settings each frame (straight down); Area3D gravity zones and other gravity directions are not used for buoyant bodies.
+- The native kernel is included for Windows and Linux (64-bit; Linux needs a system from about 2021 on, such as Ubuntu 22.04). On other platforms Godot reports at start-up that it has no library for the kernel, and the plugin runs in GDScript; delete `addons/bounded_buoyancy_native` there, or build it from `native/`.
+
+## Prior work
+
+Added mass is classical (Lamb, 1932; Brennen, 1982). Engineering simulators such as Vortex Studio and Gazebo already put it in the inertia, and in graphics Weißmann and Pinkall (2012) gave fully submerged rigid bodies the Kirchhoff added-mass tensor. Cutting a body's triangles at the waterline to find the immersed part is a standard game technique (Kerner, 2015). What this adds is a form a game engine can use as it stands: for bodies crossing the water surface, at the engine's own frame rate and integrator, with two stated ceilings and benchmarks.
+
+## Cite
+
+Parkyn, N. (2026). *Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines*, v1.1. Companion paper to *ValerieX (VXXX): The Density-State Drive*, v2.2. Zenodo. https://doi.org/10.5281/zenodo.23304509
+
+The physics behind it, the density-state drive and its geometry family, is set out in the ValerieX (VXXX) paper.
+
+## Licence
+
+MIT. Free for any use, including commercial, as long as the licence notice stays with the code.
