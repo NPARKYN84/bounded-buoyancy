@@ -7,7 +7,7 @@ extends Node2D
 const BB2 := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body_2d.gd")
 const BW2 := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water_2d.gd")
 const BWIND2 := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind_2d.gd")
-const NEXT_SCENE := "res://demo/demo.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo.tscn"
 const INK := Color(0.12, 0.14, 0.18)
 const TEAL := Color(0.16, 0.62, 0.56)
 const ORANGE := Color(0.93, 0.5, 0.15)

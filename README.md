@@ -96,7 +96,7 @@ Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows
 
 ## Install
 
-- **From the Godot Asset Library (listing coming soon):** search for *Bounded Buoyancy* in the AssetLib tab, install, then enable it under Project Settings → Plugins.
+- **From the Godot Asset Store (listing coming soon):** search for *Bounded Buoyancy* at [store.godotengine.org](https://store.godotengine.org) or, from Godot 4.7, in the editor's Asset Store tab; install it, then enable it under Project Settings → Plugins. The download includes the demo scenes in `addons/bounded_buoyancy/demo`.
 - **By hand:** copy the `addons/bounded_buoyancy` folder into your project's `addons/` folder and enable the plugin. Copy `addons/bounded_buoyancy_native` as well for the speed-up on Windows and Linux; on other platforms leave it out, or build it from the `native/` folder (its README says how, and the repository's GitHub workflow builds Windows, Linux and macOS automatically).
 
 ## Use
@@ -131,7 +131,7 @@ The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and *
 
 ## Demo
 
-Open the project folder in Godot 4.4 or later and press Play. The first scene releases four light balls under water, usual method on the left and Bounded Buoyancy on the right, and shows each ball's first-frame acceleration. Press **Tab** for the second scene, a light float dropped onto the water; again for the third, a raft, a tall block and a boat finding their floating positions (**T** tips them over); again for the fourth, five bodies on waves (**W** switches between calm and rough); again for the fifth, two foil helium balloons and a hot-air balloon in air that thins with height (**B** turns the burner on and off, **G** gives both balloons the same push); again for the sixth, 300 bodies dropped onto waves with the time the buoyancy takes each frame (**N** switches the native kernel on and off); again for the seventh, a river carrying everything dropped into it; again for the eighth, a gusty wind over a lake (the arrow keys turn it and make it stronger or weaker); and again for the ninth, the 2D version (click to drop things in). **Space** runs any scene again.
+Open the project folder in Godot 4.4 or later and press Play. The first scene releases four light balls under water, usual method on the left and Bounded Buoyancy on the right, and shows each ball's first-frame acceleration. Press **Tab** for the second scene, a light float dropped onto the water; again for the third, a raft, a tall block and a boat finding their floating positions (**T** tips them over); again for the fourth, five bodies on waves (**W** switches between calm and rough); again for the fifth, two foil helium balloons and a hot-air balloon in air that thins with height (**B** turns the burner on and off, **G** gives both balloons the same push); again for the sixth, 300 bodies dropped onto waves with the time the buoyancy takes each frame (**N** switches the native kernel on and off); again for the seventh, a river carrying everything dropped into it; again for the eighth, a gusty wind over a lake (the arrow keys turn it and make it stronger or weaker); and again for the ninth, the 2D version (click to drop things in). **Space** runs any scene again. In your own project, open `addons/bounded_buoyancy/demo/demo.tscn` and press F6 to run it.
 
 ## Check the numbers
 

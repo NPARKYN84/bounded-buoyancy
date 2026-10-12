@@ -34,7 +34,7 @@ const RELEASE_CASES := [
 const ORANGE := Color(0.93, 0.5, 0.15)
 const TEAL := Color(0.16, 0.62, 0.56)
 const INK := Color(0.12, 0.14, 0.18)
-const SCENE_FILES := ["res://demo/demo.tscn", "res://demo/demo_float.tscn", "res://demo/demo_tilt.tscn", "res://demo/demo_waves.tscn", "res://demo/demo_sky.tscn", "res://demo/demo_many.tscn", "res://demo/demo_river.tscn", "res://demo/demo_wind.tscn", "res://demo/demo_2d.tscn"]
+const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 
 var _rows: Array = []        # [name, usual body, bounded body, usual label, bounded label]
