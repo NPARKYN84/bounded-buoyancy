@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.1
+
+- No changes to the physics or the settings.
+- The demo now ships inside the plugin, in `addons/bounded_buoyancy/demo`, so it comes with every download; in your own project, open `demo.tscn` there and press F6.
+- Each addon folder carries a copy of the MIT licence.
+- GitHub's source downloads, and the Zenodo archive made from each release, now contain the whole repository, including the Unity package, the tests and the reference code.
+
 ## 2.0.0
 
 - Unity: a Unity version of the plugin, for Unity 2022.3 LTS and Unity 6, in 3D and 2D, with the same physics, settings and benchmarks, is in `unity/` (a Unity package; its own changelog is in `unity/com.parkyn.bounded-buoyancy`).

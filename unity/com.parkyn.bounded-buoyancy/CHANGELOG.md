@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2026-10-12
+
+No changes to the Unity package's code or settings. The release archived on Zenodo now includes the Unity package and its checks.
+
 ## [2.0.0] - 2026-10-11
 
 First Unity release, with the features of Bounded Buoyancy 2.0.0 for Godot.
