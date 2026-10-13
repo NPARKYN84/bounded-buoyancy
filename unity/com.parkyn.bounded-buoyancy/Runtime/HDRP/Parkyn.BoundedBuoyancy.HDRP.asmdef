@@ -30,6 +30,11 @@
             "name": "com.unity.render-pipelines.high-definition",
             "expression": "16.0.0",
             "define": "BB_HDRP_16_OR_NEWER"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "17.0.0",
+            "define": "BB_HDRP_17_OR_NEWER"
         }
     ],
     "noEngineReferences": false

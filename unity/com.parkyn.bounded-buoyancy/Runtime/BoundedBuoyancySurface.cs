@@ -31,6 +31,15 @@ namespace BoundedBuoyancy
         /// <summary>The most the surface rises or falls from its average height (metres).</summary>
         public virtual float MaxWave { get { return maxWave; } }
 
+        /// <summary>The water's velocity (world frame) at the world point `worldPoint`, if this water system knows
+        /// how its water flows (a river's current): return true and set `flow`. False (the default) carries bodies
+        /// with the Bounded Buoyancy Water's own Current instead.</summary>
+        public virtual bool FlowAt(Vector3 worldPoint, out Vector3 flow)
+        {
+            flow = Vector3.zero;
+            return false;
+        }
+
         /// <summary>Called when the component is added: links it to the Bounded Buoyancy Water on the same object.</summary>
         protected virtual void Reset()
         {
@@ -61,7 +70,7 @@ namespace BoundedBuoyancy
     }
 
     /// <summary>A BoundedBuoyancySurface as the engine-free core sees it.</summary>
-    internal sealed class SurfaceLink : ISurfaceHeights
+    internal sealed class SurfaceLink : ISurfaceHeights, ISurfaceFlow
     {
         internal BoundedBuoyancySurface Target;
         Vector3[] points = new Vector3[0];
@@ -82,5 +91,17 @@ namespace BoundedBuoyancy
         }
 
         public double MaxWave { get { return Target.MaxWave; } }
+
+        public bool FlowAt(V3 p, out V3 flow)
+        {
+            Vector3 f;
+            if (Target.FlowAt(Bridge.U(p), out f))
+            {
+                flow = Bridge.V(f);
+                return true;
+            }
+            flow = V3.Zero;
+            return false;
+        }
     }
 }

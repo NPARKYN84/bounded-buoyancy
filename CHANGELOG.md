@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1
+
+- Unity: Bounded Buoyancy HDRP Water finds each body's heights in one Burst job, and carries bodies with the Water Surface's own current. No change to the Godot plugin or the physics.
+
 ## 2.1.0
 
 - Other water systems: a water node can take its surface from another water system, such as an ocean shader or an ocean add-on, so bodies float on that system's waves with Bounded Buoyancy's physics. Set **Surface Source** to the ocean's node and **Surface Method** to its height function (or set `height_function` from code), and **Surface Max Wave** to its highest crest. The water node still sets the size, density, current and splashes, and stops drawing its own surface; its rings ride the other surface.

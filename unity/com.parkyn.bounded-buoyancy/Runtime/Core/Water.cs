@@ -78,6 +78,16 @@ namespace BoundedBuoyancy.Core
         double MaxWave { get; }
     }
 
+    /// <summary>
+    /// A water system that also knows how its water flows (a river's current). An ISurfaceHeights that implements
+    /// this carries bodies with its own current instead of the water volume's.
+    /// </summary>
+    public interface ISurfaceFlow
+    {
+        /// <summary>The water's velocity (world frame) at the world point p; false to use the water volume's current.</summary>
+        bool FlowAt(V3 p, out V3 flow);
+    }
+
     /// <summary>The water surface a body is measured against: flat at Level, with waves, or another water system's
     /// surface (Source).</summary>
     public struct WaterSurface
@@ -224,7 +234,11 @@ namespace BoundedBuoyancy.Core
 
         public WaterSample Sample(V3 p)
         {
-            return new WaterSample { HasWater = true, Density = Density, Flow = CurrentAt(p), Surface = Surface };
+            V3 flow;
+            var flowing = Source as ISurfaceFlow;
+            if (flowing == null || !flowing.FlowAt(p, out flow))
+                flow = CurrentAt(p);
+            return new WaterSample { HasWater = true, Density = Density, Flow = flow, Surface = Surface };
         }
 
         internal static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }

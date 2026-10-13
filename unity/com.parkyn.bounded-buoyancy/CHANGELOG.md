@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.1] - 2026-10-13
+
+- Bounded Buoyancy HDRP Water: each body's heights are now found in one Burst job (HDRP's `WaterSimulationSearchJob`) instead of one managed search per vertex, so a detailed hull or a fleet costs little more than a sphere; and with **Use HDRP Current** (on by default) the Water Surface's own current carries the bodies (its speed in km/h along its orientation, the ripples current for a pool, turned with the surface's object), in place of the Bounded Buoyancy Water's Current.
+- BoundedBuoyancySurface has an optional `FlowAt`, and the core an `ISurfaceFlow`, so any linked water system can supply its current.
+- Checks: the search job compiled against the HDRP 14, 15, 16 and 17 API; a core check that a source's current carries a ball over the volume's own.
+
 ## [2.1.0] - 2026-10-13
 
 - Other water systems: Bounded Buoyancy Water has a new **Surface Source**. Bodies then float on that system's surface, each vertex of their shape measured against it, with this package's added mass, righting and drag; the water still sets the size, density, current and splashes, and stops drawing its own surface.

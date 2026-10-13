@@ -4,7 +4,7 @@ unity6 = ver == "6000_0"
 defs = "UNITY_2022_3_OR_NEWER;UNITY_EDITOR" + (";UNITY_6000_0_OR_NEWER" if unity6 else "")
 # The HDRP link is compiled as Unity does with the HDRP that comes with each version: HDRP 14 with Unity 2022.3, HDRP 17
 # with Unity 6 (the asmdef's versionDefines set these).
-hdrp_defs = ";BB_HDRP_WATER" + (";BB_HDRP_15_OR_NEWER;BB_HDRP_16_OR_NEWER;BB_STUB_HDRP17" if unity6 else "")
+hdrp_defs = ";BB_HDRP_WATER" + (";BB_HDRP_15_OR_NEWER;BB_HDRP_16_OR_NEWER;BB_HDRP_17_OR_NEWER;BB_STUB_HDRP17" if unity6 else "")
 pkg = "../../../../com.parkyn.bounded-buoyancy"
 projects = {
     "UnityEngineStub": (["../../../StubCompile/UnityStubs.cs", "../../../StubCompile/SampleStubs.cs", "../../../StubCompile/TestStubs.cs"], []),

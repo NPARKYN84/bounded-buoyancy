@@ -167,6 +167,21 @@ namespace BoundedBuoyancy.Checks
             public double MaxWave { get { return 0.0; } }
         }
 
+        /// <summary>Another water system's flat surface that also knows its current (a river): bodies drift with it.</summary>
+        sealed class FlowingSurface : ISurfaceHeights, ISurfaceFlow
+        {
+            readonly double level;
+            readonly V3 flow;
+            public FlowingSurface(double level, V3 flow) { this.level = level; this.flow = flow; }
+            public void HeightsAt(V3[] points, double[] heights, int count)
+            {
+                for (int i = 0; i < count; i++)
+                    heights[i] = level;
+            }
+            public double MaxWave { get { return 0.0; } }
+            public bool FlowAt(V3 p, out V3 f) { f = flow; return true; }
+        }
+
         // Benchmarks ------------------------------------------------------------------------------------------
 
         static int Main()
@@ -627,6 +642,14 @@ namespace BoundedBuoyancy.Checks
                     }
                 });
                 Check("cube on another system's flat surface (cm)", 100.0 * sum / n, 25.0 + 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5);
+                // A system that knows its own current (HDRP's river current) carries bodies with it, over the volume's own.
+                var stream = Water(w, new V3(150, 0, 500), new V3(120, 4, 10));
+                stream.Current = new V3(0, 0, -5);   // the volume's own current, overridden by the source's
+                stream.Source = new FlowingSurface(0.0, new V3(1.5, 0, 0));
+                var carried = Body(w, Sphere(0.1), 500.0, new V3(100, 0, 500));
+                Run(w, 60.0);   // as in B9: a ball takes about a minute to come up to the current's speed
+                Check("ball on a flowing surface drifts with the source's current (m/s)", carried.V.x, 1.5, 0.02);
+                Check("and not with the volume's own current (m/s)", carried.V.z, 0.0, 0.02);
             }
 
             Console.WriteLine("Speed: 300 bodies on waves");
