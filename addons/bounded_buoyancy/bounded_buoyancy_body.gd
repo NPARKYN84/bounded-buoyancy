@@ -355,15 +355,15 @@ func _apply_appendages(v: Vector3, xf: Transform3D, m: float, rho: float, flow: 
 		if f.auto_trim:
 			# A sail swings away from the wind it feels at its pivot.
 			var air := (flow if in_water else wind) - (v + w.cross(pivot - com))
-			f.angle = _Foil.trim(rest.z, s, air, f.trim_angle_of_attack, f.max_trim)
+			f.angle = _Foil.trim(rest.z, s, air, f.trim_angle_of_attack, f.max_trim, f.angle)
 		var c: Vector3 = _turn(rest.z, s, f.angle)
 		var p: Vector3 = pivot + c * float(f.effort_offset)
 		var half: float = 0.5 * (float(f.span_length()) * absf(s.y) + float(f.chord_length()) * absf(c.y))
 		var wet: float = _wet_fraction(p, half, has_water, level)
 		var frac := wet if in_water else 1.0 - wet
-		var density := rho if in_water else air_density_here
+		var medium_density := rho if in_water else air_density_here
 		f.immersion = frac
-		if frac <= 0.0 or density <= 0.0:
+		if frac <= 0.0 or medium_density <= 0.0:
 			continue
 		var medium := flow if in_water else wind
 		var r: Vector3 = p - com
@@ -382,13 +382,13 @@ func _apply_appendages(v: Vector3, xf: Transform3D, m: float, rho: float, flow: 
 		var coeff: float = _Foil.lift_slope(f.aspect_ratio) * absf(uc) + _Foil.SQUARE_ON * absf(un)
 		if absf(un) > 1e-12:
 			coeff = minf(coeff, _Foil.MAX_NORMAL * q * q / absf(un))
-		var jn := _impulse(n, 0.5 * density * a * coeff, un, 0.0, -INF, INF, r, m, axes, dt)
+		var jn := _impulse(n, 0.5 * medium_density * a * coeff, un, 0.0, -INF, INF, r, m, axes, dt)
 		v += jn / m
 		w += _inverse_inertia(r.cross(jn), axes)
 		angular += r.cross(jn)
 		# Friction along the chord, with the flow left after the push across it.
 		var u2 := v + w.cross(r) - medium
-		var jc := _impulse(c, 0.5 * density * a * _Foil.FRICTION * q, u2.dot(c), 0.0, -INF, INF, r, m, axes, dt)
+		var jc := _impulse(c, 0.5 * medium_density * a * _Foil.FRICTION * q, u2.dot(c), 0.0, -INF, INF, r, m, axes, dt)
 		v += jc / m
 		w += _inverse_inertia(r.cross(jc), axes)
 		angular += r.cross(jc)

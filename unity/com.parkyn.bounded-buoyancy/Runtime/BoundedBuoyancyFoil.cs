@@ -50,9 +50,14 @@ namespace BoundedBuoyancy
         [Tooltip("How far a trimmed sail may swing either way, degrees (the boom's limit).")]
         [Range(0f, 180f)] public float maxTrim = 85f;
 
+        // Where the foil was placed (its local rotation with Angle 0), kept with the object so that a copy made while
+        // running does not turn by its angle twice.
+        [SerializeField, HideInInspector] Quaternion placedRotation = Quaternion.identity;
+        [SerializeField, HideInInspector] bool placedSaved;
+
         readonly Foil3D core = new Foil3D();
-        Quaternion rest = Quaternion.identity;
         bool placed;
+        bool warnedSelf;
         BoundedBuoyancyBody body;
 
         /// <summary>Angle the foil is turned about its span from where it was placed (degrees): a rudder's angle.
@@ -64,7 +69,7 @@ namespace BoundedBuoyancy
             {
                 angle = value;
                 if (placed)
-                    transform.localRotation = rest * Quaternion.AngleAxis(-angle, Vector3.up);
+                    transform.localRotation = placedRotation * Quaternion.AngleAxis(-angle, Vector3.up);
             }
         }
 
@@ -81,21 +86,44 @@ namespace BoundedBuoyancy
         /// <summary>The engine-free foil, for reading anything else.</summary>
         public Foil3D Core { get { return core; } }
 
+        /// <summary>The body this foil belongs to, if any.</summary>
+        public BoundedBuoyancyBody Body { get { return body; } }
+
         void Awake()
         {
-            rest = transform.localRotation;
+            if (!placedSaved)
+            {
+                placedRotation = transform.localRotation;
+                placedSaved = true;
+            }
             placed = true;
             if (angle != 0f)
                 Angle = angle;
         }
 
+        /// <summary>Call after turning the foil's object by script while running, so that its present rotation (less
+        /// its angle) becomes where it was placed.</summary>
+        public void Replace()
+        {
+            placedRotation = transform.localRotation * Quaternion.AngleAxis(angle, Vector3.up);
+            placedSaved = true;
+        }
+
         void OnEnable()
         {
-            body = GetComponentInParent<BoundedBuoyancyBody>();
-            if (body != null)
-                body.AddAppendage(this);
-            else
-                Debug.LogWarning("Bounded Buoyancy Foil '" + name + "' needs a Bounded Buoyancy Body on this object or one above it.", this);
+            Register();
+        }
+
+        void Start()
+        {
+            if (body == null && !warnedSelf)
+                Debug.LogWarning("Bounded Buoyancy Foil '" + name + "' needs a Bounded Buoyancy Body on an object above it.", this);
+        }
+
+        void OnTransformParentChanged()
+        {
+            if (isActiveAndEnabled)
+                Register();
         }
 
         void OnDisable()
@@ -103,6 +131,30 @@ namespace BoundedBuoyancy
             if (body != null)
                 body.RemoveAppendage(this);
             body = null;
+        }
+
+        /// <summary>Find the body above this object and join it (leaving any other). Bodies call it on their foils
+        /// too, so the order things are added in does not matter.</summary>
+        internal void Register()
+        {
+            BoundedBuoyancyBody found = GetComponentInParent<BoundedBuoyancyBody>();
+            if (found != null && found.gameObject == gameObject)
+            {
+                // Turning the foil would turn the whole body: it must be on its own object under the body.
+                if (!warnedSelf)
+                {
+                    warnedSelf = true;
+                    Debug.LogWarning("Bounded Buoyancy Foil '" + name + "' is on the body's own object; put it on a child object, where it can turn.", this);
+                }
+                found = null;
+            }
+            if (found == body)
+                return;
+            if (body != null)
+                body.RemoveAppendage(this);
+            body = found;
+            if (body != null)
+                body.AddAppendage(this);
         }
 
         void OnValidate()
@@ -124,15 +176,19 @@ namespace BoundedBuoyancy
             core.EffortOffset = effortOffset;
         }
 
-        /// <summary>Hand the body the foil for this step: its settings and where it was placed, in world space. The
-        /// span is passed reversed, so that turning about it by Angle matches Unity's own (left-handed) turn about
-        /// -Y, and a positive angle swings the trailing edge to +X as in the Godot plugin.</summary>
-        internal Foil3D Prepare()
+        /// <summary>Hand the body the foil for this step: its settings and where it was placed, in world space, from
+        /// the body's Rigidbody pose (its Transform may be interpolated, or not yet moved after a teleport) and the
+        /// foil's place relative to the body. The span is passed reversed, so that turning about it by Angle matches
+        /// Unity's own (left-handed) turn about -Y, and a positive angle swings the trailing edge to +X as in Godot.</summary>
+        internal Foil3D Prepare(Transform bodyTransform, Rigidbody rb)
         {
             Sync();
             Transform parent = transform.parent;
-            Quaternion placedWorld = (parent != null ? parent.rotation : Quaternion.identity) * (placed ? rest : transform.localRotation);
-            core.Pivot = Bridge.V(transform.position);
+            Quaternion placedNow = (parent != null ? parent.rotation : Quaternion.identity)
+                * (placed ? placedRotation : transform.localRotation * Quaternion.AngleAxis(angle, Vector3.up));
+            Quaternion toBody = Quaternion.Inverse(bodyTransform.rotation);
+            Quaternion placedWorld = rb.rotation * (toBody * placedNow);
+            core.Pivot = Bridge.V(rb.position + rb.rotation * (toBody * (transform.position - bodyTransform.position)));
             core.Span = Bridge.V(placedWorld * Vector3.down);
             core.RestChord = Bridge.V(placedWorld * Vector3.back);
             core.Angle = angle;

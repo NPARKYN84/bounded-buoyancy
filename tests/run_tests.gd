@@ -659,7 +659,7 @@ func run() -> void:
 		check("plate at %d deg: angle of attack (deg)" % deg, absf(plate.angle_of_attack), deg, 0.01)
 		ball.queue_free()
 	# Bounded: a 0.1 m cube14 at water's density with a 10 m² foil, moving across it at 10 m/s.
-	var cube14 := make_shape_body(_box(Vector3(0.1, 0.1, 0.1)), 1000.0, Vector3(-90, -2.0, 1500), 0.0)
+	var cube14 := make_shape_body(_box(Vector3(0.1, 0.1, 0.1)), 1000.0, Vector3(-90, -4.0, 1500), 0.0)   # deep enough for the whole 4.5 m span
 	cube14.drag_coefficient = 0.0
 	var huge: Node3D = FOIL.new()
 	huge.area = 10.0

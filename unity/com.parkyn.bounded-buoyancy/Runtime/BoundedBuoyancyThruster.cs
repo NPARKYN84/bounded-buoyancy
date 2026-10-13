@@ -37,6 +37,9 @@ namespace BoundedBuoyancy
         readonly Thruster3D core = new Thruster3D();
         BoundedBuoyancyBody body;
 
+        /// <summary>The body this thruster belongs to, if any.</summary>
+        public BoundedBuoyancyBody Body { get { return body; } }
+
         /// <summary>Mean push over the last physics step (world, N).</summary>
         public Vector3 Force { get { return Bridge.U(core.Force); } }
         /// <summary>Fraction of the thruster in its medium this step.</summary>
@@ -46,11 +49,33 @@ namespace BoundedBuoyancy
 
         void OnEnable()
         {
-            body = GetComponentInParent<BoundedBuoyancyBody>();
+            Register();
+        }
+
+        void Start()
+        {
+            if (body == null)
+                Debug.LogWarning("Bounded Buoyancy Thruster '" + name + "' needs a Bounded Buoyancy Body on this object or one above it.", this);
+        }
+
+        void OnTransformParentChanged()
+        {
+            if (isActiveAndEnabled)
+                Register();
+        }
+
+        /// <summary>Find the body on or above this object and join it (leaving any other). Bodies call it on their
+        /// thrusters too, so the order things are added in does not matter.</summary>
+        internal void Register()
+        {
+            BoundedBuoyancyBody found = GetComponentInParent<BoundedBuoyancyBody>();
+            if (found == body)
+                return;
+            if (body != null)
+                body.RemoveAppendage(this);
+            body = found;
             if (body != null)
                 body.AddAppendage(this);
-            else
-                Debug.LogWarning("Bounded Buoyancy Thruster '" + name + "' needs a Bounded Buoyancy Body on this object or one above it.", this);
         }
 
         void OnDisable()
@@ -68,16 +93,18 @@ namespace BoundedBuoyancy
             throttle = Mathf.Clamp(throttle, -1f, 1f);
         }
 
-        /// <summary>Hand the body the thruster for this step, in world space.</summary>
-        internal Thruster3D Prepare()
+        /// <summary>Hand the body the thruster for this step, in world space, from the body's Rigidbody pose and the
+        /// thruster's place relative to the body (the Transforms may be interpolated).</summary>
+        internal Thruster3D Prepare(Transform bodyTransform, Rigidbody rb)
         {
+            Quaternion toBody = Quaternion.Inverse(bodyTransform.rotation);
             core.Medium = medium;
             core.MaxThrust = maxThrust;
             core.MaxSpeed = maxSpeed;
             core.Throttle = throttle;
             core.Diameter = diameter;
-            core.Position = Bridge.V(transform.position);
-            core.Direction = Bridge.V(transform.forward);
+            core.Position = Bridge.V(rb.position + rb.rotation * (toBody * (transform.position - bodyTransform.position)));
+            core.Direction = Bridge.V(rb.rotation * (toBody * transform.forward));
             return core;
         }
 

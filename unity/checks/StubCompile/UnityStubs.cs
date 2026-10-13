@@ -268,6 +268,7 @@ namespace UnityEngine
     [AttributeUsage(AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
     public sealed class MinAttribute : PropertyAttribute { public MinAttribute(float min) { } }
     public sealed class SerializeField : Attribute { }
+    public class HideInInspector : Attribute { }
     public enum RuntimeInitializeLoadType { AfterSceneLoad = 0, BeforeSceneLoad = 1, AfterAssembliesLoaded = 2, BeforeSplashScreen = 3, SubsystemRegistration = 4 }
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
     public class RuntimeInitializeOnLoadMethodAttribute : Attribute { public RuntimeInitializeOnLoadMethodAttribute(RuntimeInitializeLoadType loadType) { } }

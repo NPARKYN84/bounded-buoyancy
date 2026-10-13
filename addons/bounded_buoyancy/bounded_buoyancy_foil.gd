@@ -48,7 +48,7 @@ const FRICTION := 0.02     # skin friction along the chord, both faces
 	set(value):
 		angle = value
 		if _placed:
-			transform.basis = _rest * Basis(Vector3.UP, deg_to_rad(angle))
+			_show_angle()
 ## Distance from the node (the pivot: a mast, a rudder stock) to where the force acts, along the
 ## chord towards the trailing edge, in metres. 0: the node is the centre of the foil. A sail pushes
 ## about a third of its chord aft of the mast.
@@ -64,6 +64,11 @@ const FRICTION := 0.02     # skin friction along the chord, both faces
 ## How far a trimmed sail may swing either way, in degrees (the boom's limit).
 @export_range(0.0, 180.0, 0.5, "suffix:°") var max_trim: float = 85.0
 
+## Where the foil was placed (its rotation and scale with angle 0), kept with the node so that a copy
+## made while running does not turn by its angle twice.
+@export_storage var placed_basis := Basis.IDENTITY
+@export_storage var placed_saved := false
+
 ## Mean force on the foil over the last physics step (world frame, newtons).
 var force: Vector3 = Vector3.ZERO
 ## Fraction of the foil in its medium this step.
@@ -71,16 +76,33 @@ var immersion: float = 0.0
 ## Angle between the flow and the foil this step, in degrees.
 var angle_of_attack: float = 0.0
 
-var _rest := Basis.IDENTITY
 var _placed := false
 var _body: Node = null
 
+## Running nearly dead downwind, a trimmed sail keeps to its side until the wind comes this many
+## degrees round to the other side, so it does not flick from side to side.
+const GYBE_MARGIN := 10.0
+
 
 func _ready() -> void:
-	_rest = transform.basis
+	if not placed_saved:
+		placed_basis = transform.basis
+		placed_saved = true
 	_placed = true
 	if angle != 0.0:
-		transform.basis = _rest * Basis(Vector3.UP, deg_to_rad(angle))
+		_show_angle()
+
+
+## Call after turning the foil's node by script while running, so that its present orientation
+## (less its angle) becomes where it was placed.
+func replace() -> void:
+	placed_basis = transform.basis * Basis(Vector3.UP, deg_to_rad(-angle))
+	placed_saved = true
+
+
+## Turn the node about its span by angle, keeping its scale (so a scaled blade does not shear).
+func _show_angle() -> void:
+	transform.basis = placed_basis.orthonormalized() * Basis(Vector3.UP, deg_to_rad(angle)) * Basis.from_scale(placed_basis.get_scale())
 
 
 func _enter_tree() -> void:
@@ -127,16 +149,20 @@ static func normal_coefficient(alpha: float, k: float) -> float:
 ## trailing edge (Z).
 func rest_basis() -> Basis:
 	var parent := get_parent_node_3d()
-	var b := _rest if _placed else transform.basis * Basis(Vector3.UP, deg_to_rad(-angle))
+	var b := placed_basis if _placed else transform.basis * Basis(Vector3.UP, deg_to_rad(-angle))
 	return (parent.global_transform.basis * b).orthonormalized() if parent else b.orthonormalized()
 
 
 ## The angle (degrees about the span) a sail at rest along `rest_chord` swings to, for air moving
 ## past it at `air_past`: away from the wind, meeting the flow at `aoa`, no further than `most`.
-static func trim(rest_chord: Vector3, span: Vector3, air_past: Vector3, aoa: float, most: float) -> float:
+## `current` is the angle it has now: within GYBE_MARGIN of dead downwind it keeps to that side.
+static func trim(rest_chord: Vector3, span: Vector3, air_past: Vector3, aoa: float, most: float, current := 0.0) -> float:
 	var a := air_past - span * span.dot(air_past)
 	if a.length_squared() < 1e-18:
-		return 0.0
+		return current
 	var beta := rad_to_deg(atan2(rest_chord.cross(a).dot(span), rest_chord.dot(a)))
 	var swing := minf(maxf(absf(beta) - aoa, 0.0), most)
-	return -swing if beta < 0.0 else swing
+	var port := beta < 0.0
+	if current != 0.0 and (current < 0.0) != port and absf(beta) > 180.0 - GYBE_MARGIN:
+		port = current < 0.0   # by the lee: keep the side it is on
+	return -swing if port else swing

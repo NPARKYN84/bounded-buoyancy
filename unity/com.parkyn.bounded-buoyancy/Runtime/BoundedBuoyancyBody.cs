@@ -173,6 +173,13 @@ namespace BoundedBuoyancy
                 BoundedBuoyancySimulation.bodies.Add(this);
             if (setUp)
                 TakeOver();
+            // Foils and thrusters already under the body join it (they join by themselves when added later).
+            foreach (BoundedBuoyancyFoil f in GetComponentsInChildren<BoundedBuoyancyFoil>())
+                if (f.isActiveAndEnabled)
+                    f.Register();
+            foreach (BoundedBuoyancyThruster t in GetComponentsInChildren<BoundedBuoyancyThruster>())
+                if (t.isActiveAndEnabled)
+                    t.Register();
         }
 
         void OnDisable()
@@ -326,16 +333,18 @@ namespace BoundedBuoyancy
             thrusterCores.Clear();
             for (int i = 0; i < foils.Count; i++)
                 if (foils[i] != null && foils[i].isActiveAndEnabled)
-                    foilCores.Add(foils[i].Prepare());
+                    foilCores.Add(foils[i].Prepare(transform, rb));
             for (int i = 0; i < thrusters.Count; i++)
                 if (thrusters[i] != null && thrusters[i].isActiveAndEnabled)
-                    thrusterCores.Add(thrusters[i].Prepare());
-            V3 v = core.VelocityTarget;
+                    thrusterCores.Add(thrusters[i].Prepare(transform, rb));
+            V3 before = core.VelocityTarget;
+            V3 v = before;
             V3 w = Bridge.V(rb.angularVelocity);
             M3 axes = Bridge.M(rb.rotation * tensorRotation);
             V3 turn = Appendages.Apply(foilCores, thrusterCores, core.InertialMass, Bridge.V(rb.worldCenterOfMass), axes, Bridge.V(tensor),
                 ref v, ref w, sample, wind, core.AirDensityHere, dt);
             core.VelocityTarget = v;
+            core.LastAcceleration += (v - before) / dt;
             for (int i = 0; i < foils.Count; i++)
                 if (foils[i] != null && foils[i].isActiveAndEnabled)
                     foils[i].Finish();

@@ -145,7 +145,7 @@ namespace BoundedBuoyancy.Tests
             // A 0.1 m cube at water's density carrying a 10 m² foil, moving across it at 10 m/s: the flow across the
             // foil is stopped in one step, never reversed (explicitly, the step would leave about -6650 m/s).
             Water(new Vector3(0f, 0f, 900f), new Vector3(20f, 6f, 20f));
-            GameObject go = Make("Cube", new Vector3(0f, -2f, 900f));
+            GameObject go = Make("Cube", new Vector3(0f, -4f, 900f));   // deep enough for the whole 4.5 m span
             go.AddComponent<BoxCollider>().size = new Vector3(0.1f, 0.1f, 0.1f);
             go.AddComponent<Rigidbody>();
             var b = go.AddComponent<BoundedBuoyancyBody>();
@@ -257,7 +257,9 @@ namespace BoundedBuoyancy.Tests
             float towards = (boat.Body.position - start).z / 60f;
             Assert.Greater(towards, 0.5f, "dinghy 45 deg off the wind: towards the wind (m/s)");
             Assert.Less(heel, 30f, "dinghy stays upright (deg)");
-            Assert.AreEqual(0f, Vector3.Angle(boat.transform.forward, course), 8f, "dinghy holds its course (deg)");
+            Vector3 heading = boat.transform.forward;
+            heading.y = 0f;
+            Assert.AreEqual(0f, Vector3.Angle(heading, course), 8f, "dinghy holds its course (deg)");
             Assert.AreNotEqual(0f, sail.Angle, "the sail trimmed itself");
         }
     }

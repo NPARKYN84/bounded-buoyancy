@@ -46,6 +46,7 @@ namespace BoundedBuoyancy.Samples
         bool keyW, keyS, keyA, keyD, followDinghy;
         int leg;
         float legTime;
+        int pendingScene = -1;   // scenes change in Update, not in the middle of drawing the GUI
 
         void Start()
         {
@@ -91,6 +92,7 @@ namespace BoundedBuoyancy.Samples
             helm = 0f;
             leg = 0;
             legTime = 0f;
+            keyW = keyS = keyA = keyD = false;
             wrapMin = float.NegativeInfinity;
             wrapMax = float.PositiveInfinity;
             orbit = true;
@@ -594,8 +596,19 @@ namespace BoundedBuoyancy.Samples
 
         // Running --------------------------------------------------------------------------------------------------
 
+        void OnApplicationFocus(bool focused)
+        {
+            if (!focused)
+                keyW = keyS = keyA = keyD = false;
+        }
+
         void Update()
         {
+            if (pendingScene >= 0)
+            {
+                Load((Scene)pendingScene);
+                pendingScene = -1;
+            }
             if (scene == Scene.Boats && motorboat != null)
             {
                 // Follow the motorboat (or the dinghy) from behind.
@@ -658,11 +671,11 @@ namespace BoundedBuoyancy.Samples
             string[] names = System.Enum.GetNames(typeof(Scene));
             for (int i = 0; i < names.Length; i++)
                 if (GUILayout.Button((i + 1) + "  " + names[i]))
-                    Load((Scene)i);
+                    pendingScene = i;
             GUILayout.Space(8f);
             orbit = GUILayout.Toggle(orbit, " Turn the camera");
             if (scene == Scene.Release && GUILayout.Button("Release again"))
-                Load(Scene.Release);
+                pendingScene = (int)Scene.Release;
             if ((scene == Scene.Float || scene == Scene.Waves || scene == Scene.Tilt) && GUILayout.Button("Drop a crate"))
                 Crate(new Vector3(0.6f, 0.6f, 0.6f), Rand(250f, 900f), focus + new Vector3(Rand(-1.5f, 1.5f), 4f, Rand(-1.5f, 1.5f)), Shade(rnd.Next(6)), Rand(-40f, 40f));
             if ((scene == Scene.Float || scene == Scene.Waves) && GUILayout.Button("Drop a stone"))

@@ -104,20 +104,28 @@ namespace BoundedBuoyancy.Core
             return v * Math.Cos(a) + axis.Cross(v) * Math.Sin(a) + axis * (axis.Dot(v) * (1.0 - Math.Cos(a)));
         }
 
+        /// <summary>Running nearly dead downwind, a trimmed sail stays on the side it is on until the wind comes this
+        /// many degrees round to the other side (sailing "by the lee"), so it does not flick from side to side.</summary>
+        public const double GybeMargin = 10.0;
+
         /// <summary>
         /// The angle (degrees, about the span) a sail at rest along `restChord` swings to, for air moving past it at
         /// `airPast` (the air's velocity relative to the sail): away from the wind, so that its chord meets the flow
         /// at `angleOfAttack`, but no further than `maxTrim`. Head to wind (air coming straight down the chord) it
         /// stays at rest, square to nothing, and makes no lift; running before the wind it swings out to maxTrim.
+        /// `current` is the angle it has now: within GybeMargin of dead downwind it keeps to that side.
         /// </summary>
-        public static double Trim(V3 restChord, V3 span, V3 airPast, double angleOfAttack, double maxTrim)
+        public static double Trim(V3 restChord, V3 span, V3 airPast, double angleOfAttack, double maxTrim, double current = 0.0)
         {
             V3 a = airPast - span * span.Dot(airPast);
             if (a.LengthSquared < 1e-18)
-                return 0.0;
+                return current;
             double beta = Math.Atan2(restChord.Cross(a).Dot(span), restChord.Dot(a)) * 180.0 / Math.PI;
             double swing = Math.Min(Math.Max(Math.Abs(beta) - angleOfAttack, 0.0), maxTrim);
-            return beta < 0.0 ? -swing : swing;
+            bool side = beta < 0.0;
+            if (current != 0.0 && (current < 0.0) != side && Math.Abs(beta) > 180.0 - GybeMargin)
+                side = current < 0.0;   // by the lee: keep the side it is on
+            return side ? -swing : swing;
         }
     }
 
@@ -193,7 +201,7 @@ namespace BoundedBuoyancy.Core
                         // A sail swings away from the wind it feels at its pivot.
                         V3 rp = f.Pivot - com;
                         V3 air = (f.Medium == Medium.Water ? flow : wind) - (v + w.Cross(rp));
-                        f.Angle = Foil3D.Trim(f.RestChord, s, air, f.TrimAngleOfAttack, f.MaxTrim);
+                        f.Angle = Foil3D.Trim(f.RestChord, s, air, f.TrimAngleOfAttack, f.MaxTrim, f.Angle);
                     }
                     V3 c = f.Chord;
                     V3 p = f.CentreOfEffort;
