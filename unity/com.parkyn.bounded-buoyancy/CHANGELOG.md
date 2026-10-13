@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0] - 2026-10-13
+
+- Boats: **Bounded Buoyancy Foil** (keels, centreboards, rudders, fins, sails, wings) and **Bounded Buoyancy Thruster** (propellers, fans) components on child objects of a body. A foil is a flat plate whose force square to its faces is ½ ρ A q² C_N(α), with a lift slope for its aspect ratio (Helmbold) and a stall limit; a rudder turns with **Angle** (positive swings the trailing edge to +X, as in Godot), and a sail with **Auto Trim** swings itself away from the wind it feels. A thruster pushes along its +Z, less the faster it goes, giving a boat a top speed of its own. Both are bounded like the buoyancy: worked out with the motion at the end of the step against the inertia the body has at their point, so a foil stops the flow across it but never throws the body back, and a propeller never overshoots its speed.
+- The engine-free core has them as `Foil3D`, `Thruster3D` and `Appendages.Apply`; the body applies them after its buoyancy each step, as a velocity change and an angular impulse.
+- Demo sample: a BOATS scene, a motorboat to drive (W/S and A/D, or the sliders) and a dinghy that beats up into the wind in tacks on its own.
+- Tests: three B14 play-mode tests (the bounded foil force; a keel, the rudder both ways and a propeller; a dinghy sailing upwind) and two edit-mode tests; the .NET checks add 52, including the Unity layout of a boat turning the same way as the Godot layout.
+- No change to the buoyancy itself or to the paper's benchmarks.
+
 ## [2.1.1] - 2026-10-13
 
 - Bounded Buoyancy HDRP Water: each body's heights are now found in one Burst job (HDRP's `WaterSimulationSearchJob`) instead of one managed search per vertex, so a detailed hull or a fleet costs little more than a sphere; and with **Use HDRP Current** (on by default) the Water Surface's own current carries the bodies (its speed in km/h along its orientation, the ripples current for a pool, turned with the surface's object), in place of the Bounded Buoyancy Water's Current.

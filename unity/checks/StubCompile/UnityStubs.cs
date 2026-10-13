@@ -63,6 +63,9 @@ namespace UnityEngine
         public Quaternion localRotation { get; set; }
         public Vector3 localScale { get; set; }
         public Vector3 lossyScale { get { return default(Vector3); } }
+        public Transform parent { get { return null; } set { } }
+        public Vector3 forward { get { return default(Vector3); } set { } }
+        public Vector3 up { get { return default(Vector3); } set { } }
         public int childCount { get { return 0; } }
         public Transform Find(string n) { return null; }
         public Vector3 TransformPoint(Vector3 position) { return position; }
@@ -106,13 +109,17 @@ namespace UnityEngine
         public static Vector3 up { get { return default(Vector3); } }
         public static Vector3 right { get { return default(Vector3); } }
         public static Vector3 forward { get { return default(Vector3); } }
+        public static Vector3 back { get { return default(Vector3); } }
+        public static Vector3 down { get { return default(Vector3); } }
         public float magnitude { get { return 0f; } }
         public float sqrMagnitude { get { return 0f; } }
         public Vector3 normalized { get { return this; } }
         public static Vector3 Cross(Vector3 lhs, Vector3 rhs) { return lhs; }
         public static float Angle(Vector3 from, Vector3 to) { return 0f; }
+        public static float SignedAngle(Vector3 from, Vector3 to, Vector3 axis) { return 0f; }
         public static float Dot(Vector3 lhs, Vector3 rhs) { return 0f; }
         public static Vector3 Max(Vector3 lhs, Vector3 rhs) { return lhs; }
+        public static Vector3 Lerp(Vector3 a, Vector3 b, float t) { return a; }
         public static Vector3 operator +(Vector3 a, Vector3 b) { return a; }
         public static Vector3 operator -(Vector3 a, Vector3 b) { return a; }
         public static Vector3 operator -(Vector3 a) { return a; }
@@ -133,6 +140,8 @@ namespace UnityEngine
         public static Quaternion Inverse(Quaternion rotation) { return rotation; }
         public static Quaternion LookRotation(Vector3 forward, Vector3 upwards) { return default(Quaternion); }
         public static Vector3 operator *(Quaternion rotation, Vector3 point) { return point; }
+        public static Quaternion operator *(Quaternion lhs, Quaternion rhs) { return lhs; }
+        public static Quaternion AngleAxis(float angle, Vector3 axis) { return default(Quaternion); }
     }
 
     // UnityEngine.Pose (Runtime/Export/XR/Pose.cs) exists in both versions; declared here so that a clash with a
@@ -182,6 +191,8 @@ namespace UnityEngine
     {
         public const float PI = 3.14159274F;
         public const float Deg2Rad = PI * 2F / 360F;
+        public static float MoveTowards(float current, float target, float maxDelta) { return current; }
+        public static float LerpAngle(float a, float b, float t) { return a; }
         public static float Sin(float f) { return 0f; }
         public static float Cos(float f) { return 0f; }
         public static float Sqrt(float f) { return 0f; }
@@ -266,6 +277,7 @@ namespace UnityEngine
 
     public partial class Rigidbody : Component
     {
+        public Vector3 angularVelocity { get; set; }
 #if UNITY_6000_0_OR_NEWER
         public Vector3 linearVelocity { get; set; }
         public float linearDamping { get; set; }

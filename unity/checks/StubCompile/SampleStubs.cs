@@ -49,6 +49,16 @@ namespace UnityEngine
 
     public sealed class GUILayoutOption { }
 
+    // UnityEngine.Event and its enums (Modules/IMGUI/Event.cs, EventEnums.cs; Runtime/Export/Input/KeyCode.cs).
+    public enum EventType { MouseDown = 0, MouseUp = 1, MouseMove = 2, MouseDrag = 3, KeyDown = 4, KeyUp = 5 }
+    public enum KeyCode { None = 0, A = 97, D = 100, S = 115, W = 119 }
+    public sealed partial class Event
+    {
+        public static Event current { get { return null; } set { } }
+        public EventType type { get { return EventType.MouseDown; } set { } }
+        public KeyCode keyCode { get { return KeyCode.None; } set { } }
+    }
+
     public sealed partial class GUIStyle
     {
         public GUIStyle(GUIStyle other) { }

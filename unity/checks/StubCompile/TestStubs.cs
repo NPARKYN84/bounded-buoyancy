@@ -16,6 +16,21 @@ namespace NUnit.Framework
             if (!(Math.Abs(expected - actual) <= delta))
                 Fail("expected " + expected + " +/- " + delta + " but was " + actual, message);
         }
+        public static void Greater(float arg1, float arg2, string message)
+        {
+            if (!(arg1 > arg2))
+                Fail("expected greater than " + arg2 + " but was " + arg1, message);
+        }
+        public static void Less(float arg1, float arg2, string message)
+        {
+            if (!(arg1 < arg2))
+                Fail("expected less than " + arg2 + " but was " + arg1, message);
+        }
+        public static void AreNotEqual(object expected, object actual, string message)
+        {
+            if (Equals(expected, actual))
+                Fail("expected not " + expected, message);
+        }
         public static void AreEqual(object expected, object actual, string message)
         {
             if (!Equals(expected, actual))

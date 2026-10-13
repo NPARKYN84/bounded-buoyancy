@@ -183,6 +183,39 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void FoilLiftAndItsBound()
+        {
+            // The lift slope tends to 2π for a long wing and π AR / 2 for a short one (Helmbold).
+            Assert.AreEqual(1.0, Foil3D.LiftSlopeFor(1e6) / (2.0 * Math.PI), 1e-5, "long wing");
+            Assert.AreEqual(1.0, Foil3D.LiftSlopeFor(1e-3) / (Math.PI * 1e-3 / 2.0), 1e-5, "short wing");
+            Assert.AreEqual(1.2, Foil3D.NormalCoefficient(Math.PI / 2.0, 3.0), 1e-9, "square to the flow: a flat plate's 1.2");
+            Assert.AreEqual(1.4, Foil3D.NormalCoefficient(Math.PI / 4.0, 6.0), 1e-9, "stalled: no more than 1.4");
+            // A 10 m² foil on a 1 kg body moving across it at 10 m/s: stopped in one step, never thrown back.
+            var foil = new Foil3D { Area = 10.0, Pivot = V3.Zero, Span = V3.Up, RestChord = new V3(0, 0, 1) };
+            V3 v = new V3(10, 0, 0), w = V3.Zero;
+            Appendages.Apply(new[] { foil }, null, 1.0, V3.Zero, M3.Identity, new V3(0.1, 0.1, 0.1), ref v, ref w,
+                WaterSample.Flat(10.0, 1000.0), V3.Zero, 0.0, 1.0 / 60.0);
+            Assert.AreEqual(10.0 / (1.0 + 60000.0 / 60.0), v.x, 1e-9, "speed across the foil after one step");
+            // A sail with the wind abeam swings out, keeping 15 degrees to it; head to wind it lines up.
+            Assert.AreEqual(75.0, Math.Abs(Foil3D.Trim(new V3(0, 0, 1), V3.Up, new V3(1, 0, 0), 15.0, 85.0)), 1e-9, "wind abeam");
+            Assert.AreEqual(0.0, Foil3D.Trim(new V3(0, 0, 1), V3.Up, new V3(0, 0, 1), 15.0, 85.0), 1e-9, "head to wind");
+            Assert.AreEqual(85.0, Math.Abs(Foil3D.Trim(new V3(0, 0, 1), V3.Up, new V3(0, 0, -1), 15.0, 85.0)), 1e-9, "running");
+        }
+
+        [Test]
+        public void PropellerReachesItsSpeedWithoutOvershooting()
+        {
+            var t = new Thruster3D { MaxThrust = 1e7, MaxSpeed = 5.0, Throttle = 1.0, Position = V3.Zero, Direction = new V3(0, 0, 1) };
+            V3 v = V3.Zero, w = V3.Zero;
+            Appendages.Apply(null, new[] { t }, 1.0, V3.Zero, M3.Identity, new V3(1, 1, 1), ref v, ref w, WaterSample.Flat(10.0, 1000.0), V3.Zero, 0.0, 1.0 / 60.0);
+            Assert.AreEqual(5.0, v.z, 1e-3, "a 10 MN propeller on 1 kg reaches 5 m/s in a step, no more");
+            var lifted = new Thruster3D { MaxThrust = 400.0, MaxSpeed = 5.0, Throttle = 1.0, Position = new V3(0, 1, 0), Direction = new V3(0, 0, 1) };
+            v = V3.Zero;
+            Appendages.Apply(null, new[] { lifted }, 100.0, V3.Zero, M3.Identity, new V3(1, 1, 1), ref v, ref w, WaterSample.Flat(0.0, 1000.0), V3.Zero, 1.2, 1.0 / 60.0);
+            Assert.AreEqual(0.0, lifted.Force.Length, 0.0, "out of the water it pushes nothing");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

@@ -8,7 +8,7 @@ namespace BoundedBuoyancy.Samples
 {
     public class BoundedBuoyancyDemo : MonoBehaviour
     {
-        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind }
+        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind, Boats }
 
         static readonly string[] Captions =
         {
@@ -20,6 +20,7 @@ namespace BoundedBuoyancy.Samples
             "MANY: 300 bodies of mixed shapes on waves, every one cut at the waterline every step.",
             "RIVER: the water flows, slower along the banks. Bodies drift with it by drag on their speed through the water.",
             "WIND: gusty wind over a lake. Boats with sails run before it and heel; balloons drift with it; crates barely move.",
+            "BOATS: drive the orange motorboat (W / S throttle, A / D rudder, or the sliders): a keel, a rudder and a propeller. The dinghy, with a centreboard, a rudder and a sail that trims itself, beats up into the wind in tacks on its own, then runs back.",
         };
 
         Scene scene = Scene.Release;
@@ -37,6 +38,14 @@ namespace BoundedBuoyancy.Samples
         float wrapMin = float.NegativeInfinity, wrapMax = float.PositiveInfinity;
         Vector3 wrapAxis = Vector3.right;
         System.Random rnd = new System.Random(7);
+        // BOATS scene
+        BoundedBuoyancyBody motorboat, dinghy;
+        BoundedBuoyancyFoil boatRudder, dinghyRudder, dinghySail;
+        BoundedBuoyancyThruster boatProp;
+        float throttle, helm;
+        bool keyW, keyS, keyA, keyD, followDinghy;
+        int leg;
+        float legTime;
 
         void Start()
         {
@@ -76,6 +85,12 @@ namespace BoundedBuoyancy.Samples
             sails.Clear();
             hotAir = null;
             burner = 0f;
+            motorboat = null;
+            dinghy = null;
+            throttle = 0f;
+            helm = 0f;
+            leg = 0;
+            legTime = 0f;
             wrapMin = float.NegativeInfinity;
             wrapMax = float.PositiveInfinity;
             orbit = true;
@@ -89,6 +104,7 @@ namespace BoundedBuoyancy.Samples
                 case Scene.Many: BuildMany(); break;
                 case Scene.River: BuildRiver(); break;
                 case Scene.Wind: BuildWind(); break;
+                case Scene.Boats: BuildBoats(); break;
             }
         }
 
@@ -237,6 +253,186 @@ namespace BoundedBuoyancy.Samples
             wrapMin = -24f;
             wrapMax = 24f;
             Frame(new Vector3(-4f, 1f, 0f), 24f, 25f, -20f);
+        }
+
+        void BuildBoats()
+        {
+            BoundedBuoyancyWater lake = Pool(Vector3.zero, new Vector3(400f, 4f, 400f));
+            lake.waveHeight = 0.05f;
+            lake.waveLength = 3f;
+            lake.waveDirection = 80f;
+            var wind = new GameObject("Wind").AddComponent<BoundedBuoyancyWind>();
+            wind.transform.SetParent(root, false);
+            wind.velocity = new Vector3(0f, 0f, -5f);   // from +z: the dinghy beats towards +z
+            wind.gustStrength = 0.2f;
+            wind.gustPeriod = 7f;
+            wind.directionSwing = 6f;
+            BuildMotorboat(new Vector3(-4f, 0.1f, -8f));
+            BuildDinghy(new Vector3(8f, 0.1f, -2f), 45f);
+            Ball(0.35f, 300f, new Vector3(-14f, 0.3f, 40f), new Color(0.95f, 0.85f, 0.2f));
+            Ball(0.35f, 300f, new Vector3(14f, 0.3f, 40f), new Color(0.95f, 0.85f, 0.2f));
+            Ball(0.35f, 300f, new Vector3(0f, 0.3f, 80f), new Color(0.95f, 0.85f, 0.2f));
+            orbit = false;
+            Frame(motorboat.transform.position, 12f, 20f, 0f);
+        }
+
+        /// <summary>A hull for a boat, from the convex hull of its points (bow towards +z), with a convex mesh collider.</summary>
+        GameObject HullObject(string name, Vector3[] pts, Vector3 at, float yaw, Color color)
+        {
+            var hullPoints = new List<Core.V3>();
+            foreach (Vector3 p in pts)
+                hullPoints.Add(new Core.V3(p.x, p.y, p.z));
+            List<Core.V3> faces = Core.ConvexHull.Build(hullPoints);
+            var verts = new Vector3[faces.Count];
+            var tris = new int[faces.Count];
+            for (int i = 0; i < faces.Count; i++)
+            {
+                verts[i] = new Vector3((float)faces[i].x, (float)faces[i].y, (float)faces[i].z);
+                tris[i] = i;
+            }
+            var mesh = new Mesh { name = name };
+            mesh.vertices = verts;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            var go = new GameObject(name);
+            go.transform.SetParent(root, false);
+            go.transform.position = at;
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterial = Paint(color);
+            var mc = go.AddComponent<MeshCollider>();
+            mc.sharedMesh = mesh;
+            mc.convex = true;
+            return go;
+        }
+
+        /// <summary>A foil on a boat, with a thin blade to show it: span along Y, chord along Z (aft is -Z).</summary>
+        BoundedBuoyancyFoil BoatFoil(BoundedBuoyancyBody b, Vector3 at, float area, float ar, Core.Medium medium, float effort, Color color, float thickness)
+        {
+            var go = new GameObject(medium == Core.Medium.Air ? "Sail" : "Foil");
+            go.transform.SetParent(b.transform, false);
+            go.transform.localPosition = at;
+            var f = go.AddComponent<BoundedBuoyancyFoil>();
+            f.medium = medium;
+            f.area = area;
+            f.aspectRatio = ar;
+            f.effortOffset = effort;
+            float span = f.SpanLength, chord = f.ChordLength;
+            GameObject blade = Shape(PrimitiveType.Cube, Vector3.zero, new Vector3(thickness, span, chord), color);
+            DropCollider(blade);
+            blade.transform.SetParent(go.transform, false);
+            blade.transform.localPosition = new Vector3(0f, 0f, effort > 0f ? -0.5f * chord : 0f);
+            blade.transform.localRotation = Quaternion.identity;
+            return f;
+        }
+
+        void BuildMotorboat(Vector3 at)
+        {
+            var pts = new[]
+            {
+                new Vector3(-0.45f, 0.2f, 1.1f), new Vector3(0.45f, 0.2f, 1.1f), new Vector3(-0.3f, -0.2f, 0.9f), new Vector3(0.3f, -0.2f, 0.9f),
+                new Vector3(-0.45f, 0.2f, -1.2f), new Vector3(0.45f, 0.2f, -1.2f), new Vector3(-0.3f, -0.2f, -1.1f), new Vector3(0.3f, -0.2f, -1.1f),
+                new Vector3(0f, 0.2f, 1.6f), new Vector3(0f, -0.1f, 1.4f),
+            };
+            BoundedBuoyancyBody b = Floater(HullObject("Motorboat", pts, at, 0f, new Color(0.93f, 0.5f, 0.15f)), 250f);
+            b.centreOfMassOffset = new Vector3(0f, -0.12f, 0f);
+            b.dragCoefficient = 0.2f;              // a streamlined hull, not a sphere
+            b.keepMomentumOnEntry = false;         // a hull dipping in waves is not plunging in
+            Color dark = new Color(0.25f, 0.27f, 0.3f);
+            BoatFoil(b, new Vector3(0f, -0.4f, 0f), 0.15f, 1.5f, Core.Medium.Water, 0f, dark, 0.03f);
+            boatRudder = BoatFoil(b, new Vector3(0f, -0.3f, -1.15f), 0.06f, 2f, Core.Medium.Water, 0.04f, dark, 0.03f);
+            var prop = new GameObject("Propeller");
+            prop.transform.SetParent(b.transform, false);
+            prop.transform.localPosition = new Vector3(0f, -0.3f, -1.1f);
+            boatProp = prop.AddComponent<BoundedBuoyancyThruster>();
+            boatProp.maxThrust = 400f;
+            boatProp.maxSpeed = 5f;
+            boatProp.diameter = 0.25f;
+            motorboat = b;
+        }
+
+        void BuildDinghy(Vector3 at, float yaw)
+        {
+            var pts = new[]
+            {
+                new Vector3(-0.7f, 0.25f, 1.4f), new Vector3(0.7f, 0.25f, 1.4f), new Vector3(-0.45f, -0.15f, 1.2f), new Vector3(0.45f, -0.15f, 1.2f),
+                new Vector3(-0.7f, 0.25f, -1.7f), new Vector3(0.7f, 0.25f, -1.7f), new Vector3(-0.45f, -0.15f, -1.6f), new Vector3(0.45f, -0.15f, -1.6f),
+                new Vector3(0f, 0.25f, 1.9f), new Vector3(0f, -0.05f, 1.7f),
+            };
+            BoundedBuoyancyBody b = Floater(HullObject("Dinghy", pts, at, yaw, new Color(0.92f, 0.92f, 0.9f)), 160f);
+            b.centreOfMassOffset = new Vector3(0f, -0.45f, 0f);   // a heavy centreboard and the crew sitting out
+            b.dragCoefficient = 0.12f;
+            b.keepMomentumOnEntry = false;
+            b.airDensity = 1.2f;
+            Color dark = new Color(0.25f, 0.27f, 0.3f);
+            BoatFoil(b, new Vector3(0f, -0.6f, 0.1f), 0.5f, 2f, Core.Medium.Water, 0f, dark, 0.025f);
+            dinghyRudder = BoatFoil(b, new Vector3(0f, -0.35f, -1.65f), 0.12f, 2.5f, Core.Medium.Water, 0.06f, dark, 0.025f);
+            dinghySail = BoatFoil(b, new Vector3(0f, 2.8f, 0.6f), 8f, 2.5f, Core.Medium.Air, 0.6f, new Color(0.97f, 0.96f, 0.92f), 0.015f);
+            dinghySail.autoTrim = true;
+            GameObject mast = Shape(PrimitiveType.Cylinder, Vector3.zero, new Vector3(0.08f, 2.7f, 0.08f), new Color(0.4f, 0.42f, 0.45f));
+            DropCollider(mast);
+            mast.transform.SetParent(b.transform, false);
+            mast.transform.localPosition = new Vector3(0f, 2.9f, 0.62f);
+            mast.transform.localRotation = Quaternion.identity;
+            dinghy = b;
+        }
+
+        /// <summary>The dinghy sails a course by itself: up into the wind in tacks 45 degrees off it, through the wind every
+        /// 25 s (or near the side of the lake), until it is well upwind; then it runs back before the wind.</summary>
+        void SteerDinghy(float dt)
+        {
+            legTime += dt;
+            Vector3 p = dinghy.Body.position;
+            if (leg == 2)
+            {
+                if (p.z < -15f)
+                {
+                    leg = p.x < 0f ? 0 : 1;
+                    legTime = 0f;
+                }
+            }
+            else if (p.z > 70f)
+            {
+                leg = 2;
+                legTime = 0f;
+            }
+            else if (legTime > 25f || (leg == 0 && p.x > 40f) || (leg == 1 && p.x < -40f))
+            {
+                leg = 1 - leg;
+                legTime = 0f;
+            }
+            float off = leg == 2 ? 180f : 45f;
+            float side = leg == 0 ? 1f : -1f;
+            var course = new Vector3(side * Mathf.Sin(off * Mathf.Deg2Rad), 0f, Mathf.Cos(off * Mathf.Deg2Rad));
+            float error = Vector3.SignedAngle(dinghy.transform.forward, course, Vector3.up);
+            dinghyRudder.Angle = Mathf.Clamp(1.5f * error - 25f * dinghy.Body.angularVelocity.y * Mathf.Rad2Deg / 60f, -30f, 30f);
+        }
+
+        void FixedUpdate()
+        {
+            if (scene != Scene.Boats || motorboat == null)
+                return;
+            if (keyW)
+                throttle = Mathf.Min(throttle + 0.6f * Time.fixedDeltaTime, 1f);
+            if (keyS)
+                throttle = Mathf.Max(throttle - 0.6f * Time.fixedDeltaTime, -0.5f);
+            if (keyA || keyD)
+                helm = Mathf.MoveTowards(helm, keyA ? -30f : 30f, 90f * Time.fixedDeltaTime);
+            boatProp.throttle = throttle;
+            boatRudder.Angle = helm;
+            SteerDinghy(Time.fixedDeltaTime);
+            // A boat that runs off the edge of the lake comes back near the middle, heading the same way.
+            foreach (BoundedBuoyancyBody b in new[] { motorboat, dinghy })
+            {
+                Vector3 p = b.Body.position;
+                if (Mathf.Abs(p.x) > 170f || Mathf.Abs(p.z) > 170f)
+                {
+                    Vector3 f = b.transform.forward;
+                    f.y = 0f;
+                    b.Body.position = new Vector3(0f, 0.1f, 0f) - f.normalized * 60f;
+                }
+            }
         }
 
         // Building blocks ------------------------------------------------------------------------------------------
@@ -400,6 +596,16 @@ namespace BoundedBuoyancy.Samples
 
         void Update()
         {
+            if (scene == Scene.Boats && motorboat != null)
+            {
+                // Follow the motorboat (or the dinghy) from behind.
+                BoundedBuoyancyBody target = followDinghy ? dinghy : motorboat;
+                Vector3 f = target.transform.forward;
+                float heading = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+                focus = Vector3.Lerp(focus, target.transform.position + Vector3.up, 1f - Mathf.Exp(-4f * Time.deltaTime));
+                yaw = Mathf.LerpAngle(yaw, heading, 1f - Mathf.Exp(-2f * Time.deltaTime));
+                distance = followDinghy ? 16f : 12f;
+            }
             if (orbit)
                 yaw += 4f * Time.deltaTime;
             Quaternion q = Quaternion.Euler(pitch, yaw, 0f);
@@ -468,6 +674,31 @@ namespace BoundedBuoyancy.Samples
             }
             if (scene == Scene.Many)
                 GUILayout.Label(bodies.Count + " bodies, " + Mathf.RoundToInt(1f / Mathf.Max(Time.smoothDeltaTime, 1e-4f)) + " fps");
+            if (scene == Scene.Boats && motorboat != null)
+            {
+                // W / S and A / D through the GUI's own key events, which work with either input system.
+                Event e = Event.current;
+                if (e.type == EventType.KeyDown || e.type == EventType.KeyUp)
+                {
+                    bool down = e.type == EventType.KeyDown;
+                    if (e.keyCode == KeyCode.W) keyW = down;
+                    if (e.keyCode == KeyCode.S) keyS = down;
+                    if (e.keyCode == KeyCode.A) keyA = down;
+                    if (e.keyCode == KeyCode.D) keyD = down;
+                }
+                GUILayout.Label("Throttle " + Mathf.RoundToInt(100f * throttle) + "%");
+                throttle = GUILayout.HorizontalSlider(throttle, -0.5f, 1f);
+                GUILayout.Label("Rudder " + Mathf.RoundToInt(helm) + "°");
+                helm = GUILayout.HorizontalSlider(helm, -30f, 30f);
+                if (GUILayout.Button("Centre the rudder"))
+                    helm = 0f;
+                Vector3 v = Velocity(motorboat.Body);
+                GUILayout.Label("Motorboat " + (new Vector2(v.x, v.z).magnitude * 1.943844f).ToString("0.0") + " knots");
+                Vector3 dv = Velocity(dinghy.Body);
+                GUILayout.Label("Dinghy " + (new Vector2(dv.x, dv.z).magnitude * 1.943844f).ToString("0.0") + " knots, sail out "
+                    + Mathf.RoundToInt(Mathf.Abs(dinghySail.Angle)) + "°, " + (leg == 2 ? "running" : "beating"));
+                followDinghy = GUILayout.Toggle(followDinghy, " Follow the dinghy");
+            }
             GUILayout.EndArea();
             GUI.Box(new Rect(210f, Screen.height - 80f, Mathf.Min(900f, Screen.width - 220f), 70f), Captions[(int)scene], captionStyle);
         }

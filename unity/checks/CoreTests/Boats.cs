@@ -58,6 +58,7 @@ namespace BoundedBuoyancy.Checks
         static void Boats()
         {
             Console.WriteLine("B14 Foils and propellers (keels, rudders, sails, propellers)");
+            SimBody godotTurn = null;
             double rho = 1000.0, dt = 1.0 / 60.0;
 
             // A foil on a body too heavy to move, carried through still water at 2 m/s: the force square to its face
@@ -227,6 +228,27 @@ namespace BoundedBuoyancy.Checks
                 Check("steady turn: yaw rate change over 5 s (%)", 100.0 * Math.Abs(r2 - r1) / Math.Abs(r1), 0.0, 3.0);
                 Check("turning circle radius, boat lengths (2.4 m)", radius / 2.4, 3.5, 3.0);
                 Check("turning boat stays upright (deg)", right.TiltDegrees, 0.0, 20.0);
+                godotTurn = right;
+            }
+
+            // The same boat laid out as the Unity components lay it out (bow towards +z, the span handed to the core
+            // reversed so that a positive angle swings the trailing edge to +x): +25 deg still turns it to starboard,
+            // which about +y is now a positive yaw rate, as Unity counts it.
+            {
+                var w = new SimWorld();
+                Water(w, new V3(0, 0, -2700), new V3(400, 6, 400));
+                BuoyancyShape3D mirrored = Hull(-0.45, 0.2, 1.1, 0.45, 0.2, 1.1, -0.3, -0.2, 0.9, 0.3, -0.2, 0.9,
+                    -0.45, 0.2, -1.2, 0.45, 0.2, -1.2, -0.3, -0.2, -1.1, 0.3, -0.2, -1.1, 0.0, 0.2, 1.6, 0.0, -0.1, 1.4);
+                var u = Body(w, mirrored, 250.0, new V3(0, 0, -2700), 0.0, true, 0.0, 0.0, mirrored.Centroid + new V3(0, -0.12, 0));
+                V3 down = new V3(0, -1, 0), back = new V3(0, 0, -1);
+                u.Foils.Add((new Foil3D { Area = 0.15, AspectRatio = 1.5 }, new V3(0, -0.4, 0), down, back));
+                var rudder = new Foil3D { Area = 0.06, AspectRatio = 2.0, EffortOffset = 0.04, Angle = 25.0 };
+                u.Foils.Add((rudder, new V3(0, -0.3, -1.15), down, back));
+                u.Thrusters.Add((new Thruster3D { MaxThrust = 400.0, MaxSpeed = 5.0, Diameter = 0.25, Throttle = 1.0 }, new V3(0, -0.3, -1.1), new V3(0, 0, 1)));
+                Run(w, 20.0);
+                Check("Unity layout: trailing edge of a +25 deg rudder towards +x", rudder.Chord.x > 0.0 ? 1 : 0, 1, 0);
+                Check("Unity layout: +25 deg turns to starboard (yaw rate about +y > 0)", u.W.y > 0.0 ? 1 : 0, 1, 0);
+                Check("Unity layout: same turn rate as the Godot layout, mirrored (ratio)", u.W.y / -godotTurn.W.y, 1.0, 0.01);
             }
 
             // A keeled boat dropped at rest into a river swings its bow upstream while the water is still flowing past

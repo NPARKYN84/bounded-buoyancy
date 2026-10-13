@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.0
+
+- Boats: **BoundedBuoyancyFoil** nodes (keels, centreboards, rudders, fins, sails, wings) and **BoundedBuoyancyThruster** nodes (propellers, fans) under a body. A foil is a flat plate whose force square to its faces is ½ ρ A q² C_N(α), with a lift slope for its aspect ratio (Helmbold) and a stall limit; a rudder turns with **Angle**, and a sail with **Auto Trim** swings itself away from the wind it feels. A thruster pushes less the faster it goes, giving a boat a top speed of its own. Both are bounded like the buoyancy: worked out with the motion at the end of the step against the inertia the body has at their point, so a foil stops the flow across it but never throws the body back, and a propeller never overshoots its speed. So boats hold their course, steer, drive, and sail across and up into the wind.
+- Demo: a BOATS scene, a motorboat to drive (W/S throttle, A/D rudder) and a dinghy that beats up into the wind in tacks on its own (C changes the camera); docs/boats.gif.
+- Tests: B14, foils and propellers (lift at known angles, the bounded force, a keel against leeway, directional stability, a propeller's top speed, turning circles both ways, a boat at anchor swinging bow upstream, a dinghy sailing upwind), passing in Godot Physics and Jolt, with and without the native kernel.
+- Unity: the same as **Bounded Buoyancy Foil** and **Bounded Buoyancy Thruster** components, with a BOATS scene in the demo sample (see the Unity changelog).
+- No change to the buoyancy itself or to the paper's benchmarks.
+
 ## 2.1.1
 
 - Unity: Bounded Buoyancy HDRP Water finds each body's heights in one Burst job, and carries bodies with the Water Surface's own current. No change to the Godot plugin or the physics.

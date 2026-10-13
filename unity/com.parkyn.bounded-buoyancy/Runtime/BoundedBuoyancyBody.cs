@@ -99,6 +99,10 @@ namespace BoundedBuoyancy
 
         Rigidbody rb;
         readonly BodyCore3D core = new BodyCore3D();
+        readonly List<BoundedBuoyancyFoil> foils = new List<BoundedBuoyancyFoil>();
+        readonly List<BoundedBuoyancyThruster> thrusters = new List<BoundedBuoyancyThruster>();
+        readonly List<Foil3D> foilCores = new List<Foil3D>();
+        readonly List<Thruster3D> thrusterCores = new List<Thruster3D>();
         bool setUp;
         bool warned;
         float appliedMass = -1f;
@@ -273,6 +277,9 @@ namespace BoundedBuoyancy
             V3 wind = BoundedBuoyancyWind.TotalAt(cw, scene);
             Vector3 v = Bridge.GetVelocity(rb);
             core.Step(pose, Bridge.V(rb.worldCenterOfMass), Bridge.V(v), sample, wind, -Physics.gravity.y, dt);
+            V3 turn = V3.Zero;
+            if (foils.Count > 0 || thrusters.Count > 0)
+                turn = ApplyAppendages(sample, wind, dt);
 
             // The engine resists every force with the mass it has, so set it to the inertial mass (water and air
             // taken along included), and hold the rotational inertia at the body's own.
@@ -286,6 +293,8 @@ namespace BoundedBuoyancy
             }
             // Land exactly on the target velocity this step, whatever the mass.
             rb.AddForce(Bridge.U(core.VelocityTarget) - v, ForceMode.VelocityChange);
+            if (turn.x != 0.0 || turn.y != 0.0 || turn.z != 0.0)
+                rb.AddTorque(Bridge.U(turn), ForceMode.Impulse);
             if (core.Torque.x != 0.0 || core.Torque.y != 0.0 || core.Torque.z != 0.0)
                 rb.AddTorque(Bridge.U(core.Torque), ForceMode.Force);
             float damp = (float)core.AngularDamp;
@@ -296,6 +305,41 @@ namespace BoundedBuoyancy
             }
             if (core.Crossing != Crossing.None)
                 ReportCrossing();
+        }
+
+        /// <summary>Foils and thrusters under the body register themselves here.</summary>
+        internal void AddAppendage(BoundedBuoyancyFoil f) { if (!foils.Contains(f)) foils.Add(f); }
+        internal void AddAppendage(BoundedBuoyancyThruster t) { if (!thrusters.Contains(t)) thrusters.Add(t); }
+        internal void RemoveAppendage(BoundedBuoyancyFoil f) { foils.Remove(f); }
+        internal void RemoveAppendage(BoundedBuoyancyThruster t) { thrusters.Remove(t); }
+
+        /// <summary>The foils and thrusters under this body.</summary>
+        public IReadOnlyList<BoundedBuoyancyFoil> Foils { get { return foils; } }
+        /// <summary>The thrusters under this body.</summary>
+        public IReadOnlyList<BoundedBuoyancyThruster> Thrusters { get { return thrusters; } }
+
+        /// <summary>Foils and thrusters, after the buoyancy and drag: each an impulse at its own point, bounded so it
+        /// never overshoots (see Core.Appendages). Changes the target velocity; returns the angular impulse.</summary>
+        V3 ApplyAppendages(WaterSample sample, V3 wind, float dt)
+        {
+            foilCores.Clear();
+            thrusterCores.Clear();
+            for (int i = 0; i < foils.Count; i++)
+                if (foils[i] != null && foils[i].isActiveAndEnabled)
+                    foilCores.Add(foils[i].Prepare());
+            for (int i = 0; i < thrusters.Count; i++)
+                if (thrusters[i] != null && thrusters[i].isActiveAndEnabled)
+                    thrusterCores.Add(thrusters[i].Prepare());
+            V3 v = core.VelocityTarget;
+            V3 w = Bridge.V(rb.angularVelocity);
+            M3 axes = Bridge.M(rb.rotation * tensorRotation);
+            V3 turn = Appendages.Apply(foilCores, thrusterCores, core.InertialMass, Bridge.V(rb.worldCenterOfMass), axes, Bridge.V(tensor),
+                ref v, ref w, sample, wind, core.AirDensityHere, dt);
+            core.VelocityTarget = v;
+            for (int i = 0; i < foils.Count; i++)
+                if (foils[i] != null && foils[i].isActiveAndEnabled)
+                    foils[i].Finish();
+            return turn;
         }
 
         WaterSample FindWater(V3 cw, PhysicsScene scene)
