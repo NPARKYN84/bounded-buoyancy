@@ -19,12 +19,12 @@ jobs:
         run: dotnet run -c Release --project unity/checks/CoreTests/CoreTests.csproj
       - name: Edit-mode tests in plain .NET
         run: dotnet run -c Release --project unity/checks/EditModeRunner/EditModeRunner.csproj
-      - name: Compile against the Unity 2022.3 and Unity 6 API, assembly by assembly
+      - name: Compile against the Unity 2022.3 and Unity 6 API (with HDRP 14 and 17), assembly by assembly
         working-directory: unity/checks/Split
         run: |
           for v in 2022_3 6000_0; do
             python3 make.py $v
-            for p in SamplesEditor Tests EditorTests; do
+            for p in HDRP SamplesEditor Tests EditorTests; do
               dotnet build -warnaserror "$v/$p/$p.csproj"
             done
           done

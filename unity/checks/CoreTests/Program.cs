@@ -129,6 +129,44 @@ namespace BoundedBuoyancy.Checks
             }
         }
 
+        /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `offset`.</summary>
+        sealed class CopiedSurface : ISurfaceHeights
+        {
+            readonly WaterVolume from;
+            readonly V3 offset;
+            readonly double most;
+            public int Points;
+
+            public CopiedSurface(WaterVolume from, V3 offset, double maxWave)
+            {
+                this.from = from;
+                this.offset = offset;
+                most = maxWave;
+            }
+
+            public void HeightsAt(V3[] points, double[] heights, int count)
+            {
+                Points += count;
+                for (int i = 0; i < count; i++)
+                    heights[i] = from.HeightAt(points[i] - offset);
+            }
+
+            public double MaxWave { get { return most; } }
+        }
+
+        /// <summary>Another water system's flat surface at a fixed height.</summary>
+        sealed class FlatSurface : ISurfaceHeights
+        {
+            readonly double level;
+            public FlatSurface(double level) { this.level = level; }
+            public void HeightsAt(V3[] points, double[] heights, int count)
+            {
+                for (int i = 0; i < count; i++)
+                    heights[i] = level;
+            }
+            public double MaxWave { get { return 0.0; } }
+        }
+
         // Benchmarks ------------------------------------------------------------------------------------------
 
         static int Main()
@@ -526,6 +564,71 @@ namespace BoundedBuoyancy.Checks
                 Check("2D ball dropped 1 m: water entered speed (m/s)", hits.Count > 0 ? hits[0] : 0.0, Math.Sqrt(2.0 * g * 1.0), 0.08);
             }
 
+            Console.WriteLine("B13 Other water systems");
+            {
+                // A stand-in "ocean" gives the same waves as a water volume 40 m away, so bodies on it must move
+                // exactly as their twins on the volume's own waves.
+                var w = new SimWorld();
+                var own = Water(w, new V3(0, 0, 500), new V3(20, 4, 20));
+                own.SetWaves(0.08, 4.0, 20.0, w.G);
+                var other = Water(w, new V3(40, 0, 500), new V3(20, 4, 20));
+                var ocean = new CopiedSurface(own, new V3(40, 0, 0), 0.12);
+                other.Source = ocean;
+                var cb = new ShapeBuilder3D();
+                cb.AddCapsule(V3.Zero, new V3(0, 1, 0), 0.1, 0.5);
+                var shapes = new[] { Box(0.6, 0.15, 0.4), BoatHull(), Sphere(0.15), cb.Build() };
+                var twins = new List<SimBody[]>();
+                for (int k = 0; k < shapes.Length; k++)
+                {
+                    var at = new V3(-4.0 + 2.5 * k, 0.05, 500.0 + 1.5 * k);
+                    twins.Add(new[] { Body(w, shapes[k], 450.0, at, 15.0), Body(w, shapes[k], 450.0, at + new V3(40, 0, 0), 15.0) });
+                }
+                double worstY = 0.0, worstTilt = 0.0, lo = 1e9, hi = -1e9;
+                Run(w, 4.0, t =>
+                {
+                    foreach (var e in twins)
+                    {
+                        worstY = Math.Max(worstY, Math.Abs(e[0].Position.y - e[1].Position.y));
+                        worstTilt = Math.Max(worstTilt, Math.Abs(e[0].TiltDegrees - e[1].TiltDegrees));
+                    }
+                    if (t > 2.0)
+                    {
+                        lo = Math.Min(lo, twins[0][1].Position.y);
+                        hi = Math.Max(hi, twins[0][1].Position.y);
+                    }
+                });
+                Check("same waves from another system: height (mm)", 1000.0 * worstY, 0.0, 1e-6);
+                Check("same waves from another system: tilt (deg)", worstTilt, 0.0, 1e-6);
+                Check("raft on the other system's waves rises and falls (cm)", 100.0 * (hi - lo), 20.0, 12.0);
+                foreach (var e in twins)
+                {
+                    e[0].Frozen = true;
+                    e[1].Frozen = true;
+                }
+                // A body far above the other surface asks for one height a step (at its centre), not one per vertex.
+                var aloft = Body(w, Box(0.4, 0.4, 0.4), 450.0, new V3(40, 3.0, 503));
+                w.Step();
+                int before = ocean.Points;
+                Run(w, 10 * w.Dt);
+                Check("body well above it: heights asked per step", (ocean.Points - before) / 10.0, 1.0, 0.0);
+                aloft.Frozen = true;
+                // A flat surface 0.25 m up: a cube at 85% of water's density floats on it.
+                var flat = Water(w, new V3(80, 0, 500), new V3(10, 4, 10));
+                flat.Source = new FlatSurface(0.25);
+                var onFlat = Body(w, Box(0.2, 0.2, 0.2), 850.0, new V3(80, 0.3, 500));
+                double sum = 0.0;
+                int n = 0;
+                Run(w, 10.0, t =>
+                {
+                    if (t > 7.0)
+                    {
+                        sum += onFlat.Position.y;
+                        n++;
+                    }
+                });
+                Check("cube on another system's flat surface (cm)", 100.0 * sum / n, 25.0 + 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5);
+            }
+
             Console.WriteLine("Speed: 300 bodies on waves");
             {
                 foreach (var kind in new[] { "sphere", "box", "hull", "capsule" })
@@ -556,6 +659,21 @@ namespace BoundedBuoyancy.Checks
                     Run(w, 5.0);
                     double ms = watch.Elapsed.TotalMilliseconds / 300.0;
                     Console.WriteLine("  {0,-10} {1,6:F2} ms per step for 300 bodies (whole step, this machine)", kind, ms);
+                }
+                {
+                    // The same boxes on another system's copy of the waves: the cost of asking it for every vertex.
+                    var w = new SimWorld();
+                    var sea = Water(w, new V3(0, 0, 1000), new V3(200, 5, 200));
+                    sea.SetWaves(0.3, 6.0, 20.0, w.G);
+                    var copy = Water(w, V3.Zero, new V3(200, 5, 200));
+                    copy.Source = new CopiedSurface(sea, new V3(0, 0, -1000), 0.42);
+                    var rnd = new Random(1);
+                    for (int i = 0; i < 300; i++)
+                        Body(w, Box(0.6, 0.4, 0.8), 500.0, new V3(rnd.NextDouble() * 180 - 90, rnd.NextDouble() * 0.4 - 0.2, rnd.NextDouble() * 180 - 90), rnd.NextDouble() * 40 - 20, true, 1.2);
+                    Run(w, 1.0);
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    Run(w, 5.0);
+                    Console.WriteLine("  {0,-10} {1,6:F2} ms per step for 300 bodies (whole step, this machine)", "box, other", watch.Elapsed.TotalMilliseconds / 300.0);
                 }
             }
 

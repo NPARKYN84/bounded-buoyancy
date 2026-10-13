@@ -33,6 +33,7 @@ namespace BoundedBuoyancy.Core
         public double Area;
 
         internal double[] Depth = new double[0];
+        internal V3[] WorldPoints = new V3[0];
 
         public bool IsEmpty { get { return Volume <= 0.0; } }
 
@@ -266,6 +267,7 @@ namespace BoundedBuoyancy.Core
             s.Weights = weights.ToArray();
             s.Volume = volume;
             s.Depth = new double[s.Vertices.Length];
+            s.WorldPoints = new V3[s.Vertices.Length];
             V3 moment = V3.Zero;
             for (int i = 0; i < s.Triangles.Length; i += 3)
             {

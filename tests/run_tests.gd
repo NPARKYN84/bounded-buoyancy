@@ -4,8 +4,8 @@ extends SceneTree
 ##   godot --headless --fixed-fps 60 --script res://tests/run_tests.gd
 ## It prints the first-frame accelerations (paper Table 3) and the release-and-surfacing
 ## results (paper Table 4), then checks the shape and tilting features (volumes, centre of
-## buoyancy and righting), water nodes and waves, and air (balloons, thin air, changing density),
-## and ends with PASS or FAIL. The paper's benchmarks leave out air, so B1-B6 set air_density to 0.
+## buoyancy and righting), water nodes and waves, air (balloons, thin air, changing density), fast
+## bodies, rivers, wind, splashes, 2D and another water system's surface, and ends with PASS or FAIL. The paper's benchmarks leave out air, so B1-B6 set air_density to 0.
 
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
@@ -516,6 +516,108 @@ func run() -> void:
 	check("2D raft on 20 px waves rises and falls (px)", raft_hi - raft_lo, 50.0, 30.0)
 	check("2D ball dropped 100 px: water_entered speed (px/s)", hits[0] if hits.size() > 0 else 0.0, sqrt(2.0 * g2 * 100.0), 8.0)
 
+	# B13: the surface of another water system. A stand-in "ocean" gives the same waves as a water
+	# node 40 m away, so bodies on it must move exactly as their twins on the water node's own waves.
+	print("B13 Other water systems")
+	var own := BW.new()
+	own.size = Vector3(20, 4, 20)
+	own.position = Vector3(0, 0, 500)
+	own.wave_height = 0.08
+	own.wave_length = 4.0
+	own.wave_direction = 20.0
+	own.show_surface = false
+	root.add_child(own)
+	var ocean_script := GDScript.new()
+	ocean_script.source_code = "extends Node3D\nvar target: Node3D\nvar offset := Vector3.ZERO\nvar calls := 0\n" \
+		+ "func get_height(p: Vector3) -> float:\n\tcalls += 1\n\treturn target.height_at(p - offset)\n"
+	ocean_script.reload()
+	var ocean := Node3D.new()
+	ocean.set_script(ocean_script)
+	ocean.set("target", own)
+	ocean.set("offset", Vector3(40, 0, 0))
+	root.add_child(ocean)
+	var outside_water := BW.new()
+	outside_water.size = Vector3(20, 4, 20)
+	outside_water.position = Vector3(40, 0, 500)
+	outside_water.surface_source = ocean
+	outside_water.surface_method = &"get_height"
+	outside_water.surface_max_wave = 0.12
+	root.add_child(outside_water)
+	var twins := []
+	var ki := 0
+	for sh in [_box(Vector3(0.6, 0.15, 0.4)), _boat_hull(), _sphere(0.15), _capsule(0.1, 0.5)]:
+		var at := Vector3(-4.0 + 2.5 * ki, 0.05, 500.0 + 1.5 * ki)
+		twins.append([make_shape_body(sh, 450.0, at, 15.0), make_shape_body(sh, 450.0, at + Vector3(40, 0, 0), 15.0)])
+		ki += 1
+	await physics_frame
+	for e in twins:
+		e[0].freeze = false
+		e[1].freeze = false
+	t = 0.0
+	var worst_y := 0.0
+	var worst_tilt := 0.0
+	var range_lo := 1e9
+	var range_hi := -1e9
+	while t < 4.0:
+		await physics_frame
+		t += dt
+		for e in twins:
+			worst_y = maxf(worst_y, absf(e[0].global_position.y - e[1].global_position.y))
+			worst_tilt = maxf(worst_tilt, absf(tilt_deg(e[0]) - tilt_deg(e[1])))
+		if t > 2.0:
+			range_lo = minf(range_lo, twins[0][1].global_position.y)
+			range_hi = maxf(range_hi, twins[0][1].global_position.y)
+	check("same waves from another system: height (mm)", 1000.0 * worst_y, 0.0, 0.5)
+	check("same waves from another system: tilt (deg)", worst_tilt, 0.0, 0.2)
+	check("raft on the other system's waves rises and falls (cm)", 100.0 * (range_hi - range_lo), 20.0, 12.0)
+	for e in twins:
+		e[0].queue_free()
+		e[1].queue_free()
+	# A body far above the outside_water surface asks for one height a step (at its centre), not one per vertex.
+	var aloft := make_shape_body(_box(Vector3(0.4, 0.4, 0.4)), 450.0, Vector3(40, 3.0, 503), 0.0)
+	await physics_frame
+	aloft.freeze = false
+	await physics_frame
+	var before: int = ocean.get("calls")
+	for n in 10:
+		await physics_frame
+	check("body well above it: heights asked per step", (int(ocean.get("calls")) - before) / 10.0, 1.0, 0.0)
+	aloft.queue_free()
+	# A flat surface 0.25 m up, set from code: a cube at 85% of water's density floats on it.
+	var flat := BW.new()
+	flat.size = Vector3(10, 4, 10)
+	flat.position = Vector3(80, 0, 500)
+	flat.height_function = func(_p: Vector3) -> float: return 0.25
+	flat.surface_max_wave = 0.0
+	root.add_child(flat)
+	# A source without the method: the water keeps its own (flat) surface.
+	var wrong := BW.new()
+	wrong.size = Vector3(10, 4, 10)
+	wrong.position = Vector3(100, 0, 500)
+	var plain := Node.new()
+	root.add_child(plain)
+	wrong.surface_source = plain
+	wrong.show_surface = false
+	root.add_child(wrong)
+	var on_flat := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 850.0, Vector3(80, 0.3, 500), 0.0)
+	var on_wrong := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 850.0, Vector3(100, 0.05, 500), 0.0)
+	await physics_frame
+	on_flat.freeze = false
+	on_wrong.freeze = false
+	var flat_sum := 0.0
+	var wrong_sum := 0.0
+	var m := 0
+	t = 0.0
+	while t < 10.0:
+		await physics_frame
+		t += dt
+		if t > 7.0:
+			flat_sum += on_flat.global_position.y
+			wrong_sum += on_wrong.global_position.y
+			m += 1
+	check("cube on a flat surface set from code (cm)", 100.0 * flat_sum / m, 25.0 + 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5)
+	check("source without the method: own surface kept (cm)", 100.0 * wrong_sum / m, 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5)
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -653,18 +755,18 @@ func _half_box_cb_depth() -> float:
 		rot.append(Vector2(p.x * c - p.y * c, p.x * c + p.y * c))
 	# Clip the rotated rectangle to y <= 0 and take the centroid of the polygon.
 	var poly: Array[Vector2] = []
-	for k in 4:
-		var a: Vector2 = rot[k]
-		var b: Vector2 = rot[(k + 1) % 4]
+	for ki in 4:
+		var a: Vector2 = rot[ki]
+		var b: Vector2 = rot[(ki + 1) % 4]
 		if a.y <= 0.0:
 			poly.append(a)
 		if (a.y < 0.0 and b.y > 0.0) or (a.y > 0.0 and b.y < 0.0):
 			poly.append(a + (b - a) * (a.y / (a.y - b.y)))
 	var area := 0.0
 	var cy := 0.0
-	for k in poly.size():
-		var p: Vector2 = poly[k]
-		var q: Vector2 = poly[(k + 1) % poly.size()]
+	for ki in poly.size():
+		var p: Vector2 = poly[ki]
+		var q: Vector2 = poly[(ki + 1) % poly.size()]
 		var cr := p.x * q.y - q.x * p.y
 		area += cr
 		cy += (p.y + q.y) * cr

@@ -345,16 +345,19 @@ func _find_water(at: Vector3) -> Node3D:
 ## Submerged volume and its centre for the body at `xf`, with the water surface at height `surface`
 ## over the body's centre. With a wavy `wavy_water`, each vertex is measured against the surface above it.
 func _immerse(xf: Transform3D, surface: float, wavy_water: Node3D = null) -> void:
+	# swell bounds how far the surface anywhere under the body can be from its height over the
+	# centre: twice the most it rises or falls from its mean.
 	var swell := 0.0
-	if wavy_water and wavy_water.wave_height > 0.0:
-		swell = wavy_water.max_wave()
+	var outside := Callable()   # another water system's surface, if the water uses one
+	if wavy_water and wavy_water.is_wavy():
+		swell = 2.0 * wavy_water.max_wave()
+		outside = wavy_water.outside_height()
 	else:
 		wavy_water = null
 	if _single_sphere:
-		# Exact spherical cap, which is the same whichever way the sphere has turned.
+		# Exact spherical cap, which is the same whichever way the sphere has turned. The sphere's
+		# centre is the body's centroid, so `surface` is already the height over it.
 		var c := xf * _sphere_centre
-		if wavy_water:
-			surface = wavy_water.height_at(c)
 		var h := clampf(_radius + surface - c.y, 0.0, 2.0 * _radius)
 		submerged_volume = PI * h * h * (3.0 * _radius - h) / 3.0
 		var drop := 0.0 if h <= 0.0 else 3.0 * pow(2.0 * _radius - h, 2) / (4.0 * (3.0 * _radius - h))
@@ -376,13 +379,18 @@ func _immerse(xf: Transform3D, surface: float, wavy_water: Node3D = null) -> voi
 	var up := Vector3(xf.basis.x.y, xf.basis.y.y, xf.basis.z.y)   # world height per unit of each body axis
 	var h := surface - xf.origin.y
 	var p := _centroid + up * ((h - up.dot(_centroid)) / up.length_squared())
-	if _kernel and use_native:
+	if _kernel and use_native and not outside.is_valid():
 		var r: Vector4 = _kernel.clip_waves(_verts, _idx, _tri_weight, xf, wavy_water.inverse_transform(), wavy_water.wave_params(), p) \
 			if wavy_water else _kernel.clip_flat(_verts, _idx, _tri_weight, up, h, p)
 		submerged_volume = clampf(r.x, 0.0, volume)
 		centre_of_buoyancy = xf * (Vector3(r.y, r.z, r.w) / (4.0 * r.x)) if r.x > 1e-12 else cw
 		return
-	if wavy_water:
+	if outside.is_valid():
+		# Another water system's surface: ask it for the height over each vertex.
+		for j in _verts.size():
+			var wp := xf * _verts[j]
+			_depth[j] = float(outside.call(wp)) - wp.y
+	elif wavy_water:
 		# Waves: measure each vertex against the surface above it. The cut face then follows the
 		# waves, which is accurate while the waves are long compared with the body.
 		for j in _verts.size():

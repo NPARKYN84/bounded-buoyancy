@@ -1,0 +1,36 @@
+{
+    "name": "Parkyn.BoundedBuoyancy.HDRP",
+    "rootNamespace": "BoundedBuoyancy",
+    "references": [
+        "Parkyn.BoundedBuoyancy",
+        "Unity.RenderPipelines.HighDefinition.Runtime",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "BB_HDRP_WATER"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "14.0.0",
+            "define": "BB_HDRP_WATER"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "15.0.0",
+            "define": "BB_HDRP_15_OR_NEWER"
+        },
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "16.0.0",
+            "define": "BB_HDRP_16_OR_NEWER"
+        }
+    ],
+    "noEngineReferences": false
+}

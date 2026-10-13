@@ -1,14 +1,14 @@
 {
   "name": "com.parkyn.bounded-buoyancy",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "displayName": "Bounded Buoyancy",
-  "description": "Stable, accurate buoyancy for Rigidbody and Rigidbody2D. The added mass of the water a body displaces goes into its inertia every physics step, so buoyancy drives no fall faster than g and no rise faster than g/C, for every density. Any collider shape tilts and rights itself; water volumes with waves and currents; air, balloons and thin air; wind with gusts and sails; splashes with events; and a 2D version. Method and benchmarks: Parkyn, N. (2026), Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines.",
+  "description": "Stable, accurate buoyancy for Rigidbody and Rigidbody2D. The added mass of the water a body displaces goes into its inertia every physics step, so buoyancy drives no fall faster than g and no rise faster than g/C, for every density. Any collider shape tilts and rights itself; water volumes with waves and currents, or on the waves of HDRP's Water System or any other water system; air, balloons and thin air; wind with gusts and sails; splashes with events; and a 2D version. Method and benchmarks: Parkyn, N. (2026), Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines.",
   "unity": "2022.3",
   "documentationUrl": "https://github.com/NPARKYN84/bounded-buoyancy/tree/main/unity",
   "changelogUrl": "https://github.com/NPARKYN84/bounded-buoyancy/blob/main/unity/com.parkyn.bounded-buoyancy/CHANGELOG.md",
   "licensesUrl": "https://github.com/NPARKYN84/bounded-buoyancy/blob/main/unity/com.parkyn.bounded-buoyancy/LICENSE.md",
   "license": "MIT",
-  "keywords": ["buoyancy", "water", "physics", "floating", "boat", "waves", "wind", "balloon", "added mass", "2D"],
+  "keywords": ["buoyancy", "water", "physics", "floating", "boat", "waves", "wind", "balloon", "added mass", "2D", "HDRP", "ocean"],
   "author": {
     "name": "Nicholas Parkyn",
     "email": "nikparkyn@googlemail.com"

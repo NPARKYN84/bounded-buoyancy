@@ -12,6 +12,9 @@ extends Node3D
 ## by them. The waves are two travelling sine waves with the speeds of real deep-water waves for
 ## their length. A current makes the water flow: bodies in it drift with it, as in a river.
 ##
+## Other water systems: set surface_source (or height_function from code) and bodies float on that
+## system's waves instead, such as an ocean shader's, with this node's size, density and current.
+##
 ## Splashes: when a body hits the water fast enough the node throws up a splash, and every entry
 ## leaves rings spreading out over the surface. They are for show only and do not move bodies.
 
@@ -71,6 +74,36 @@ extends Node3D
 @export var surface_color: Color = Color(0.22, 0.52, 0.82, 0.55):
 	set(value):
 		surface_color = value
+		_update_surface()
+
+@export_group("Other Water System")
+## Optional: float bodies on the waves of another water system, such as an ocean shader or an
+## ocean add-on. Pick its node here. It needs a method, named below, that takes a world point
+## (Vector3) and returns the height (world Y) of its surface above or below that point. Bodies then
+## use that surface; this node's own waves are not used and its surface is not drawn. Size,
+## density, current and splashes still come from this node.
+@export var surface_source: Node:
+	set(value):
+		surface_source = value
+		_source_call = Callable()
+		_warned_source = false
+		_update_surface()
+## Name of the method on surface_source that gives the height of its surface.
+@export var surface_method: StringName = &"height_at":
+	set(value):
+		surface_method = value
+		_source_call = Callable()
+		_warned_source = false
+		_update_surface()
+## The most the other surface rises or falls from its average height, in metres. Set it at least as
+## high as the highest crest: bodies further than twice this from the surface are not measured.
+@export_range(0.0, 50.0, 0.01, "or_greater", "suffix:m") var surface_max_wave: float = 2.0
+
+## Set from code instead of surface_source: a Callable that takes a world point (Vector3) and returns
+## the height (world Y) of the surface there. Takes priority over surface_source.
+var height_function: Callable:
+	set(value):
+		height_function = value
 		_update_surface()
 
 ## Wave clock in seconds, advanced with the physics step.
@@ -135,6 +168,8 @@ var _inv := Transform3D.IDENTITY
 var _inv_frame := -1
 var _params := PackedFloat64Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1.0])
 var _params_frame := -1
+var _source_call := Callable()
+var _warned_source := false
 var _splashes: Array = []     # [CPUParticles3D, age]
 var _ripples: Array = []      # [MeshInstance3D, ShaderMaterial, age, start radius, strength]
 var _droplet_mesh: SphereMesh
@@ -206,6 +241,9 @@ func _process(dt: float) -> void:
 
 ## Height of the water surface (world Y) above or below the world point `p`.
 func height_at(p: Vector3) -> float:
+	var outside := outside_height()
+	if outside.is_valid():
+		return float(outside.call(p))
 	var y := global_position.y
 	if wave_height <= 0.0:
 		return y
@@ -300,7 +338,8 @@ func _add_ripple(l: Vector3, size: float, strength: float) -> void:
 	mat.set_shader_parameter("color", splash_color)
 	mat.set_shader_parameter("width", clampf(0.06 * size, 0.02, 0.3))
 	mat.set_shader_parameter("origin", Vector2(l.x, l.z))
-	mat.set_shader_parameter("amp", wave_height)
+	var outside := outside_height().is_valid()
+	mat.set_shader_parameter("amp", 0.0 if outside else wave_height)
 	mat.set_shader_parameter("k1", _k1)
 	mat.set_shader_parameter("k2", _k2)
 	mat.set_shader_parameter("w1", _w1)
@@ -310,6 +349,9 @@ func _add_ripple(l: Vector3, size: float, strength: float) -> void:
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(l.x, 0.0, l.z)
+	if outside:
+		# Another water system's surface: the rings ride on it at their centre.
+		mi.position.y = height_at(to_global(mi.position)) - global_position.y
 	add_child(mi, false, Node.INTERNAL_MODE_BACK)
 	_ripples.append([mi, mat, 0.0, 0.5 * size, strength])
 
@@ -325,6 +367,7 @@ func _age_effects(dt: float) -> void:
 		else:
 			i += 1
 	i = 0
+	var outside := not _ripples.is_empty() and outside_height().is_valid()
 	while i < _ripples.size():
 		var r: Array = _ripples[i]
 		r[2] += dt
@@ -333,6 +376,9 @@ func _age_effects(dt: float) -> void:
 			_ripples.remove_at(i)
 			continue
 		var mat: ShaderMaterial = r[1]
+		if outside:
+			var mi: MeshInstance3D = r[0]
+			mi.position.y = height_at(to_global(Vector3(mi.position.x, 0.0, mi.position.z))) - global_position.y
 		mat.set_shader_parameter("radius", r[3] + RIPPLE_SPEED * r[2])
 		mat.set_shader_parameter("strength", r[4] * (1.0 - r[2] / RIPPLE_LIFE))
 		mat.set_shader_parameter("t", time)
@@ -341,7 +387,41 @@ func _age_effects(dt: float) -> void:
 
 ## The most the surface rises or falls from its mean height.
 func max_wave() -> float:
+	if outside_height().is_valid():
+		return surface_max_wave
 	return wave_height * (1.0 + SECOND_HEIGHT)
+
+
+## Whether another water system's surface is used (so this node's own surface is not drawn). In the
+## editor, whether one is set, since its script may not run there.
+func _has_outside_surface() -> bool:
+	if not Engine.is_editor_hint():
+		return outside_height().is_valid()
+	return height_function.is_valid() or (surface_source != null and is_instance_valid(surface_source) and surface_source != self)
+
+
+## Whether the surface moves: this node's own waves, or another water system's surface.
+func is_wavy() -> bool:
+	return wave_height > 0.0 or outside_height().is_valid()
+
+
+## The height function of another water system (height_function, or surface_method on
+## surface_source), or an empty Callable when this node's own surface is used.
+func outside_height() -> Callable:
+	if height_function.is_valid():
+		return height_function
+	if surface_source == null:
+		return Callable()
+	if not is_instance_valid(surface_source) or surface_source == self:
+		return Callable()
+	if not _source_call.is_valid() or _source_call.get_object() != surface_source:
+		if not surface_source.has_method(surface_method):
+			if not _warned_source and not Engine.is_editor_hint():
+				_warned_source = true
+				push_warning("BoundedBuoyancyWater '%s': surface_source '%s' has no method '%s'; using this node's own surface." % [name, surface_source.name, surface_method])
+			return Callable()
+		_source_call = Callable(surface_source, surface_method)
+	return _source_call
 
 
 ## Whether the world point `p` lies over or in the water: inside it horizontally and above its floor.
@@ -389,7 +469,7 @@ func _update_surface() -> void:
 	_update_waves()
 	if not is_inside_tree():
 		return
-	if not show_surface:
+	if not show_surface or _has_outside_surface():
 		if _mesh_instance:
 			_mesh_instance.queue_free()
 			_mesh_instance = null

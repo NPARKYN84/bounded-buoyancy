@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B12). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B13). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -577,6 +577,46 @@ namespace BoundedBuoyancy.Tests
             Assert.AreEqual(1.5f, drift.Body.Velocity().x, 0.05f, "2D ball in a 1.5 m/s current drifts with it");
             Assert.AreEqual(Mathf.Sqrt(2f * G * 1f), hits.Count > 0 ? hits[0] : 0f, 0.08f, "2D ball dropped 1 m: water entered speed");
             Assert.AreEqual(0.5f, raftHi - raftLo, 0.3f, "2D raft on 0.2 m waves rises and falls");
+        }
+
+        // B13 ------------------------------------------------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator B13_OtherWaterSystem()
+        {
+            Fast();
+            // A stand-in for another water system gives the same waves as a water 40 m away, so a raft on it must move
+            // as its twin on that water's own waves.
+            BoundedBuoyancyWater own = Water(new Vector3(0f, 0f, 500f), new Vector3(20f, 4f, 20f));
+            own.waveHeight = 0.08f;
+            own.waveLength = 4f;
+            own.waveDirection = 20f;
+            own.Sync();
+            BoundedBuoyancyWater other = Water(new Vector3(40f, 0f, 500f), new Vector3(20f, 4f, 20f));
+            var copy = other.gameObject.AddComponent<ShiftedSurface>();
+            copy.from = own;
+            copy.shift = new Vector3(40f, 0f, 0f);
+            copy.maxWave = 0.12f;
+            other.surfaceSource = copy;
+            other.Sync();
+            Assert.IsTrue(other.UsesOtherSurface, "the water uses the other surface");
+            BoundedBuoyancyBody a = Box(new Vector3(0.6f, 0.15f, 0.4f), 450f, new Vector3(-4f, 0.05f, 500f), 15f);
+            BoundedBuoyancyBody b = Box(new Vector3(0.6f, 0.15f, 0.4f), 450f, new Vector3(36f, 0.05f, 500f), 15f);
+            float worst = 0f, worstTilt = 0f, lo = 1e9f, hi = -1e9f;
+            for (int step = 1; step <= 240; step++)
+            {
+                yield return new WaitForFixedUpdate();
+                worst = Mathf.Max(worst, Mathf.Abs(a.Body.position.y - b.Body.position.y));
+                worstTilt = Mathf.Max(worstTilt, Mathf.Abs(Tilt(a) - Tilt(b)));
+                if (step * Dt > 2f)
+                {
+                    lo = Mathf.Min(lo, b.Body.position.y);
+                    hi = Mathf.Max(hi, b.Body.position.y);
+                }
+            }
+            Assert.AreEqual(0f, 1000f * worst, 0.5f, "same waves from another system: height (mm)");
+            Assert.AreEqual(0f, worstTilt, 0.2f, "same waves from another system: tilt (deg)");
+            Assert.AreEqual(20f, 100f * (hi - lo), 12f, "raft on the other system's waves rises and falls (cm)");
         }
 
         [UnityTest]

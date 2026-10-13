@@ -2,7 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23305636.svg)](https://doi.org/10.5281/zenodo.23305636)
 
-**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle without added damping, rafts, crates and boats tilt and right themselves, ride the waves and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
+**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle without added damping, rafts, crates and boats tilt and right themselves, ride the waves (their own, or those of the ocean shader you already use) and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
 
 ![Usual engine buoyancy (left) against Bounded Buoyancy (right): light balls released under water](docs/release.gif)
 
@@ -25,7 +25,7 @@ Buoyancy then drives no fall faster than g and no rise faster than g/C (2g for a
 
 The plugin reproduces these values exactly, in both of Godot's physics engines (Godot Physics and Jolt). Run `tests/run_tests.gd` to check them yourself.
 
-**Using Unity?** A Unity version with the same physics, settings and benchmarks, for Unity 2022.3 LTS and Unity 6 in 3D and 2D, is in [`unity/`](unity/): install it from the Package Manager with the git URL `https://github.com/NPARKYN84/bounded-buoyancy.git?path=/unity/com.parkyn.bounded-buoyancy`.
+**Using Unity?** A Unity version with the same physics, settings and benchmarks, for Unity 2022.3 LTS and Unity 6 in 3D and 2D, is in [`unity/`](unity/): install it from the Package Manager with the git URL `https://github.com/NPARKYN84/bounded-buoyancy.git?path=/unity/com.parkyn.bounded-buoyancy`. It floats bodies on the waves of HDRP's Water System too: HDRP draws the ocean, Bounded Buoyancy does the physics.
 
 ## Any shape, tilting and righting
 
@@ -40,6 +40,16 @@ Supported shapes: sphere, box, cylinder, capsule and convex polygon (including t
 Add a **BoundedBuoyancyWater** node where you want the surface and set its **Size**: the water fills that box below the node. Once a scene has one, bodies float only inside water nodes, so a pond, a pool and the sea can sit at different heights with different densities (1000 kg/m³ fresh, about 1025 sea). Give it a **Wave Height** and **Wave Length** and every body rides and rocks on the surface it sits on, each part of it measured against the water above that part. The node draws a simple surface that moves with the waves; turn **Show Surface** off to use your own.
 
 ![A boat, a raft, a crate, a log and a ball on waves](docs/waves.gif)
+
+## Your own ocean, with this physics
+
+Already have an ocean or water shader, or an ocean add-on? Keep it for the look, and let Bounded Buoyancy do the floating. Add a **BoundedBuoyancyWater** over it, set **Surface Source** to the ocean's node and **Surface Method** to the name of its function that gives the height of the surface at a world point (`func get_height(p: Vector3) -> float`, say). Bodies then ride that ocean's waves, every vertex measured against the surface above it, with the added mass, righting and drag described here. The water node still sets where bodies float (its **Size**), the water's density and any current, and it stops drawing its own surface. Set **Surface Max Wave** to the height of the ocean's highest crest above its average level; for bodies further than twice that from the surface, the ocean is asked only for the height over their centre.
+
+From code, `height_function` takes a Callable instead: `$Water.height_function = func(p: Vector3) -> float: return ocean.wave_height_at(p)`.
+
+Shaders run on the graphics card, where the physics cannot read them, so the ocean's script needs the same wave formula on the CPU. An ocean add-on that floats objects of its own already has such a function; for a shader of your own, copy its wave sum into GDScript. The demo's ninth scene does exactly this with an ocean drawn by its own shader (`addons/bounded_buoyancy/demo/ocean_example.gd`, a template to copy):
+
+![Bodies riding an ocean drawn by its own shader](docs/ocean.gif)
 
 ## Rivers and currents
 
@@ -127,11 +137,11 @@ To give a boat ballast, set the body's **Center of Mass** to Custom and move it 
 | Buoyancy Mesh | Optional closed mesh used instead of the collision shapes | none |
 | Curve Segments | Facets around cylinders and capsules (the volume is corrected to the exact value) | 16 |
 
-The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, and **Splashes**, **Ripples** and **Splash Min Speed**. The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
+The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, **Splashes**, **Ripples** and **Splash Min Speed**, and, to use another water system's surface, **Surface Source**, **Surface Method** and **Surface Max Wave** (or `height_function` from code). The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
 
 ## Demo
 
-Open the project folder in Godot 4.4 or later and press Play. The first scene releases four light balls under water, usual method on the left and Bounded Buoyancy on the right, and shows each ball's first-frame acceleration. Press **Tab** for the second scene, a light float dropped onto the water; again for the third, a raft, a tall block and a boat finding their floating positions (**T** tips them over); again for the fourth, five bodies on waves (**W** switches between calm and rough); again for the fifth, two foil helium balloons and a hot-air balloon in air that thins with height (**B** turns the burner on and off, **G** gives both balloons the same push); again for the sixth, 300 bodies dropped onto waves with the time the buoyancy takes each frame (**N** switches the native kernel on and off); again for the seventh, a river carrying everything dropped into it; again for the eighth, a gusty wind over a lake (the arrow keys turn it and make it stronger or weaker); and again for the ninth, the 2D version (click to drop things in). **Space** runs any scene again. In your own project, open `addons/bounded_buoyancy/demo/demo.tscn` and press F6 to run it.
+Open the project folder in Godot 4.4 or later and press Play. The first scene releases four light balls under water, usual method on the left and Bounded Buoyancy on the right, and shows each ball's first-frame acceleration. Press **Tab** for the second scene, a light float dropped onto the water; again for the third, a raft, a tall block and a boat finding their floating positions (**T** tips them over); again for the fourth, five bodies on waves (**W** switches between calm and rough); again for the fifth, two foil helium balloons and a hot-air balloon in air that thins with height (**B** turns the burner on and off, **G** gives both balloons the same push); again for the sixth, 300 bodies dropped onto waves with the time the buoyancy takes each frame (**N** switches the native kernel on and off); again for the seventh, a river carrying everything dropped into it; again for the eighth, a gusty wind over a lake (the arrow keys turn it and make it stronger or weaker); again for the ninth, the same five bodies on an ocean drawn by its own shader (**W** again); and again for the tenth, the 2D version (click to drop things in). **Space** runs any scene again. In your own project, open `addons/bounded_buoyancy/demo/demo.tscn` and press F6 to run it.
 
 ## Check the numbers
 
@@ -139,7 +149,7 @@ Open the project folder in Godot 4.4 or later and press Play. The first scene re
 godot --headless --fixed-fps 60 --script res://tests/run_tests.gd
 ```
 
-prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, and the 2D version, and ends with PASS. The paper's benchmarks leave out air, so those checks set Air Density to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`) and the cost benchmark (`cost_bench.c`).
+prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, the 2D version, and another water system's surface (bodies on a copy of a water node's waves must move exactly as on the waves themselves), and ends with PASS. The paper's benchmarks leave out air, so those checks set Air Density to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`) and the cost benchmark (`cost_bench.c`).
 
 Without the native kernel, lower **Curve Segments** to make cylinders and capsules cheaper (`tests/bench_immerse.gd` times each shape).
 
@@ -149,6 +159,7 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
 - Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only, and bodies make no waves of their own: the momentum rule on water entry is the only loss beyond drag, and splashes are drawn, not simulated. The volume under a wave is accurate while the waves are long compared with the body.
+- From another water system only the height of the surface is taken: near the surface, one request per vertex of the body's shape each step, plus one at its centre (just one for a lone sphere), so for big fleets on an expensive ocean use simple shapes or a low-poly Buoyancy Mesh. Its currents are not read; set **Current** on the water node. The 2D water has no other-system link yet.
 - A current is the same everywhere in its water node (apart from the banks), and so is the wind in its node (apart from gusts). Drag acts at the body's centre, so a current or wind does not turn a body by itself, and a sail always faces the wind it feels, like a sail let out to run before the wind; sailing across or into the wind would need a keel and lift.
 - A latex balloon stretches as it rises and keeps going until it bursts; that is not modelled. Balloons that keep their volume (foil balloons, hot-air balloons, airships) are.
 - For very shallow floats (drafts of a few millimetres on a large ball) the submerged-volume added mass is several times too small, so their bobbing is faster than real. Any added-mass value can be set instead.

@@ -272,7 +272,9 @@ func _immerse(xf: Transform2D, w: Node2D) -> void:
 			centre_of_buoyancy = c + Vector2(0.0, (2.0 / 3.0) * s * s * s / submerged_area)
 		return
 	var cw := xf * _centroid
-	var swell: float = w.max_wave() if w else 0.0
+	# swell bounds how far the surface anywhere under the body can be from its height over the
+	# centre: twice the most it rises or falls from its mean.
+	var swell: float = 2.0 * w.max_wave() if w else 0.0
 	var top := _surface_at(cw.x, w)
 	if cw.y + _bound_radius <= top - swell:
 		submerged_area = 0.0

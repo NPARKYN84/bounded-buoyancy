@@ -14,6 +14,8 @@ namespace BoundedBuoyancy
     /// at different heights. Scenes without one use each body's water level.</para>
     /// <para>Waves move the surface only: bodies rise, fall and rock with them, and nothing is carried along by
     /// them. A current makes the water flow, and bodies drift with it. Splashes and rings are for show only.</para>
+    /// <para>Other water systems: set Surface Source (Bounded Buoyancy HDRP Water for HDRP's Water System, or your own
+    /// BoundedBuoyancySurface) and bodies float on that system's waves, with this water's size, density and current.</para>
     /// </summary>
     [AddComponentMenu("Physics/Bounded Buoyancy Water")]
     [DefaultExecutionOrder(-100)]   // advance the wave clock before the bodies use it
@@ -69,12 +71,17 @@ namespace BoundedBuoyancy
         [Tooltip("Optional material for the droplets and rings. Empty uses a built-in soft dot.")]
         public Material effectsMaterial;
 
+        [Header("Other Water System")]
+        [Tooltip("Optional: float bodies on the waves of another water system, such as Bounded Buoyancy HDRP Water (for HDRP's Water System) or your own BoundedBuoyancySurface. Bodies then use its surface; this water's own waves are not used and its surface is not drawn. Size, density, current and splashes still come from here.")]
+        public BoundedBuoyancySurface surfaceSource;
+
         internal static readonly List<BoundedBuoyancyWater> active = new List<BoundedBuoyancyWater>();
 
         /// <summary>Every enabled Bounded Buoyancy Water.</summary>
         public static IReadOnlyList<BoundedBuoyancyWater> Active { get { return active; } }
 
         readonly WaterVolume core = new WaterVolume();
+        readonly SurfaceLink link = new SurfaceLink();
         internal PhysicsScene PhysicsScene;
 
         const float RippleLife = 1.8f;
@@ -168,6 +175,14 @@ namespace BoundedBuoyancy
             core.Current = Bridge.V(current);
             core.CurrentEdge = currentEdge;
             core.SetWaves(waveHeight, waveLength, waveDirection, -Physics.gravity.y);
+            link.Target = surfaceSource;
+            core.Source = UsesOtherSurface ? link : null;
+        }
+
+        /// <summary>Whether bodies use another water system's surface (Surface Source) instead of this water's own.</summary>
+        public bool UsesOtherSurface
+        {
+            get { return surfaceSource != null && surfaceSource.isActiveAndEnabled; }
         }
 
         /// <summary>Height of the water surface (world Y) above or below the world point p.</summary>
@@ -211,7 +226,7 @@ namespace BoundedBuoyancy
 
         void DrawSurface()
         {
-            if (!showSurface)
+            if (!showSurface || UsesOtherSurface)
             {
                 if (surfaceRenderer != null)
                     surfaceRenderer.enabled = false;
@@ -437,18 +452,21 @@ namespace BoundedBuoyancy
             float fade = r.strength * (1f - r.age / RippleLife);
             WaveSet waves = core.Waves;
             double t = core.Time;
-            SetRing(r, r.outer, radius, waves, t);
+            float lift = float.NaN;   // another water system's surface: the rings ride on it at their centre
+            if (UsesOtherSurface)
+                lift = HeightAt(transform.position + transform.rotation * new Vector3(r.centre.x, 0f, r.centre.y)) - transform.position.y;
+            SetRing(r, r.outer, radius, waves, t, lift);
             Color c = splashColor;
             c.a *= fade;
             r.outer.startColor = c;
             r.outer.endColor = c;
-            SetRing(r, r.inner, 0.62f * radius, waves, t);
+            SetRing(r, r.inner, 0.62f * radius, waves, t, lift);
             c.a *= 0.6f;
             r.inner.startColor = c;
             r.inner.endColor = c;
         }
 
-        void SetRing(Ripple r, LineRenderer lr, float radius, WaveSet waves, double t)
+        void SetRing(Ripple r, LineRenderer lr, float radius, WaveSet waves, double t, float lift)
         {
             // Points in the ring's own frame (turned 90 degrees about X): (x, z, -height) in the water's frame.
             for (int i = 0; i < RingPoints; i++)
@@ -456,7 +474,7 @@ namespace BoundedBuoyancy
                 float a = 2f * Mathf.PI * i / RingPoints;
                 float x = r.centre.x + radius * Mathf.Cos(a);
                 float z = r.centre.y + radius * Mathf.Sin(a);
-                float h = (float)waves.Offset(x, z, t) + 0.006f;
+                float h = (float.IsNaN(lift) ? (float)waves.Offset(x, z, t) : lift) + 0.006f;
                 r.points[i] = new Vector3(x, z, -h);
             }
             lr.SetPositions(r.points);

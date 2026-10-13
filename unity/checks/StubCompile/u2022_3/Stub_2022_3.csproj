@@ -4,7 +4,7 @@
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <DefineConstants>UNITY_2022_3_OR_NEWER;UNITY_EDITOR</DefineConstants>
+    <DefineConstants>UNITY_2022_3_OR_NEWER;UNITY_EDITOR;BB_HDRP_WATER</DefineConstants>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsAsErrors>CS0618;CS0612</WarningsAsErrors>
     <AssemblyName>BBStub_2022_3</AssemblyName>
@@ -13,6 +13,7 @@
     <Compile Include="../UnityStubs.cs" />
     <Compile Include="../TestStubs.cs" />
     <Compile Include="../SampleStubs.cs" />
+    <Compile Include="../HDRPStubs.cs" />
     <Compile Include="../../../com.parkyn.bounded-buoyancy/Samples~/**/*.cs" />
     <Compile Include="../../../com.parkyn.bounded-buoyancy/Tests/**/*.cs" />
     <Compile Include="../../../com.parkyn.bounded-buoyancy/Runtime/**/*.cs" />

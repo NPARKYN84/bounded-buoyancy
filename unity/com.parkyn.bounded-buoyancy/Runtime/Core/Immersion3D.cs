@@ -29,7 +29,9 @@ namespace BoundedBuoyancy.Core
                 return;
             }
             double level = surface.HeightAt(cw);
-            double swell = surface.MaxWave;
+            // swell bounds how far the surface anywhere under the body can be from its height over the centre: twice
+            // the most it rises or falls from its mean.
+            double swell = 2.0 * surface.MaxWave;
             if (cw.y - s.BoundRadius >= level + swell)
             {
                 volume = 0.0;
@@ -51,7 +53,17 @@ namespace BoundedBuoyancy.Core
             V3 p = s.Centroid + up * ((hb - up.Dot(s.Centroid)) / up.LengthSquared);
             V3[] verts = s.Vertices;
             double[] depth = s.Depth;
-            if (surface.Wavy)
+            if (surface.Source != null)
+            {
+                // Another water system's surface: ask it for the heights over all the vertices at once.
+                V3[] world = s.WorldPoints;
+                for (int j = 0; j < verts.Length; j++)
+                    world[j] = pose.Apply(verts[j]);
+                surface.Source.HeightsAt(world, depth, verts.Length);
+                for (int j = 0; j < verts.Length; j++)
+                    depth[j] -= world[j].y;
+            }
+            else if (surface.Wavy)
             {
                 // Waves: measure each vertex against the surface above it. The cut then follows the waves, which
                 // is accurate while the waves are long compared with the body.

@@ -1,6 +1,6 @@
 # Bounded Buoyancy for Unity
 
-**Stable, accurate buoyancy for Unity 2022.3 LTS and Unity 6, in 3D and 2D.** Light objects stop launching out of the water, floats settle without added damping, crates, rafts and boats of any collider shape tilt and right themselves, ride the waves and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, and hundreds of bodies can cross the surface at once. It is the Unity version of the Bounded Buoyancy plugin for Godot, with the same physics and the same benchmarks.
+**Stable, accurate buoyancy for Unity 2022.3 LTS and Unity 6, in 3D and 2D.** Light objects stop launching out of the water, floats settle without added damping, crates, rafts and boats of any collider shape tilt and right themselves, ride the waves (their own, or HDRP's Water System's) and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, and hundreds of bodies can cross the surface at once. It is the Unity version of the Bounded Buoyancy plugin for Godot, with the same physics and the same benchmarks.
 
 Most engines apply buoyancy as a force on the body's own mass. For anything lighter than water that has no upper limit: released under water, an air bubble accelerates at 815g in its first frame and moves 2.2 m in one 60 Hz step. Real light spheres and bubbles start at no more than about 2g, because the water around them has to be set moving too. That water is the *added mass* of classical hydrodynamics.
 
@@ -27,7 +27,7 @@ Buoyancy then drives no fall faster than g and no rise faster than g/C (2g for a
 2. **See it.** In the package's page in the Package Manager, open *Samples* and import **Demo**. Then choose *Tools → Bounded Buoyancy → Play 3D Demo* (or *Play 2D Demo*). It opens a new scene with the demo in it and presses Play. The buttons on the left switch between eight scenes: release, float, tilt, waves, sky, many, river and wind.
 3. **Check it.** Add `"testables": ["com.parkyn.bounded-buoyancy"]` to your project's `Packages/manifest.json`, open *Window → General → Test Runner*, and press *Run All* on the **PlayMode** tab (about a minute: long runs go at 20 times real speed) and the **EditMode** tab (a second). The play-mode tests run the paper's benchmarks in Unity's own physics engine and should all pass.
 
-The drawn water, splashes and demo use Unity's built-in Sprites/Default shader, which renders in the Built-in and Universal render pipelines. In HDRP it renders too dark (it has no exposure handling), so give the water an HDRP material of your own (**Surface Material**, **Effects Material**); the physics is the same in every pipeline.
+The drawn water, splashes and demo use Unity's built-in Sprites/Default shader, which renders in the Built-in and Universal render pipelines. In HDRP it renders too dark (it has no exposure handling), so give the water an HDRP material of your own (**Surface Material**, **Effects Material**), or let HDRP's Water System draw the water (below); the physics is the same in every pipeline.
 
 ## Use (3D)
 
@@ -69,6 +69,20 @@ Read from scripts: `OwnMass`, `Volume`, `SubmergedVolume`, `AddedMass`, `CentreO
 
 From scripts: `HeightAt(point)`, `CurrentAt(point)`, `Contains(point)`, `MaxWave`, `WaveTime`, and `Splash(point, speed, width)` to throw up a splash of your own.
 
+### HDRP Water System, and other water systems
+
+Keep the ocean, river or pool that HDRP's Water System draws, and let Bounded Buoyancy do the floating: the part of each body under HDRP's waves, the added mass, righting and drag.
+
+1. On the HDRP **Water Surface**, turn on **Script Interactions**, so HDRP can answer height requests from scripts. In Unity 2022.3, turn on **Script Interactions** in the Water section of your HDRP asset as well.
+2. Add **Bounded Buoyancy HDRP Water** to an empty, unscaled object at the water's height (HDRP sizes some water surfaces by their object's scale, so not to a scaled Water Surface's object). It adds a **Bounded Buoyancy Water**, links itself as that water's **Surface Source**, and picks up the Water Surface (on the same object, a parent, or the first in the scene). It sizes the water to match a quad surface, or 1 km across for an infinite ocean; set **Size** to cover where bodies should float.
+3. Set **Max Wave** to at least the height of the highest crest above the water's average level (3 m to start). For bodies further than twice that from the surface, HDRP is asked only for the height over their centre.
+
+Bodies with a Bounded Buoyancy Body then float on HDRP's waves, each vertex of their shape measured against the surface above it. The Bounded Buoyancy Water still sets the density and any current, and stops drawing its own surface. **Search Error** and **Search Steps** set how exactly HDRP finds each height (0.01 m and 8 steps, as in Unity's own samples), and in Unity 2023.1 and later **Include Deformation** counts the water's deformation (its deformers, or its water decals in Unity 6). The link is compiled only when HDRP 14 (Unity 2022.3) or newer is in the project; without HDRP the package needs nothing from it.
+
+Unity's HDRP water samples include a Buoyancy script of their own. It treats every object as a sphere of a radius you set, measured at one point, applies buoyancy on the object's own mass, and holds it down with a "surface tension" damping and a cap on its speed. Here the collider's own shape is cut at HDRP's surface, so a raft, a boat and a log float, tilt and right themselves as their shapes do, and the added mass keeps light objects from launching without any damping or speed cap.
+
+Any other water system can be linked the same way: derive from **BoundedBuoyancySurface**, override `HeightAt(Vector3 worldPoint)` to return the height of its surface there (and `HeightsAt` if it can answer many points at once), add it next to a Bounded Buoyancy Water and set the water's **Surface Source** to it.
+
 ### Bounded Buoyancy Wind
 
 **Velocity** (in the object's own frame: turn it to aim the wind), **Gust Strength**, **Gust Period** and **Direction Swing**; gusts travel downwind, so nearby bodies feel each one in turn. Turn off **Everywhere** to fill only a box of **Size** round the object, such as a gap between buildings or a fan. The wind pushes on the part of each body out of the water, so balloons drift with it, a body with a sail runs before it and heels, and a crate barely moves.
@@ -79,9 +93,10 @@ From scripts: `HeightAt(point)`, `CurrentAt(point)`, `Contains(point)`, `MaxWave
 
 ## How it is checked
 
-- **The physics, in plain C#.** All the physics lives in an engine-free core (`Runtime/Core`), with no Unity types. The repository's `unity/checks/CoreTests` runs it in .NET with a small integrator standing in for the engine, against every benchmark the Godot plugin passes: 87 checks, all passing. First-frame accelerations agree with the formula to the printed digits (an air bubble's 7995.62 m/s² usual against 19.54 m/s² bounded); the release-and-surfacing times are 0.517, 0.533, 0.617 and 0.783 s, as in the paper's Table 4; a ball in a 1.5 m/s river drifts at 1.486 m/s after a minute; a helium balloon starts at 16.34 m/s² usual against 7.00 m/s² bounded.
-- **In Unity.** The package's 15 play-mode tests run the same benchmarks in Unity's physics engines (B1 to B12: first frames, surfacing, every collider type, righting, water volumes and waves, air and balloons, density changed while running, fast bodies, rivers, wind and sails, splashes and events, and 2D), plus a check that Unity measures a Rigidbody2D's inertia about its centre of mass, as the 2D body assumes. The 9 edit-mode tests check the core in a second.
-- **The Unity API.** Every Unity call was checked against Unity's published C# reference source for 2022.3 and Unity 6, and the runtime, tests and sample compile against both, each as its own assembly as Unity builds them, with warnings as errors (`unity/checks/Split`). In Unity 6 it uses `linearVelocity`, `linearDamping` and `angularDamping`; in 2022.3, `velocity`, `drag` and `angularDrag`.
+- **The physics, in plain C#.** All the physics lives in an engine-free core (`Runtime/Core`), with no Unity types. The repository's `unity/checks/CoreTests` runs it in .NET with a small integrator standing in for the engine, against every benchmark the Godot plugin passes: 92 checks, all passing. First-frame accelerations agree with the formula to the printed digits (an air bubble's 7995.62 m/s² usual against 19.54 m/s² bounded); the release-and-surfacing times are 0.517, 0.533, 0.617 and 0.783 s, as in the paper's Table 4; a ball in a 1.5 m/s river drifts at 1.486 m/s after a minute; a helium balloon starts at 16.34 m/s² usual against 7.00 m/s² bounded.
+- **In Unity.** The package's 16 play-mode tests run the same benchmarks in Unity's physics engines (B1 to B13: first frames, surfacing, every collider type, righting, water volumes and waves, air and balloons, density changed while running, fast bodies, rivers, wind and sails, splashes and events, 2D, and another water system's surface), plus a check that Unity measures a Rigidbody2D's inertia about its centre of mass, as the 2D body assumes. The 11 edit-mode tests check the core in a second.
+- **Other water systems.** A stand-in for another system that gives a copy of a water volume's waves must move bodies exactly as the waves themselves do; in the .NET checks the twins agree to within a millionth of a millimetre and a millionth of a degree. A body well clear of the surface asks for one height a step.
+- **The Unity API.** Every Unity call was checked against Unity's published C# reference source for 2022.3 and Unity 6, and every HDRP call against HDRP's published source for HDRP 14 (Unity 2022.3) and 17 (Unity 6). The runtime, the HDRP link, tests and sample compile against both, each as its own assembly as Unity builds them, with warnings as errors (`unity/checks/Split`). The HDRP link has not yet been run inside an HDRP project. In Unity 6 it uses `linearVelocity`, `linearDamping` and `angularDamping`; in 2022.3, `velocity`, `drag` and `angularDrag`.
 
 ## Speed
 
@@ -93,6 +108,7 @@ The buoyancy work for 300 bodies riding waves, measured in plain .NET 8 on a 2.1
 - A mesh collider counts as the convex hull of its points, as Unity's physics treats a dynamic body's mesh. Its mesh (or the buoyancy mesh) must have Read/Write enabled for builds; otherwise its bounding box is used, with a warning.
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only, and bodies make no waves of their own; splashes are drawn, not simulated. The volume under a wave is accurate while the waves are long compared with the body.
+- From another water system (HDRP's included) only the height of the surface is taken: near the surface, one request per vertex of the body's shape each step, plus one at its centre (just one for a lone sphere), so for big fleets use simple colliders or a low-poly Buoyancy Mesh. Its currents are not read; set **Current** on the Bounded Buoyancy Water. 2D water has no other-system link yet.
 - Drag acts at the body's centre, so a current or wind does not turn a body by itself, and a sail always faces the wind it feels, like a sail let out to run before the wind; sailing across or into the wind would need a keel and lift.
 - Gravity is read from Physics.gravity (Physics2D.gravity in 2D), straight down. Water volumes should be turned only about the vertical, and water and wind kept at scale 1 (set their sizes instead).
 - Floating bodies apply a small force every step, so they do not go to sleep.

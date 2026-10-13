@@ -16,11 +16,13 @@ extends Node3D
 ##            log barely move. Arrow keys turn the wind and make it stronger or weaker.
 ##   SKY:     the same law in air. Two foil helium balloons rise and float where the air (thinning upward,
 ##            halving every 10 m here) is as light as they are, and a hot-air balloon lifts off when heated.
-## Keys: Space = run again, T = tip them over (TILT), W = calm or rough (WAVES), B = burner, G = gust (SKY),
+##   OCEAN:   another water system's waves: an ocean drawn by its own shader (ocean_example.gd), with a
+##            BoundedBuoyancyWater taking its surface from it. The same bodies as WAVES ride it.
+## Keys: Space = run again, T = tip them over (TILT), W = calm or rough (WAVES, OCEAN), B = burner, G = gust (SKY),
 ## N = native kernel on or off (MANY), Tab = next scene.
 
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
-enum Scene { RELEASE, FLOAT, TILT, WAVES, SKY, MANY, RIVER, WIND }
+enum Scene { RELEASE, FLOAT, TILT, WAVES, SKY, MANY, RIVER, WIND, OCEAN }
 
 @export var scene: Scene = Scene.RELEASE
 
@@ -34,8 +36,9 @@ const RELEASE_CASES := [
 const ORANGE := Color(0.93, 0.5, 0.15)
 const TEAL := Color(0.16, 0.62, 0.56)
 const INK := Color(0.12, 0.14, 0.18)
-const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
+const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_ocean.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
+const OCEAN_EXAMPLE := preload("res://addons/bounded_buoyancy/demo/ocean_example.gd")
 
 var _rows: Array = []        # [name, usual body, bounded body, usual label, bounded label]
 var _first: Dictionary = {}  # body -> first-frame acceleration in g
@@ -44,6 +47,7 @@ var _t := 0.0
 var _released := false
 var _tilt_rows: Array = []   # [body, label, caption]
 var _sea: Node3D
+var _ocean: Node3D            # OCEAN scene: the other water system (ocean_example.gd)
 
 # SKY scene. The air halves in density every AIR_HALF metres; a foil balloon keeps its volume, so it
 # floats where the air is as light as it is. The hot-air balloon's density is its envelope, basket and
@@ -96,6 +100,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().change_scene_to_file(SCENE_FILES[(scene + 1) % SCENE_FILES.size()])   # the 2D scene comes last
 		elif event.keycode == KEY_W and scene == Scene.WAVES:
 			_sea.wave_height = 0.12 if _sea.wave_height < 0.1 else 0.06
+		elif event.keycode == KEY_W and scene == Scene.OCEAN:
+			_ocean.roughness = 2.0 if _ocean.roughness < 1.5 else 1.0
+			_sea.surface_max_wave = _ocean.max_wave()
 		elif event.keycode == KEY_N and scene == Scene.MANY:
 			BB.use_native = not BB.use_native
 			_cost_sum = 0.0
@@ -146,7 +153,7 @@ func _physics_process(dt: float) -> void:
 	if scene == Scene.WIND:
 		_wind_step()
 		return
-	if scene == Scene.TILT or scene == Scene.WAVES:
+	if scene == Scene.TILT or scene == Scene.WAVES or scene == Scene.OCEAN:
 		_update_labels()
 		return
 	for row in _rows:
@@ -240,7 +247,7 @@ func _reset() -> void:
 		hull.points = PackedVector3Array([Vector3(-0.2, 0.05, -0.2), Vector3(0.2, 0.05, -0.2), Vector3(-0.1, -0.05, -0.2), Vector3(0.1, -0.05, -0.2),
 			Vector3(-0.2, 0.05, 0.2), Vector3(0.2, 0.05, 0.2), Vector3(-0.1, -0.05, 0.2), Vector3(0.1, -0.05, 0.2)])
 		_tilt_body("Boat, low centre of mass", hull, 300.0, Vector3(0.62, 0.16, 0), 70.0, Vector3(0, -0.04, 0), true)
-	elif scene == Scene.WAVES:
+	elif scene == Scene.WAVES or scene == Scene.OCEAN:
 		var hull := ConvexPolygonShape3D.new()
 		hull.points = PackedVector3Array([Vector3(-0.2, 0.05, -0.32), Vector3(0.2, 0.05, -0.32), Vector3(-0.1, -0.05, -0.28), Vector3(0.1, -0.05, -0.28),
 			Vector3(-0.2, 0.05, 0.32), Vector3(0.2, 0.05, 0.32), Vector3(-0.1, -0.05, 0.28), Vector3(0.1, -0.05, 0.28), Vector3(0, 0.05, 0.48)])
@@ -509,7 +516,7 @@ func _box_shape(size: Vector3) -> BoxShape3D:
 
 
 func _build_world() -> void:
-	if scene == Scene.WAVES:
+	if scene == Scene.WAVES or scene == Scene.OCEAN:
 		_build_sea()
 		return
 	if scene == Scene.SKY:
@@ -612,14 +619,23 @@ func _build_sea() -> void:
 	add_child(cam)
 	_sea = BW.new()
 	_sea.size = Vector3(24.0, 2.0, 24.0)
-	_sea.wave_height = 0.06
-	_sea.wave_length = 2.4
-	_sea.wave_direction = 20.0
+	if scene == Scene.OCEAN:
+		# Another water system draws the sea; the water node takes its surface from it.
+		_ocean = OCEAN_EXAMPLE.new()
+		add_child(_ocean)
+		_sea.surface_source = _ocean
+		_sea.surface_method = &"get_height"
+		_sea.surface_max_wave = _ocean.max_wave()
+	else:
+		_sea.wave_height = 0.06
+		_sea.wave_length = 2.4
+		_sea.wave_direction = 20.0
 	add_child(_sea)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
-	title.text = "A water node with waves: each body rides and rocks with the surface it sits on"
+	title.text = "A water node with waves: each body rides and rocks with the surface it sits on" if scene == Scene.WAVES \
+		else "Another water system's waves: the sea is drawn by its own shader, and Bounded Buoyancy does the physics"
 	title.position = Vector2(24, 14)
 	title.add_theme_color_override("font_color", INK)
 	title.add_theme_font_size_override("font_size", 20)

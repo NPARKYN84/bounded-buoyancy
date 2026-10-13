@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0
+
+- Other water systems: a water node can take its surface from another water system, such as an ocean shader or an ocean add-on, so bodies float on that system's waves with Bounded Buoyancy's physics. Set **Surface Source** to the ocean's node and **Surface Method** to its height function (or set `height_function` from code), and **Surface Max Wave** to its highest crest. The water node still sets the size, density, current and splashes, and stops drawing its own surface; its rings ride the other surface.
+- Unity: the same for any water system, through a new **BoundedBuoyancySurface** base class, and a ready link to HDRP's Water System, **Bounded Buoyancy HDRP Water**, for Unity 2022.3 (HDRP 14) and Unity 6 (HDRP 17). See the Unity changelog.
+- Demo: a new scene with an ocean drawn by its own shader (`demo/ocean_example.gd`, a template for linking your own) and the five bodies of the waves scene riding it.
+- Bodies near wavy water now check the surface over every part of them when the waves are short and steep compared with the body; before, a crest could reach a body that was counted as clear of the water. The tests' results are unchanged.
+- Tests: new checks that bodies on another system's copy of a water node's waves move exactly as on the waves themselves, that a body well clear of the surface asks for one height a step, and that a surface set from code and a source without the method behave; all pass in Godot Physics and Jolt, with and without the native kernel.
+
 ## 2.0.1
 
 - No changes to the physics or the settings.

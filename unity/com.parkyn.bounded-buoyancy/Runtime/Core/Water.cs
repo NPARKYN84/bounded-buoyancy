@@ -64,7 +64,22 @@ namespace BoundedBuoyancy.Core
         public double MaxWave { get { return Height * (1.0 + SecondHeight); } }
     }
 
-    /// <summary>The water surface a body is measured against: flat at Level, or with waves.</summary>
+    /// <summary>
+    /// The surface of another water system (an ocean renderer, say), for bodies to float on its waves.
+    /// </summary>
+    public interface ISurfaceHeights
+    {
+        /// <summary>Set heights[i] to the height (world y) of the surface above or below the world point points[i],
+        /// for i below count. Bodies ask for all the points they need at once.</summary>
+        void HeightsAt(V3[] points, double[] heights, int count);
+
+        /// <summary>The most the surface rises or falls from its average height. Bodies further than twice this from
+        /// the surface are not measured.</summary>
+        double MaxWave { get; }
+    }
+
+    /// <summary>The water surface a body is measured against: flat at Level, with waves, or another water system's
+    /// surface (Source).</summary>
     public struct WaterSurface
     {
         public double Level;
@@ -72,18 +87,34 @@ namespace BoundedBuoyancy.Core
         public double Time;
         /// <summary>The water's position and turn, to put world points into the water's frame for the waves.</summary>
         public BodyPose Frame;
+        /// <summary>Another water system's surface; when set, it is used instead of Level and Waves.</summary>
+        public ISurfaceHeights Source;
 
-        public bool Wavy { get { return Waves.Height > 0.0; } }
-        public double MaxWave { get { return Wavy ? Waves.MaxWave : 0.0; } }
+        public bool Wavy { get { return Source != null || Waves.Height > 0.0; } }
+        public double MaxWave { get { return Source != null ? Math.Max(Source.MaxWave, 0.0) : (Waves.Height > 0.0 ? Waves.MaxWave : 0.0); } }
 
         public static WaterSurface Flat(double level)
         {
             return new WaterSurface { Level = level, Frame = new BodyPose(V3.Zero, M3.Identity) };
         }
 
+        [ThreadStatic] static V3[] onePoint;
+        [ThreadStatic] static double[] oneHeight;
+
         /// <summary>Height (world y) of the surface above or below the world point p.</summary>
         public double HeightAt(V3 p)
         {
+            if (Source != null)
+            {
+                if (onePoint == null)
+                {
+                    onePoint = new V3[1];
+                    oneHeight = new double[1];
+                }
+                onePoint[0] = p;
+                Source.HeightsAt(onePoint, oneHeight, 1);
+                return oneHeight[0];
+            }
             if (Waves.Height <= 0.0)
                 return Level;
             V3 l = Frame.Inverse(p);
@@ -131,6 +162,8 @@ namespace BoundedBuoyancy.Core
         public double CurrentEdge;
         /// <summary>Wave clock in seconds.</summary>
         public double Time;
+        /// <summary>Another water system's surface, used instead of the waves when set.</summary>
+        public ISurfaceHeights Source;
 
         WaveSet waves;
         double waveHeight = -1.0, waveLength, waveDirection, waveGravity;
@@ -153,12 +186,12 @@ namespace BoundedBuoyancy.Core
 
         public WaterSurface Surface
         {
-            get { return new WaterSurface { Level = Position.y, Waves = waves, Time = Time, Frame = Frame }; }
+            get { return new WaterSurface { Level = Position.y, Waves = waves, Time = Time, Frame = Frame, Source = Source }; }
         }
 
         public double HeightAt(V3 p) { return Surface.HeightAt(p); }
 
-        public double MaxWave { get { return waves.MaxWave; } }
+        public double MaxWave { get { return Surface.MaxWave; } }
 
         /// <summary>Whether the world point p lies over or in the water: inside it across, and above its floor.</summary>
         public bool Contains(V3 p)

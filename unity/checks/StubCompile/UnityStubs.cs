@@ -207,6 +207,7 @@ namespace UnityEngine
 
     public class Time
     {
+        public static float time { get { return 0f; } }
         public static float deltaTime { get { return 0f; } }
         public static float fixedDeltaTime { get { return 0f; } set { } }
         public static float timeScale { get { return 1f; } set { } }
@@ -570,5 +571,18 @@ namespace UnityEngine.Events
         public UnityEvent() { }
         public void AddListener(UnityAction<T0, T1> call) { }
         public void Invoke(T0 arg0, T1 arg1) { }
+    }
+}
+
+namespace UnityEditor
+{
+    public partial class Undo
+    {
+        public static void RecordObject(UnityEngine.Object objectToUndo, string name) { }
+    }
+
+    public sealed partial class PrefabUtility
+    {
+        public static void RecordPrefabInstancePropertyModifications(UnityEngine.Object targetObject) { }
     }
 }

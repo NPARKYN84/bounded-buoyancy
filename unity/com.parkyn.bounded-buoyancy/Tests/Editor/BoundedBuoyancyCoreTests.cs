@@ -1,4 +1,4 @@
-// Edit-mode checks of the engine-free core: shapes, waterline cuts, inertia, waves and gusts. They run in a
+// Edit-mode checks of the engine-free core: shapes, waterline cuts, inertia, waves, gusts and other water systems. They run in a
 // second, without entering play mode (Window > General > Test Runner > EditMode).
 using System;
 using System.Collections.Generic;
@@ -97,6 +97,61 @@ namespace BoundedBuoyancy.Tests
             var pose = new BodyPose(new V3(0, -0.5, 0), M3.Identity);
             core.Step(pose, pose.Position, V3.Zero, WaterSample.Flat(0.0, 1000.0), V3.Zero, 9.80665, 1.0 / 60.0);
             Assert.AreEqual(9.80665 * (1 - 0.001225) / (0.001225 + 0.5), core.LastAcceleration.y, 1e-9, "never above g/C");
+        }
+
+        /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `shift`.</summary>
+        sealed class ShiftedWaves : ISurfaceHeights
+        {
+            readonly WaterVolume from;
+            readonly V3 shift;
+            public int Points;
+            public ShiftedWaves(WaterVolume from, V3 shift) { this.from = from; this.shift = shift; }
+            public void HeightsAt(V3[] points, double[] heights, int count)
+            {
+                Points += count;
+                for (int i = 0; i < count; i++)
+                    heights[i] = from.HeightAt(points[i] - shift);
+            }
+            public double MaxWave { get { return from.MaxWave; } }
+        }
+
+        [Test]
+        public void AnotherSystemsSurfaceCutsBodiesAsTheSameWavesDo()
+        {
+            var sea = new WaterVolume { Position = V3.Zero, Size = new V3(50, 5, 50) };
+            sea.SetWaves(0.3, 5.0, 25.0, 9.81);
+            sea.Time = 1.7;
+            var shift = new V3(30, 0, 0);
+            var copy = new WaterSurface { Source = new ShiftedWaves(sea, shift) };
+            var box = Box(0.8, 0.3, 0.5);
+            for (int i = 0; i < 20; i++)
+            {
+                var pose = new BodyPose(new V3(-3.0 + 0.3 * i, 0.15 * Math.Sin(i), 0.2 * i), M3.TurnAboutZ(7.0 * i));
+                double v1, v2;
+                V3 c1, c2;
+                Immersion3D.Immerse(box, pose, sea.Surface, out v1, out c1);
+                Immersion3D.Immerse(box, new BodyPose(pose.Position + shift, pose.Basis), copy, out v2, out c2);
+                Assert.AreEqual(v1, v2, 1e-12, "submerged volume");
+                Assert.AreEqual(c1.x + shift.x, c2.x, 1e-9, "centre of buoyancy, x");
+                Assert.AreEqual(c1.y, c2.y, 1e-9, "centre of buoyancy, y");
+            }
+        }
+
+        [Test]
+        public void BodyWellClearOfAnotherSystemsSurfaceAsksForOneHeight()
+        {
+            var sea = new WaterVolume { Position = V3.Zero, Size = new V3(50, 5, 50) };
+            sea.SetWaves(0.3, 5.0, 0.0, 9.81);
+            var source = new ShiftedWaves(sea, V3.Zero);
+            var surface = new WaterSurface { Source = source };
+            var box = Box(0.4, 0.4, 0.4);
+            double vol;
+            V3 cb;
+            Immersion3D.Immerse(box, new BodyPose(new V3(0, 3, 0), M3.Identity), surface, out vol, out cb);
+            Assert.AreEqual(0.0, vol, 0.0, "above the surface");
+            Immersion3D.Immerse(box, new BodyPose(new V3(0, -3, 0), M3.Identity), surface, out vol, out cb);
+            Assert.AreEqual(box.Volume, vol, 1e-12, "below the surface");
+            Assert.AreEqual(2.0, source.Points, 0.0, "one height each, at the centre");
         }
 
         [Test]

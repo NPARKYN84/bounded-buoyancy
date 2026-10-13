@@ -6,9 +6,9 @@ authors:
   - family-names: Parkyn
     given-names: Nicholas
     orcid: "https://orcid.org/0009-0007-9843-9722"
-version: 2.0.1
+version: 2.1.0
 doi: "10.5281/zenodo.23305636"
-date-released: 2026-10-12
+date-released: 2026-10-13
 license: MIT
 repository-code: "https://github.com/NPARKYN84/bounded-buoyancy"
 keywords: [buoyancy, added mass, game physics, Godot, Unity, real-time simulation]

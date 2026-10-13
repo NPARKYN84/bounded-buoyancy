@@ -395,7 +395,9 @@ namespace BoundedBuoyancy.Core
                 centre = cw;
                 return;
             }
-            double swell = surface.MaxWave;
+            // swell bounds how far the surface anywhere under the body can be from its height over the centre: twice
+            // the most it rises or falls from its mean.
+            double swell = 2.0 * surface.MaxWave;
             double top = surface.HeightAt(cw.x);
             if (cw.y - s.BoundRadius >= top + swell)
             {
