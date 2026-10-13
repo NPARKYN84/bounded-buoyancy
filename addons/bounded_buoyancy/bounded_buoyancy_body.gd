@@ -356,17 +356,17 @@ func _apply_appendages(v: Vector3, xf: Transform3D, m: float, rho: float, flow: 
 			# A sail swings away from the wind it feels at its pivot.
 			var air := (flow if in_water else wind) - (v + w.cross(pivot - com))
 			f.angle = _Foil.trim(rest.z, s, air, f.trim_angle_of_attack, f.max_trim)
-		var c := _turn(rest.z, s, f.angle)
-		var p := pivot + c * f.effort_offset
-		var half := 0.5 * (f.span_length() * absf(s.y) + f.chord_length() * absf(c.y))
-		var wet := _wet_fraction(p, half, has_water, level)
+		var c: Vector3 = _turn(rest.z, s, f.angle)
+		var p: Vector3 = pivot + c * float(f.effort_offset)
+		var half: float = 0.5 * (float(f.span_length()) * absf(s.y) + float(f.chord_length()) * absf(c.y))
+		var wet: float = _wet_fraction(p, half, has_water, level)
 		var frac := wet if in_water else 1.0 - wet
 		var density := rho if in_water else air_density_here
 		f.immersion = frac
 		if frac <= 0.0 or density <= 0.0:
 			continue
 		var medium := flow if in_water else wind
-		var r := p - com
+		var r: Vector3 = p - com
 		var u := v + w.cross(r) - medium          # the foil's velocity through its medium
 		var up := u - s * s.dot(u)                 # the part across the span
 		var q := up.length()
@@ -399,16 +399,16 @@ func _apply_appendages(v: Vector3, xf: Transform3D, m: float, rho: float, flow: 
 		if not t.is_inside_tree():
 			continue
 		var at: Vector3 = t.global_position
-		var wet := _wet_fraction(at, 0.5 * maxf(t.diameter, 1e-3), has_water, level)
+		var wet: float = _wet_fraction(at, 0.5 * maxf(t.diameter, 1e-3), has_water, level)
 		var in_water: bool = t.medium == 0
 		var frac := wet if in_water else 1.0 - wet
 		t.immersion = frac
-		var throttle := clampf(t.throttle, -1.0, 1.0)
+		var throttle: float = clampf(t.throttle, -1.0, 1.0)
 		var full: float = t.max_thrust * frac
 		if full <= 0.0 or throttle == 0.0 or t.max_speed <= 0.0:
 			continue
 		var d: Vector3 = -t.global_transform.basis.z.normalized()
-		var r := at - com
+		var r: Vector3 = at - com
 		var ua := (v + w.cross(r) - (flow if in_water else wind)).dot(d)
 		# Thrust full x (throttle - ua / max_speed): a pull towards throttle x max_speed, kept between
 		# nothing and full x throttle.
