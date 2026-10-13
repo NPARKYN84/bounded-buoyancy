@@ -18,6 +18,8 @@ extends Node3D
 ##            halving every 10 m here) is as light as they are, and a hot-air balloon lifts off when heated.
 ##   OCEAN:   another water system's waves: an ocean drawn by its own shader (ocean_example.gd), with a
 ##            BoundedBuoyancyWater taking its surface from it. The same bodies as WAVES ride it.
+##   BOATS:   (demo_boats.gd) drive a motorboat with a keel, a rudder and a propeller, while a dinghy with a
+##            self-trimming sail beats up into the wind in tacks and runs back.
 ## Keys: Space = run again, T = tip them over (TILT), W = calm or rough (WAVES, OCEAN), B = burner, G = gust (SKY),
 ## N = native kernel on or off (MANY), Tab = next scene.
 
@@ -36,7 +38,7 @@ const RELEASE_CASES := [
 const ORANGE := Color(0.93, 0.5, 0.15)
 const TEAL := Color(0.16, 0.62, 0.56)
 const INK := Color(0.12, 0.14, 0.18)
-const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_ocean.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
+const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_ocean.tscn", "res://addons/bounded_buoyancy/demo/demo_boats.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const OCEAN_EXAMPLE := preload("res://addons/bounded_buoyancy/demo/ocean_example.gd")
 
@@ -97,7 +99,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE:
 			_reset()
 		elif event.keycode == KEY_TAB:
-			get_tree().change_scene_to_file(SCENE_FILES[(scene + 1) % SCENE_FILES.size()])   # the 2D scene comes last
+			get_tree().change_scene_to_file(SCENE_FILES[(scene + 1) % SCENE_FILES.size()])   # then BOATS (demo_boats.gd), then 2D
 		elif event.keycode == KEY_W and scene == Scene.WAVES:
 			_sea.wave_height = 0.12 if _sea.wave_height < 0.1 else 0.06
 		elif event.keycode == KEY_W and scene == Scene.OCEAN:
