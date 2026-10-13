@@ -50,6 +50,12 @@ namespace BoundedBuoyancy.Checks
         public double WaterLevel;
         public double WaterDensity = 1000.0;
         public WaterVolume Water;          // the water it is in, this step
+        /// <summary>Foils with their pivot, span and rest chord in the body's own coordinates (from its origin).</summary>
+        public readonly List<(Foil3D foil, V3 pivot, V3 span, V3 chord)> Foils = new List<(Foil3D, V3, V3, V3)>();
+        /// <summary>Thrusters with their position and push direction in the body's own coordinates.</summary>
+        public readonly List<(Thruster3D thruster, V3 at, V3 dir)> Thrusters = new List<(Thruster3D, V3, V3)>();
+        readonly List<Foil3D> foilList = new List<Foil3D>();
+        readonly List<Thruster3D> thrusterList = new List<Thruster3D>();
         public event Action<double, V3> Entered;
         public event Action<double, V3> Exited;
 
@@ -86,6 +92,34 @@ namespace BoundedBuoyancy.Checks
             if (c == Crossing.Exited && Exited != null)
                 Exited(speed, at);
         }
+
+        /// <summary>Foils and thrusters, as the engine layers do after the body's step: poses set from the body's
+        /// pose, then the core's Appendages.Apply on the target velocity and the angular velocity.</summary>
+        public void ApplyAppendages(BodyPose pose, WaterSample sample, V3 wind, double dt)
+        {
+            if (Foils.Count == 0 && Thrusters.Count == 0)
+                return;
+            foilList.Clear();
+            thrusterList.Clear();
+            foreach (var f in Foils)
+            {
+                f.foil.Pivot = pose.Apply(f.pivot);
+                f.foil.Span = pose.Basis.Mul(f.span);
+                f.foil.RestChord = pose.Basis.Mul(f.chord);
+                foilList.Add(f.foil);
+            }
+            foreach (var t in Thrusters)
+            {
+                t.thruster.Position = pose.Apply(t.at);
+                t.thruster.Direction = pose.Basis.Mul(t.dir);
+                thrusterList.Add(t.thruster);
+            }
+            V3 v = Core.VelocityTarget;
+            V3 w = W;
+            Appendages.Apply(foilList, thrusterList, Core.InertialMass, Com, pose.Basis * Axes, Moments, ref v, ref w, sample, wind, Core.AirDensityHere, dt);
+            Core.VelocityTarget = v;
+            W = w;
+        }
     }
 
     sealed class SimWorld
@@ -121,6 +155,7 @@ namespace BoundedBuoyancy.Checks
                 b.Core.Step(pose, b.Com, b.V, sample, wind, G, Dt);
                 if (b.Core.Crossing != Crossing.None)
                     b.Fire(b.Core.Crossing, b.Core.CrossingSpeed, b.Core.CrossingPoint);
+                b.ApplyAppendages(pose, sample, wind, Dt);
                 // AddForce(VelocityChange): the body lands on the target velocity.
                 b.V = b.Core.VelocityTarget;
                 // Torque about the centre of mass, through the (fixed, own) rotational inertia.

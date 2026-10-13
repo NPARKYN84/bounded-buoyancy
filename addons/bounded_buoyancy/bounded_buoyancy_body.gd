@@ -31,6 +31,10 @@ extends RigidBody3D
 ## density. A helium balloon rises and a hot-air balloon lifts off when heated (change density
 ## while running); with air_half_height set, the air thins with height and balloons float at a level.
 ## A BoundedBuoyancyWind node makes the air move, and a sail (sail_area) lets the wind drive a boat.
+##
+## Boats: BoundedBuoyancyFoil children (keels, rudders, sails) and BoundedBuoyancyThruster children
+## (propellers, fans) are applied after the buoyancy each step, each with a bounded impulse at its
+## own point, so a boat holds its course, steers, sails across and into the wind, and drives.
 
 ## The body has just touched the water, at `speed` (m/s, through the water) at the world point `at`
 ## on the surface. Use it for splash sounds.
@@ -126,6 +130,7 @@ static var _g := 9.8
 static var _g_frame := -1
 const _Water := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const _Wind := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
+const _Foil := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const SAIL_DRAG := 1.2     # drag coefficient of a flat sail facing the wind
 
 var _single_sphere := false
@@ -149,6 +154,8 @@ var _set_up := false
 var _warned := false
 var _world: World3D
 var _world_has_water := false
+var _foils: Array = []                        # BoundedBuoyancyFoil nodes under the body
+var _thrusters: Array = []                    # BoundedBuoyancyThruster nodes under the body
 
 
 func _ready() -> void:
@@ -278,6 +285,13 @@ func _physics_process(dt: float) -> void:
 		* through_air.length() * dt / inertial_mass
 	var c_sail := 0.5 * SAIL_DRAG * sail_area * air_density_here * through_air.length() * dt / inertial_mass
 	var v_target := (v + drive / inertial_mass * dt + c_water * flow + (c_air + c_sail) * wind) / (1.0 + c_water + c_air + c_sail)
+	var sail_target := v_target
+	# Foils and thrusters, each a bounded impulse at its own point, after the buoyancy and drag.
+	var turn := Vector3.ZERO
+	if not (_foils.is_empty() and _thrusters.is_empty()):
+		var r := _apply_appendages(v_target, xf, inertial_mass, rho, flow, wind, dt)
+		v_target = r[0]
+		turn = r[1]
 
 	# The engine integrates F / mass over this step, so this force lands exactly on v_target.
 	mass = inertial_mass
@@ -287,7 +301,7 @@ func _physics_process(dt: float) -> void:
 
 	# The sail's push acts at the sail's centre, so it heels the body as well as driving it.
 	if c_sail > 0.0:
-		var push := c_sail * inertial_mass / dt * (wind - v_target)
+		var push := c_sail * inertial_mass / dt * (wind - sail_target)
 		apply_torque((xf * sail_centre - xf * center_of_mass).cross(push))
 	# Righting moment: the lift of the water and of the air act at the centres of the parts they
 	# displace, the weight at the centre of mass.
@@ -296,11 +310,151 @@ func _physics_process(dt: float) -> void:
 		var arm := centre - xf * center_of_mass
 		if arm.x * arm.x + arm.z * arm.z > 1e-14:
 			apply_torque(arm.cross(Vector3.UP * displaced * g))
+	if turn != Vector3.ZERO:
+		apply_torque(turn / dt)
 	# Spin is damped by the water, and by the air in proportion to how light the body is against it.
 	var damp := angular_drag * (submerged_volume + air_volume * minf(1.0, air_density_here / density)) / volume
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
 	_prev_added_mass = added_mass
+
+
+func _add_appendage(node: Node) -> void:
+	var list := _foils if node is _Foil else _thrusters
+	if not list.has(node):
+		list.append(node)
+
+
+func _remove_appendage(node: Node) -> void:
+	_foils.erase(node)
+	_thrusters.erase(node)
+
+
+## The foils and thrusters for one step, after the buoyancy and drag that brought the body to
+## velocity `v`: each gives an impulse at its own point, worked out with the motion at the end of
+## the step against the inertia the body has there, so it stops the flow across a foil, or brings a
+## propeller up to its speed, but never overshoots. One after another, each seeing the motion the
+## ones before it left. Returns [new velocity, angular impulse about the centre of mass].
+func _apply_appendages(v: Vector3, xf: Transform3D, m: float, rho: float, flow: Vector3, wind: Vector3, dt: float) -> Array:
+	var w := angular_velocity
+	var com := xf * center_of_mass
+	var axes := xf.basis.orthonormalized()
+	var angular := Vector3.ZERO
+	var has_water := water != null or water_surface != null or not _world_has_water
+	var level: float = water_surface.global_position.y if water_surface else water_level
+	for f in _foils:
+		f.force = Vector3.ZERO
+		f.immersion = 0.0
+		f.angle_of_attack = 0.0
+		if f.area <= 0.0 or not f.is_inside_tree():
+			continue
+		var rest: Basis = f.rest_basis()
+		var s := rest.y
+		var pivot: Vector3 = f.global_position
+		var in_water: bool = f.medium == _Foil.Medium.WATER
+		if f.auto_trim:
+			# A sail swings away from the wind it feels at its pivot.
+			var air := (flow if in_water else wind) - (v + w.cross(pivot - com))
+			f.angle = _Foil.trim(rest.z, s, air, f.trim_angle_of_attack, f.max_trim)
+		var c := _turn(rest.z, s, f.angle)
+		var p := pivot + c * f.effort_offset
+		var half := 0.5 * (f.span_length() * absf(s.y) + f.chord_length() * absf(c.y))
+		var wet := _wet_fraction(p, half, has_water, level)
+		var frac := wet if in_water else 1.0 - wet
+		var density := rho if in_water else air_density_here
+		f.immersion = frac
+		if frac <= 0.0 or density <= 0.0:
+			continue
+		var medium := flow if in_water else wind
+		var r := p - com
+		var u := v + w.cross(r) - medium          # the foil's velocity through its medium
+		var up := u - s * s.dot(u)                 # the part across the span
+		var q := up.length()
+		if q < 1e-9:
+			continue
+		var n := s.cross(c)
+		var un := up.dot(n)
+		var uc := up.dot(c)
+		var aoa := rad_to_deg(atan2(-un, -uc))
+		f.angle_of_attack = aoa - 180.0 if aoa > 90.0 else (aoa + 180.0 if aoa < -90.0 else aoa)
+		var a: float = f.area * frac
+		# Square to the faces: ½ ρ A (k |uc| + 1.2 |un|) un, no more than ½ ρ A 1.4 q² (stall).
+		var coeff: float = _Foil.lift_slope(f.aspect_ratio) * absf(uc) + _Foil.SQUARE_ON * absf(un)
+		if absf(un) > 1e-12:
+			coeff = minf(coeff, _Foil.MAX_NORMAL * q * q / absf(un))
+		var jn := _impulse(n, 0.5 * density * a * coeff, un, 0.0, -INF, INF, r, m, axes, dt)
+		v += jn / m
+		w += _inverse_inertia(r.cross(jn), axes)
+		angular += r.cross(jn)
+		# Friction along the chord, with the flow left after the push across it.
+		var u2 := v + w.cross(r) - medium
+		var jc := _impulse(c, 0.5 * density * a * _Foil.FRICTION * q, u2.dot(c), 0.0, -INF, INF, r, m, axes, dt)
+		v += jc / m
+		w += _inverse_inertia(r.cross(jc), axes)
+		angular += r.cross(jc)
+		f.force = (jn + jc) / dt
+	for t in _thrusters:
+		t.force = Vector3.ZERO
+		t.immersion = 0.0
+		if not t.is_inside_tree():
+			continue
+		var at: Vector3 = t.global_position
+		var wet := _wet_fraction(at, 0.5 * maxf(t.diameter, 1e-3), has_water, level)
+		var in_water: bool = t.medium == 0
+		var frac := wet if in_water else 1.0 - wet
+		t.immersion = frac
+		var throttle := clampf(t.throttle, -1.0, 1.0)
+		var full: float = t.max_thrust * frac
+		if full <= 0.0 or throttle == 0.0 or t.max_speed <= 0.0:
+			continue
+		var d: Vector3 = -t.global_transform.basis.z.normalized()
+		var r := at - com
+		var ua := (v + w.cross(r) - (flow if in_water else wind)).dot(d)
+		# Thrust full x (throttle - ua / max_speed): a pull towards throttle x max_speed, kept between
+		# nothing and full x throttle.
+		var j := _impulse(d, full / t.max_speed, ua, throttle * t.max_speed,
+			minf(0.0, throttle) * full * dt, maxf(0.0, throttle) * full * dt, r, m, axes, dt)
+		v += j / m
+		w += _inverse_inertia(r.cross(j), axes)
+		angular += r.cross(j)
+		t.force = j / dt
+	return [v, angular]
+
+
+## Fraction of a part `half` metres tall either side of `p` that is under the water.
+func _wet_fraction(p: Vector3, half: float, has_water: bool, level: float) -> float:
+	if not has_water:
+		return 0.0
+	var depth: float = (water.height_at(p) if water else level) - p.y
+	if half < 1e-6:
+		return 1.0 if depth > 0.0 else 0.0
+	return clampf(0.5 + 0.5 * depth / half, 0.0, 1.0)
+
+
+## The impulse along unit `d` at `r` (from the centre of mass) that a pull of `coeff` newtons per
+## m/s towards the speed `target` gives over dt, the speed along d there being `speed` now: worked
+## out with the speed at the end of the step, against the body's inertia at that point, so it never
+## carries the point past the target. Kept between lo and hi.
+func _impulse(d: Vector3, coeff: float, speed: float, target: float, lo: float, hi: float, r: Vector3, m: float, axes: Basis, dt: float) -> Vector3:
+	if coeff <= 0.0:
+		return Vector3.ZERO
+	var rd := r.cross(d)
+	var inv := 1.0 / m + rd.dot(_inverse_inertia(rd, axes))
+	var k := coeff * dt
+	return d * clampf(k * (target - speed) / (1.0 + k * inv), lo, hi)
+
+
+## The body's own inverse inertia tensor, about the centre of mass, applied to `a` (world frame).
+func _inverse_inertia(a: Vector3, axes: Basis) -> Vector3:
+	var l := axes.transposed() * a
+	return axes * Vector3(l.x / inertia.x if inertia.x > 0.0 else 0.0, l.y / inertia.y if inertia.y > 0.0 else 0.0,
+		l.z / inertia.z if inertia.z > 0.0 else 0.0)
+
+
+## `v` turned by `degrees` about the unit `axis` (right-handed).
+static func _turn(v: Vector3, axis: Vector3, degrees: float) -> Vector3:
+	var a := deg_to_rad(degrees)
+	return v * cos(a) + axis.cross(v) * sin(a) + axis * (axis.dot(v) * (1.0 - cos(a)))
 
 
 ## Emit water_entered or water_exited, and ask the water for a splash.

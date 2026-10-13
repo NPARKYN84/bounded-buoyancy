@@ -7,7 +7,7 @@ using BoundedBuoyancy.Core;
 
 namespace BoundedBuoyancy.Checks
 {
-    static class Program
+    static partial class Program
     {
         const double G = 9.80665;
         const double R = 0.02;
@@ -651,6 +651,8 @@ namespace BoundedBuoyancy.Checks
                 Check("ball on a flowing surface drifts with the source's current (m/s)", carried.V.x, 1.5, 0.02);
                 Check("and not with the volume's own current (m/s)", carried.V.z, 0.0, 0.02);
             }
+
+            Boats();
 
             Console.WriteLine("Speed: 300 bodies on waves");
             {
