@@ -16,6 +16,12 @@ These run without Unity, with the .NET 8 SDK. None of this folder is part of the
   C# reference source (github.com/Unity-Technologies/UnityCsReference, 2022.3 and 6000.0) and HDRP's published source
   (github.com/Unity-Technologies/Graphics, 2022.3 and 6000.0); they contain no Unity code. `u2022_3` and
   `u6000_0` compile everything as one assembly, a quicker check.
+- `Compare`: a head-to-head of four ways of floating things on the same integrator, in the same water, through
+  the same tests: the usual method (buoyancy as a force on the body's own mass), the usual method with damping in
+  the water, pontoons with damping (spheres approximating the shape, the method of Unreal's Water plugin and many
+  assets), and Bounded Buoyancy. The other methods are written from their published descriptions, not taken from
+  any engine's code; their damping is tuned once, on a wooden float, and used for everything. `dotnet run -c Release`
+  prints the tables and writes `compare_results.csv` and a trace of the table-tennis ball's height.
 - `make_meta.py`: writes the `.meta` files Unity needs when the package is installed from git; the GUIDs come from
   each file's path, so they do not change from one run to the next.
 

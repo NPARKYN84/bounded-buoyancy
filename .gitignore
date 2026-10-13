@@ -13,3 +13,5 @@ unity/checks/**/bin/
 unity/checks/**/obj/
 unity/checks/Split/2022_3/
 unity/checks/Split/6000_0/
+# Head-to-head output (written by unity/checks/Compare)
+unity/checks/Compare/*.csv
