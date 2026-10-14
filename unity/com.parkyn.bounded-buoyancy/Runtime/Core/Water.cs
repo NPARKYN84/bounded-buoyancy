@@ -141,6 +141,8 @@ namespace BoundedBuoyancy.Core
         /// <summary>Velocity of the water at the body (world frame).</summary>
         public V3 Flow;
         public WaterSurface Surface;
+        /// <summary>The water this is (its WaterVolume, say), so a body can tell when it has moved into other water.</summary>
+        public object Owner;
 
         public static WaterSample Flat(double level, double density)
         {
@@ -238,7 +240,7 @@ namespace BoundedBuoyancy.Core
             var flowing = Source as ISurfaceFlow;
             if (flowing == null || !flowing.FlowAt(p, out flow))
                 flow = CurrentAt(p);
-            return new WaterSample { HasWater = true, Density = Density, Flow = flow, Surface = Surface };
+            return new WaterSample { HasWater = true, Density = Density, Flow = flow, Surface = Surface, Owner = this };
         }
 
         internal static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }

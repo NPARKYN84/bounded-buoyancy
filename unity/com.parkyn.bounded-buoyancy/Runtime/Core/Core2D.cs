@@ -57,6 +57,8 @@ namespace BoundedBuoyancy.Core
         public double Density;
         public V2 Flow;
         public WaterSurface2D Surface;
+        /// <summary>The water this is (its WaterVolume2D, say), so a body can tell when it has moved into other water.</summary>
+        public object Owner;
 
         public static WaterSample2D Flat(double level, double density)
         {
@@ -114,7 +116,7 @@ namespace BoundedBuoyancy.Core
 
         public WaterSample2D Sample(V2 p)
         {
-            return new WaterSample2D { HasWater = true, Density = Density, Flow = CurrentAt(p), Surface = Surface };
+            return new WaterSample2D { HasWater = true, Density = Density, Flow = CurrentAt(p), Surface = Surface, Owner = this };
         }
     }
 
@@ -475,6 +477,9 @@ namespace BoundedBuoyancy.Core
         public V2 SailCentre = new V2(0, 0.4);
         /// <summary>Depth of the body into the screen (m), to turn areas into kilograms.</summary>
         public double Thickness = 1.0;
+        /// <summary>Wave-making damping (Bounded model): 1 is the physics (see WaveDampingRatio), 0 leaves it out, other
+        /// values scale it.</summary>
+        public double WaveDamping = 1.0;
 
         public double SubmergedArea;
         public V2 CentreOfBuoyancy;
@@ -487,6 +492,8 @@ namespace BoundedBuoyancy.Core
         /// <summary>Torque (anticlockwise positive), N·m.</summary>
         public double Torque;
         public double AngularDamp;
+        /// <summary>Wave-making damping of bobbing this step, N per m/s (0 when not at the surface).</summary>
+        public double HeaveDamping;
         public Crossing Crossing;
         public double CrossingSpeed;
         public V2 CrossingPoint;
@@ -494,6 +501,10 @@ namespace BoundedBuoyancy.Core
         double prevAddedMass = -1.0;
         bool wasInWater;
         bool firstStep = true;
+        double prevSurface = double.NaN;
+        object prevWater;
+        double prevLevel;
+        V2 prevCom;
 
         public double OwnMass { get { return Density * Shape.Area * Thickness; } }
 
@@ -502,9 +513,43 @@ namespace BoundedBuoyancy.Core
         public void Frozen()
         {
             prevAddedMass = -1.0;
+            prevSurface = double.NaN;
             LastAcceleration = V2.Zero;
             Torque = 0.0;
             Crossing = Crossing.None;
+        }
+
+        /// <summary>
+        /// Wave-making damping of bobbing, N per m/s, for a side-view body `thickness` m deep into the screen with
+        /// `submergedArea` m² under water, the centre of that area `depth` m below the surface, and inertial mass `mass`
+        /// (kg, water taken along included). `omega` is returned as its own bobbing frequency (rad/s). As in 3D,
+        /// B = 2 ζ m ω, for the rectangle with the same area under water and the same depth of its centre (draft
+        /// d = 2 z_B, beam b = area / d), ω = √(ρ g b thickness / m).
+        /// </summary>
+        public static double WaveDampingCoefficient(double rho, double g, double submergedArea, double depth, double thickness, double mass, out double omega)
+        {
+            omega = 0.0;
+            if (submergedArea <= 0.0 || depth <= 1e-9 || mass <= 0.0 || rho <= 0.0 || g <= 0.0 || thickness <= 0.0)
+                return 0.0;
+            double draft = 2.0 * depth;
+            double beam = submergedArea / draft;
+            omega = Math.Sqrt(rho * g * beam * thickness / mass);
+            return 2.0 * WaveDampingRatio(beam / draft) * mass * omega;
+        }
+
+        /// <summary>
+        /// Damping ratio of bobbing from the waves a body makes in a side view, where the waves it sends out run only
+        /// left and right (a long body, like a strip of a ship's hull): ζ = 0.0591 r / (1 + 0.15 r), r its beam over its
+        /// draft. About 0.03 for a deep, narrow body (r = 0.5), 0.05 for a square floating half under (1), 0.15 for a
+        /// raft (4) and 0.3 for a plank lying flat (20): more than in 3D, where waves spread out in rings. Fitted within
+        /// 2% to the exact results of linear wave theory for long floating boxes, computed with the boundary-element
+        /// solver Capytaine (reference/wave_damping.py).
+        /// </summary>
+        public static double WaveDampingRatio(double beamToDraft)
+        {
+            if (!(beamToDraft > 0.0))
+                return 0.0;
+            return 0.0591 * beamToDraft / (1.0 + 0.15 * beamToDraft);
         }
 
         public void Step(BodyPose2D pose, V2 comWorld, V2 velocity, WaterSample2D water, V2 wind, double g, double dt)
@@ -581,6 +626,38 @@ namespace BoundedBuoyancy.Core
             }
             AngularDamp = AngularDrag * (SubmergedArea + airArea * Math.Min(1.0, AirDensityHere / Density)) / areaAll;
             prevAddedMass = AddedMass;
+
+            // Wave-making damping of bobbing relative to the surface under the body, as in BodyCore3D.
+            HeaveDamping = 0.0;
+            if (Bounded && WaveDamping > 0.0 && SubmergedArea > 0.0 && SubmergedArea < areaAll * (1.0 - 1e-9))
+            {
+                double surfaceHere = water.Surface.HeightAt(cw.x);
+                double level = water.Surface.Level;
+                bool follows = !double.IsNaN(prevSurface) && ReferenceEquals(water.Owner, prevWater)
+                    && Math.Abs(level - prevLevel) < TeleportDistance
+                    && (comWorld - prevCom - velocity * dt).LengthSquared < TeleportDistance * TeleportDistance;
+                double surfaceRate = follows ? (surfaceHere - prevSurface) / dt : 0.0;
+                prevSurface = surfaceHere;
+                prevWater = water.Owner;
+                prevLevel = level;
+                prevCom = comWorld;
+                double omega, depth = surfaceHere - CentreOfBuoyancy.y;
+                HeaveDamping = WaveDamping * WaveDampingCoefficient(rho, g, SubmergedArea, depth, Thickness, m, out omega);
+                if (HeaveDamping > 0.0)
+                {
+                    double rel = v.y - surfaceRate;
+                    double time = BodyCore3D.AtSurface(depth, (areaAll - SubmergedArea) / SubmergedArea, rel, dt);
+                    double c = 1.0 - Math.Exp(-HeaveDamping * time / m);
+                    VelocityTarget = new V2(VelocityTarget.x, VelocityTarget.y - c * rel);
+                    LastAcceleration = (VelocityTarget - v) / dt;
+                }
+            }
+            else
+            {
+                prevSurface = double.NaN;
+            }
         }
+
+        const double TeleportDistance = 0.1;
     }
 }

@@ -2,7 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23305636.svg)](https://doi.org/10.5281/zenodo.23305636)
 
-**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle without added damping, rafts, crates and boats tilt and right themselves, ride the waves (their own, or those of the ocean shader you already use) and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
+**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle after a few bobs as real ones do, rafts, crates and boats tilt and right themselves, ride the waves (their own, or those of the ocean shader you already use) and drift down rivers, balloons rise and float, wind fills sails, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
 
 ![Usual engine buoyancy (left) against Bounded Buoyancy (right): light balls released under water](docs/release.gif)
 
@@ -34,6 +34,23 @@ Buoyancy acts at the centre of the immersed volume, worked out exactly each step
 ![A raft, a tall block and a boat dropped into the water](docs/tilt.gif)
 
 Supported shapes: sphere, box, cylinder, capsule and convex polygon (including the shapes Godot makes with *Create Convex Collision Sibling*), alone or several in one body. For anything else, such as a detailed hull, set **Buoyancy Mesh** to a closed mesh.
+
+## Settling: the ripples a body makes
+
+A body bobbing at the surface pushes the water out in rings, and the rings carry its energy away. That is why a real float settles after a few bobs, and why a raft settles sooner than a fishing float. Bounded Buoyancy takes that energy away too (**Wave Damping**, on by default). It acts on the body's bobbing relative to the surface under it, so a body riding waves still rises and falls with them, and a body let go from rest starts exactly as before.
+
+How much depends on the shape, as it does in real water. A wide, shallow body makes big rings and settles in a bob or two; a deep, narrow one hardly disturbs the surface and bobs on for a long time.
+
+| Floating body | Each bob is lower than the last by |
+| --- | ---: |
+| Deep post or spar buoy | 3% |
+| Cube or ball floating half under | about 27% |
+| Log | about 50% |
+| Raft or boat | about 70% |
+
+These amounts are not tuned by eye. They come from linear wave theory, the method engineers use for floating structures, solved exactly with the open-source solver [Capytaine](https://github.com/capytaine/capytaine) for 30 floating boxes, posts, balls and logs, from deep and narrow to wide and shallow, with one curve fitted to the results (`reference/wave_damping.py` and `reference/wave_damping.csv`). In the simulation that gives 0.8 to 1.5 times the exact damping for flat-bottomed bodies, about 0.5 to 0.7 times for balls and logs floating at least half out of the water (they come out a little bouncier than real ones), more for heavy balls floating mostly under, and within about 2% in 2D. In the checks, a wooden ball let go 3 cm below its floating height still bobs 3 mm either way after 3 s and under a fifth of a millimetre after 9 s, where without wave damping it bobs 12 mm and then 6 mm; a raft has settled within 3 s; and a raft on long waves, or carried up by rising water, keeps up with the surface as before.
+
+Set **Wave Damping** to 0 to leave it out (the paper's benchmarks do, as they leave out air), or above 1 for more.
 
 ## Water you can place, with waves
 
@@ -124,6 +141,21 @@ Measured with `tests/bench_scale.gd` on a 2.1 GHz server processor, including Go
 
 Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows straight to its sinking speed of 3.1 m/s; a light ball fired into the water at 30 m/s comes back up and floats; a box skimming the surface at 25 m/s slows without tipping. The tests check all three.
 
+## How it compares
+
+`unity/checks/Compare` puts four ways of floating things through the same tests, on the same fixed-step integrator at 60 Hz, in the same water, with the same drag: the usual method (buoyancy as a force on the body's own mass, as most engine scripts and tutorials do), the usual method with damping in the water (the usual cure for its bouncing), pontoons with damping (spheres standing in for the shape, the method of Unreal's Water plugin and many assets), and Bounded Buoyancy. The other methods are written from their published descriptions; their damping is tuned once, to settle a wooden ball as fast as it can, and used for everything.
+
+![A table-tennis ball let go under water, and a wooden ball dropped onto still water, by each method](docs/compare.png)
+
+| | Usual | Usual + damping | Pontoons + damping | Bounded Buoyancy | Physics |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Table-tennis ball let go under water: first-frame acceleration | 11g | 7.0g | 11g | 1.58g | 1.58g (added mass) |
+| Wooden ball dropped onto still water: bobbing more than 1 mm until | over 20 s | 0.6 s | 0.7 s | 7.0 s | about 5 s (linear wave theory) |
+| Raft on waves 5 times its length: rises and falls, of the surface | 103% | 61% | 90% | 111% | 98 to 100% (linear wave theory, `reference/wave_damping.py --raft`) |
+| Raft on those waves: lags the surface by | 0 s | 0.18 s | 0.08 s | 0 s | close to 0 |
+
+Damping strong enough to stop the bouncing also stops a body following the waves: the damped raft rises and falls only 61% as far as the water, a beat late, and the damped ball dropped from 30 cm barely dips below its floating height. Bounded Buoyancy keeps the first frame right without any damping, takes away only the energy the ripples carry, and keeps up with the waves. The rest is in the tool's output: floating heights, a raft righting itself, the same test at 30, 60 and 120 steps a second, and the cost. `python3 chart.py` there redraws the chart.
+
 ## Install
 
 - **From the Godot Asset Store (listing coming soon):** search for *Bounded Buoyancy* at [store.godotengine.org](https://store.godotengine.org) or, from Godot 4.7, in the editor's Asset Store tab; install it, then enable it under Project Settings → Plugins. The download includes the demo scenes in `addons/bounded_buoyancy/demo`.
@@ -151,6 +183,7 @@ To give a boat ballast, set the body's **Center of Mass** to Custom and move it 
 | Drag Coefficient | Quadratic drag, in the water and in the air | 0.47 |
 | Angular Drag | Damping of rolling and pitching in the water, per second when fully submerged; in air, in proportion to how light the body is against the air | 3.0 |
 | Keep Momentum On Entry | Water set moving takes its share of momentum as the body enters | on |
+| Wave Damping | The energy bobbing sends out as ripples, from linear wave theory: 1 is the physics, 0 leaves it out | 1 |
 | Air Density | Density of the air at height 0, kg/m³; 0 leaves air out | 1.2 |
 | Air Half Height | Height over which the air's density halves; 0 keeps it the same at every height | 0 |
 | Sail Area / Sail Centre | Area of a sail for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
@@ -169,7 +202,7 @@ Open the project folder in Godot 4.4 or later and press Play. The first scene re
 godot --headless --fixed-fps 60 --script res://tests/run_tests.gd
 ```
 
-prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, the 2D version, another water system's surface (bodies on a copy of a water node's waves must move exactly as on the waves themselves), and foils and propellers (lift at known angles, the bounded force, a keel against leeway, a fin behind or ahead of the centre of mass, a propeller's top speed, turning circles both ways, a boat at anchor swinging bow upstream, and a dinghy sailing upwind), and ends with PASS. The paper's benchmarks leave out air, so those checks set Air Density to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`) and the cost benchmark (`cost_bench.c`).
+prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, the 2D version, another water system's surface (bodies on a copy of a water node's waves must move exactly as on the waves themselves), foils and propellers (lift at known angles, the bounded force, a keel against leeway, a fin behind or ahead of the centre of mass, a propeller's top speed, turning circles both ways, a boat at anchor swinging bow upstream, and a dinghy sailing upwind), and wave-making damping (the damping against the exact values, bobs dying away at the rate it gives, floats settling, a raft still riding waves and rising water, no kick from a teleport, a step into other water or water lifted at once), and ends with PASS. The paper's benchmarks leave out air and wave-making damping, so those checks set Air Density and Wave Damping to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`), the cost benchmark (`cost_bench.c`), and the exact wave-making damping results and their fit (`wave_damping.py`, `wave_damping.csv`).
 
 Without the native kernel, lower **Curve Segments** to make cylinders and capsules cheaper (`tests/bench_immerse.gd` times each shape).
 
@@ -178,7 +211,9 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 - Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice, and a buoyancy mesh must be closed.
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
 - Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
-- Waves move the surface only, and bodies make no waves of their own: the momentum rule on water entry is the only loss beyond drag, and splashes are drawn, not simulated. The volume under a wave is accurate while the waves are long compared with the body.
+- Waves move the surface only. The energy a body's bobbing sends out as ripples is taken away (Wave Damping), but the ripples themselves do not move other bodies, a moving boat makes no wake to slow it, and splashes are drawn, not simulated. Wave damping acts on bobbing up and down; rolling and pitching are slowed by Angular Drag. It is worked out for deep water, from the volume under water and the depth of its centre, so two shapes that share those settle alike. The volume under a wave is accurate while the waves are long compared with the body.
+- In waves, the water taken along is set moving by the body but not by the waves, so a small raft rises and falls a little further than the surface does (about 110% on waves five times its length, where linear wave theory gives 98 to 100%).
+- Wave damping acts in the steps that find a body partly under water. A light ball shooting out of the water crosses the surface in a step or two, so how high it pops up depends a little on the time step (4.7, 4.1 and 3.9 cm above its floating height at 30, 60 and 120 steps a second, against 4.4 cm at each without wave damping).
 - From another water system only the height of the surface is taken: near the surface, one request per vertex of the body's shape each step, plus one at its centre (just one for a lone sphere), so for big fleets on an expensive ocean use simple shapes or a low-poly Buoyancy Mesh. Its currents are not read; set **Current** on the water node. The 2D water has no other-system link yet.
 - A current is the same everywhere in its water node (apart from the banks), and so is the wind in its node (apart from gusts). A body's own drag acts at its centre, so a current or wind turns it only through its foils (a keel aft of the centre of mass weathervanes a boat at anchor; a boat already drifting with the water has nothing flowing past it and does not turn). Sail Area always faces the wind it feels; for sailing across or into the wind, use a sail foil and a keel.
 - Foils are flat plates: no camber, and no lift from the hull itself (a hull with no keel slides sideways freely). The lift slope allows for the foil's aspect ratio, but not for one foil's wake meeting another (a rudder behind a keel works in clean water here). Propellers do not turn the boat by their torque.

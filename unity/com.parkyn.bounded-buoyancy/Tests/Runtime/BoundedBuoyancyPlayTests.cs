@@ -170,7 +170,10 @@ namespace BoundedBuoyancy.Tests
             float[] wantPeak = { 6.7f, 6.1f, 4.9f, 3.3f };
             var balls = new List<BoundedBuoyancyBody>();
             for (int i = 0; i < ratios.Length; i++)
+            {
                 balls.Add(Ball(R, ratios[i] * 1000f, new Vector3(i * 0.2f, -0.5f, 0f)));
+                balls[i].waveDamping = 0f;   // the paper's model: no wave-making damping
+            }
             var surfaced = new float[4] { -1f, -1f, -1f, -1f };
             var peak = new float[4] { -1e9f, -1e9f, -1e9f, -1e9f };
             for (int step = 1; step <= 180; step++)
@@ -349,10 +352,10 @@ namespace BoundedBuoyancy.Tests
         public IEnumerator B8_FastBodies()
         {
             Fast();
-            Water(new Vector3(200f, 0f, 0f), new Vector3(10f, 60f, 10f));
+            Water(new Vector3(200f, 0f, 10f), new Vector3(10f, 60f, 30f));   // long enough for the skimmer to slow down in
             BoundedBuoyancyBody falling = Ball(0.1f, 2700f, new Vector3(199f, 50f, 0f), 1.2f);
             BoundedBuoyancyBody fired = Ball(0.1f, 100f, new Vector3(201f, 0.5f, 0f));
-            BoundedBuoyancyBody skimmer = Box(new Vector3(0.4f, 0.1f, 0.3f), 300f, new Vector3(198f, 0f, -4f));   // room to slow down inside the water
+            BoundedBuoyancyBody skimmer = Box(new Vector3(0.4f, 0.1f, 0.3f), 300f, new Vector3(198f, 0f, -3f));
             fired.Body.SetVelocity(new Vector3(0f, -30f, 0f));
             skimmer.Body.SetVelocity(new Vector3(0f, 0f, 25f));
             float entry = 0f, worst = 0f;
@@ -372,6 +375,7 @@ namespace BoundedBuoyancy.Tests
             Assert.AreEqual(vStone, -falling.Body.Velocity().y, 0.1f, "then sinks at its terminal speed in water");
             Assert.AreEqual(100f * (0.1f - 2f * 0.1f * 0.19580f), 100f * fired.Body.position.y, 1f, "light ball fired down at 30 m/s floats again (cm)");
             Assert.AreEqual(0f, Tilt(skimmer), 1f, "box skimming at 25 m/s: slowed, still level");
+            Assert.AreEqual(6f, skimmer.Body.position.z, 6f, "box skimming at 25 m/s: stopped within 15 m");
             Assert.AreEqual(vHit, worst, 0.5f, "fastest speed seen: the stone's, as it hits");
         }
 
@@ -617,6 +621,58 @@ namespace BoundedBuoyancy.Tests
             Assert.AreEqual(0f, 1000f * worst, 0.5f, "same waves from another system: height (mm)");
             Assert.AreEqual(0f, worstTilt, 0.2f, "same waves from another system: tilt (deg)");
             Assert.AreEqual(20f, 100f * (hi - lo), 12f, "raft on the other system's waves rises and falls (cm)");
+        }
+
+        // B15 ------------------------------------------------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator B15_BobbingSettles()
+        {
+            Fast();
+            // Let go 3 cm below where they float in still water: with wave-making damping a wooden ball and a raft
+            // settle within seconds; without it the ball keeps bobbing. A raft on long waves still rides them fully.
+            Water(new Vector3(0f, 0f, 900f), new Vector3(40f, 5f, 40f));
+            BoundedBuoyancyBody ball = Ball(0.1f, 500f, new Vector3(-7f, -0.03f, 900f));
+            BoundedBuoyancyBody ball0 = Ball(0.1f, 500f, new Vector3(-4f, -0.03f, 900f));
+            ball0.waveDamping = 0f;
+            BoundedBuoyancyBody raft = Box(new Vector3(1f, 0.2f, 1f), 300f, new Vector3(-1f, 0.01f, 900f));
+            BoundedBuoyancyWater sea = Water(new Vector3(0f, 0f, 1000f), new Vector3(80f, 5f, 80f));
+            sea.waveHeight = 0.15f;
+            sea.waveLength = 12f;
+            sea.waveDirection = 0f;
+            sea.Sync();
+            BoundedBuoyancyBody rider = Box(new Vector3(0.6f, 0.15f, 0.4f), 400f, new Vector3(0f, 0.015f, 1000f));
+            // The largest distance from the floating height over a second (a whole bob or more), from 3 s and 9 s.
+            float ball3 = 0f, ball03 = 0f, raft3 = 0f, ball9 = 0f, ball09 = 0f, lo = 1e9f, hi = -1e9f, slo = 1e9f, shi = -1e9f;
+            for (int step = 1; step <= 1200; step++)
+            {
+                yield return new WaitForFixedUpdate();
+                if (step > 180 && step <= 240)
+                {
+                    ball3 = Mathf.Max(ball3, Mathf.Abs(ball.Body.position.y));
+                    ball03 = Mathf.Max(ball03, Mathf.Abs(ball0.Body.position.y));
+                    raft3 = Mathf.Max(raft3, Mathf.Abs(raft.Body.position.y - 0.04f));
+                }
+                if (step > 540 && step <= 600)
+                {
+                    ball9 = Mathf.Max(ball9, Mathf.Abs(ball.Body.position.y));
+                    ball09 = Mathf.Max(ball09, Mathf.Abs(ball0.Body.position.y));
+                }
+                if (step * Dt > 5f)
+                {
+                    float y = rider.Body.position.y, surface = sea.HeightAt(rider.Body.worldCenterOfMass);
+                    lo = Mathf.Min(lo, y);
+                    hi = Mathf.Max(hi, y);
+                    slo = Mathf.Min(slo, surface);
+                    shi = Mathf.Max(shi, surface);
+                }
+            }
+            Assert.AreEqual(2.5f, 1000f * ball3, 2.5f, "wooden ball let go 3 cm low: bob from 3 s to 4 s (mm)");
+            Assert.Greater(ball03, 3f * ball3, "without wave damping, at least 3 times that");
+            Assert.AreEqual(0f, 1000f * ball9, 0.5f, "with it, settled after 9 s (mm)");
+            Assert.Greater(1000f * ball09, 2f, "without, still bobbing after 9 s (mm)");
+            Assert.AreEqual(0f, 1000f * raft3, 0.5f, "raft let go 3 cm low: settled after 3 s (mm)");
+            Assert.AreEqual(1f, (hi - lo) / (shi - slo), 0.06f, "raft on long waves follows the surface (rise and fall / surface's)");
         }
 
         [UnityTest]

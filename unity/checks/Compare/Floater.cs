@@ -19,7 +19,8 @@ namespace BoundedBuoyancy.Compare
         /// <summary>Spheres ("pontoons") approximating the shape, each pushed up by the water it displaces at its own
         /// point, with damping on vertical speed: the method of Unreal's Water plugin and many assets.</summary>
         Pontoons,
-        /// <summary>Bounded Buoyancy: the added mass of the water displaced in the inertia, no extra damping.</summary>
+        /// <summary>Bounded Buoyancy: the added mass of the water displaced in the inertia, and the energy its bobbing
+        /// sends out as ripples (wave-making damping, from linear wave theory); nothing tuned.</summary>
         Bounded,
     }
 

@@ -52,6 +52,12 @@ enum Model {
 @export_range(0.0, 20.0, 0.01, "or_greater", "suffix:1/s") var angular_drag: float = 3.0
 ## Keep momentum when the added mass grows as the body enters the water.
 @export var keep_momentum_on_entry: bool = true
+## Wave-making damping: a body bobbing at the surface sends out ripples (here to the left and right)
+## that carry its energy away, so it settles: within a few bobs if it is wide and shallow (a raft, a
+## boat), slowly if it is deep and narrow, as linear wave theory gives it. It acts on bobbing relative
+## to the surface, so riding waves is not held back. 1 is the physics; 0 leaves it out; other values
+## scale it. Bounded model only.
+@export_range(0.0, 3.0, 0.01) var wave_damping: float = 1.0
 
 @export_group("Air")
 ## Density of the air (1.2 kg/m³). 0 leaves air out.
@@ -85,10 +91,13 @@ var centre_of_buoyancy: Vector2 = Vector2.ZERO
 var water: Node2D = null
 ## Velocity of the wind at the body this step (px/s).
 var wind_here: Vector2 = Vector2.ZERO
+## Wave-making damping of bobbing this step, N per m/s (0 when the body is not at the surface).
+var heave_damping: float = 0.0
 
 const _Water2D := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water_2d.gd")
 const _Wind2D := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind_2d.gd")
 const SAIL_DRAG := 1.2
+const TELEPORT_DISTANCE := 0.1   # a body this far from where its velocity would have carried it, or water whose level moves this far in a step, has been moved (m)
 
 var _kg := 0.0                          # kilograms per px² of area at unit density
 var _circle := false
@@ -110,6 +119,11 @@ var _set_up := false
 var _warned := false
 var _world: World2D
 var _world_has_water := false
+var _prev_surface := NAN                 # height of the surface under the body last step
+var _prev_water: Node2D = null           # the water it was in then
+var _prev_level := 0.0                   # that water's level
+var _prev_com := Vector2.ZERO            # where its centre of mass was
+var _prev_frame := -1                    # and which physics frame that was
 
 
 func _ready() -> void:
@@ -171,6 +185,7 @@ func _physics_process(dt: float) -> void:
 		_set_up_body()
 	if freeze:
 		_prev_added_mass = -1.0
+		_prev_surface = NAN
 		last_acceleration = Vector2.ZERO
 		return
 	var g := float(ProjectSettings.get_setting("physics/2d/default_gravity"))
@@ -222,13 +237,48 @@ func _physics_process(dt: float) -> void:
 		* through_air.length() * dt / inertial_mass
 	var c_sail := 0.5 * SAIL_DRAG * sail_size * rho_air * _kg * through_air.length() * dt / inertial_mass
 	var v_target := (v + drive / inertial_mass * dt + c_water * flow + (c_air + c_sail) * wind) / (1.0 + c_water + c_air + c_sail)
+	var sail_target := v_target
+
+	# Wave-making damping of bobbing relative to the surface under the body, as in BoundedBuoyancyBody.
+	heave_damping = 0.0
+	if model == Model.BOUNDED and wave_damping > 0.0 and submerged_area > 0.0 and submerged_area < area * (1.0 - 1e-9):
+		var surface_here := _surface_at(cw.x, water)
+		var level_now: float = water.global_position.y if water else water_level
+		var com_now := xf * center_of_mass
+		var frame := Engine.get_physics_frames()
+		var jump := TELEPORT_DISTANCE * pixels_per_metre
+		var follows := not is_nan(_prev_surface) and water == _prev_water and frame == _prev_frame + 1 \
+			and absf(level_now - _prev_level) < jump \
+			and (com_now - _prev_com - linear_velocity * dt).length_squared() < jump * jump
+		var surface_rate := (surface_here - _prev_surface) / dt if follows else 0.0
+		_prev_surface = surface_here
+		_prev_water = water
+		_prev_level = level_now
+		_prev_com = com_now
+		_prev_frame = frame
+		var depth := centre_of_buoyancy.y - surface_here   # y points down
+		if depth > 1e-9 and g > 0.0 and rho > 0.0:
+			# The rectangle with the same area under water and the same depth of its centre; its own
+			# bobbing frequency ω = √(ρ g beam thickness / m), in metres and kilograms.
+			var draft := 2.0 * depth
+			var beam := submerged_area / draft
+			var omega := sqrt(rho * g * beam * _kg / inertial_mass)
+			heave_damping = wave_damping * 2.0 * wave_damping_ratio(beam / draft) * inertial_mass * omega
+			# Damped for as long as it is at the surface this step: until it leaves the water or goes
+			# under (rising is -y here).
+			var rel := v.y - surface_rate
+			var time := _at_surface(depth, (area - submerged_area) / submerged_area, -rel, dt)
+			v_target.y -= (1.0 - exp(-heave_damping * time / inertial_mass)) * rel
+	else:
+		_prev_surface = NAN
+
 	mass = inertial_mass
 	apply_central_force(inertial_mass * (v_target - linear_velocity) / dt)
 	last_acceleration = (v_target - v) / dt
 
 	var com := xf * center_of_mass
 	if c_sail > 0.0:
-		var push := c_sail * inertial_mass / dt * (wind - v_target)
+		var push := c_sail * inertial_mass / dt * (wind - sail_target)
 		apply_torque((xf * sail_centre - com).cross(push))
 	# Righting moment: buoyancy of the water and the air at the centres of the parts they displace.
 	if displaced > 0.0:
@@ -238,6 +288,27 @@ func _physics_process(dt: float) -> void:
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
 	_prev_added_mass = added_mass
+
+
+## Damping ratio of bobbing from the waves a body makes in a side view, where the waves it sends out
+## run only left and right (a long body, like a strip of a ship's hull): ζ = 0.0591 r / (1 + 0.15 r),
+## r its beam over its draft. About 0.03 for a deep, narrow body (r = 0.5), 0.05 for a square floating
+## half under (1), 0.15 for a raft (4) and 0.3 for a plank lying flat (20). Fitted within 2% to the
+## exact results of linear wave theory for long floating boxes, computed with the boundary-element
+## solver Capytaine (reference/wave_damping.py).
+static func wave_damping_ratio(beam_to_draft: float) -> float:
+	if not (beam_to_draft > 0.0):
+		return 0.0
+	return 0.0591 * beam_to_draft / (1.0 + 0.15 * beam_to_draft)
+
+
+## How long in a step of `dt` the body stays at the surface, moving up at `rise` (as in BoundedBuoyancyBody).
+static func _at_surface(depth: float, dry_over_wet: float, rise: float, dt: float) -> float:
+	if rise > 0.0:
+		return minf(dt, 2.0 * depth / rise)
+	if rise < 0.0:
+		return minf(dt, 2.0 * depth * dry_over_wet / -rise)
+	return dt
 
 
 func _find_water(at: Vector2) -> Node2D:

@@ -21,7 +21,8 @@ These run without Unity, with the .NET 8 SDK. None of this folder is part of the
   the water, pontoons with damping (spheres approximating the shape, the method of Unreal's Water plugin and many
   assets), and Bounded Buoyancy. The other methods are written from their published descriptions, not taken from
   any engine's code; their damping is tuned once, on a wooden float, and used for everything. `dotnet run -c Release`
-  prints the tables and writes `compare_results.csv` and a trace of the table-tennis ball's height.
+  prints the tables and writes `compare_results.csv` and traces of a table-tennis ball's and a wooden ball's height;
+  `python3 chart.py` (with matplotlib) then redraws `docs/compare.png`.
 - `make_meta.py`: writes the `.meta` files Unity needs when the package is installed from git; the GUIDs come from
   each file's path, so they do not change from one run to the next.
 

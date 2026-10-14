@@ -77,6 +77,12 @@ enum Model {
 @export_range(0.0, 20.0, 0.01, "or_greater", "suffix:1/s") var angular_drag: float = 3.0
 ## Keep momentum when the added mass grows as the body enters the water (von Kármán, 1929).
 @export var keep_momentum_on_entry: bool = true
+## Wave-making damping: a body bobbing at the surface sends out ripples that carry its energy away,
+## so it settles: within a few bobs if it is wide and shallow (a raft, a boat), slowly if it is deep
+## and narrow (a post, a spar buoy), as linear wave theory gives it. It acts on bobbing relative to
+## the surface, so riding waves is not held back. 1 is the physics; 0 leaves it out, as the paper's
+## benchmarks do; other values scale it. Bounded model only.
+@export_range(0.0, 3.0, 0.01) var wave_damping: float = 1.0
 
 @export_group("Air")
 ## Density of the air around the body at height 0 (1.2 kg/m³ at room temperature). Balloons rise in
@@ -120,6 +126,8 @@ var air_density_here: float = 0.0
 var wind_here: Vector3 = Vector3.ZERO
 ## The BoundedBuoyancyWater the body is in this step, if any.
 var water: Node3D = null
+## Wave-making damping of bobbing this step, N per m/s (0 when the body is not at the surface).
+var heave_damping: float = 0.0
 
 ## Use the native kernel (addons/bounded_buoyancy_native) when it is installed. The results are the
 ## same either way; the native kernel is many times faster for bodies crossing the surface.
@@ -132,6 +140,7 @@ const _Water := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd
 const _Wind := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
 const _Foil := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const SAIL_DRAG := 1.2     # drag coefficient of a flat sail facing the wind
+const TELEPORT_DISTANCE := 0.1   # a body this far from where its velocity would have carried it, or water whose level moves this far in a step, has been moved (m)
 
 var _single_sphere := false
 var _radius := 0.0
@@ -154,6 +163,11 @@ var _set_up := false
 var _warned := false
 var _world: World3D
 var _world_has_water := false
+var _prev_surface := NAN                      # height of the surface under the body last step
+var _prev_water: Node3D = null                # the water it was in then
+var _prev_level := 0.0                        # that water's level
+var _prev_com := Vector3.ZERO                 # where its centre of mass was
+var _prev_frame := -1                         # and which physics frame that was
 var _foils: Array = []                        # BoundedBuoyancyFoil nodes under the body
 var _thrusters: Array = []                    # BoundedBuoyancyThruster nodes under the body
 
@@ -225,6 +239,7 @@ func _physics_process(dt: float) -> void:
 		_set_up_body()
 	if freeze:
 		_prev_added_mass = -1.0
+		_prev_surface = NAN
 		last_acceleration = Vector3.ZERO
 		return
 	var frame := Engine.get_physics_frames()
@@ -236,13 +251,16 @@ func _physics_process(dt: float) -> void:
 	var cw := xf * _centroid
 	var rho := water_density
 	var flow := Vector3.ZERO
+	var surface_here := 0.0   # height of the surface over the centre of the body's volume
 	water = _find_water(cw)
 	if water:
 		rho = water.density
 		flow = water.current_at(cw)
-		_immerse(xf, water.height_at(cw), water)
+		surface_here = water.height_at(cw)
+		_immerse(xf, surface_here, water)
 	elif water_surface or not _world_has_water:
-		_immerse(xf, water_surface.global_position.y if water_surface else water_level)
+		surface_here = water_surface.global_position.y if water_surface else water_level
+		_immerse(xf, surface_here)
 	else:
 		submerged_volume = 0.0
 		centre_of_buoyancy = cw
@@ -286,6 +304,37 @@ func _physics_process(dt: float) -> void:
 	var c_sail := 0.5 * SAIL_DRAG * sail_area * air_density_here * through_air.length() * dt / inertial_mass
 	var v_target := (v + drive / inertial_mass * dt + c_water * flow + (c_air + c_sail) * wind) / (1.0 + c_water + c_air + c_sail)
 	var sail_target := v_target
+
+	# Wave-making damping: bobbing relative to the surface under the body (which rises and falls with
+	# any waves, so riding them is not held back) sends out ripples that carry its energy away. It acts
+	# on the speed at the start of the step, so a body let go from rest starts exactly as before, and
+	# takes away less than that speed, so it slows the bobbing but never reverses it. The surface's
+	# own rise and fall is read from its height under the body last step, unless the body has since
+	# moved to other water, been moved by more than its speed (a teleport), or missed a step, or the
+	# water itself has been moved up or down by more than that.
+	heave_damping = 0.0
+	if model == Model.BOUNDED and wave_damping > 0.0 and submerged_volume > 0.0 and submerged_volume < volume * (1.0 - 1e-9):
+		var com_now := xf * center_of_mass
+		var level_now: float = water.global_position.y if water else (water_surface.global_position.y if water_surface else water_level)
+		var follows := not is_nan(_prev_surface) and water == _prev_water and frame == _prev_frame + 1 \
+			and absf(level_now - _prev_level) < TELEPORT_DISTANCE \
+			and (com_now - _prev_com - linear_velocity * dt).length_squared() < TELEPORT_DISTANCE * TELEPORT_DISTANCE
+		var surface_rate := (surface_here - _prev_surface) / dt if follows else 0.0
+		_prev_surface = surface_here
+		_prev_water = water
+		_prev_level = level_now
+		_prev_com = com_now
+		_prev_frame = frame
+		var depth := surface_here - centre_of_buoyancy.y
+		heave_damping = wave_damping * wave_damping_coefficient(rho, g, submerged_volume, depth, inertial_mass)
+		if heave_damping > 0.0:
+			# Damped for as long as it is at the surface this step: until it leaves the water or goes under.
+			var rel := v.y - surface_rate
+			var time := at_surface(depth, (volume - submerged_volume) / submerged_volume, rel, dt)
+			v_target.y -= (1.0 - exp(-heave_damping * time / inertial_mass)) * rel
+	else:
+		_prev_surface = NAN
+
 	# Foils and thrusters, each a bounded impulse at its own point, after the buoyancy and drag.
 	var turn := Vector3.ZERO
 	if not (_foils.is_empty() and _thrusters.is_empty()):
@@ -317,6 +366,49 @@ func _physics_process(dt: float) -> void:
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
 	_prev_added_mass = added_mass
+
+
+## Wave-making (radiation) damping of bobbing, N per m/s, for a body with `submerged` m³ under water
+## whose centre of buoyancy is `depth` m below the surface and whose inertial mass (water taken along
+## included) is `m` kg, in water of density `rho` under gravity `g`: B = 2 ζ m ω, with ω = √(ρ g A / m)
+## its own bobbing frequency and ζ from wave_damping_ratio, for the prism with the same volume under
+## water and the same depth of its centre (draft d = 2 depth, waterplane area A = V / d).
+static func wave_damping_coefficient(rho: float, g: float, submerged: float, depth: float, m: float) -> float:
+	if submerged <= 0.0 or depth <= 1e-9 or m <= 0.0 or rho <= 0.0 or g <= 0.0:
+		return 0.0
+	var draft := 2.0 * depth
+	var a := submerged / draft
+	var omega := sqrt(rho * g * a / m)
+	return 2.0 * wave_damping_ratio(a / (draft * draft)) * m * omega
+
+
+## How long in a step of `dt` a body stays at the surface (partly under), its centre of buoyancy
+## `depth` below it and `dry_over_wet` its volume out of the water over its volume in, moving up at
+## `rise` relative to the surface: all of the step, unless it will be out of the water, or wholly
+## under, before the step ends. Measured on its equivalent prism (draft 2 x depth, the dry part
+## dry_over_wet times as tall). So a body leaping out of the water or plunging into it is damped
+## only while it is at the surface.
+static func at_surface(depth: float, dry_over_wet: float, rise: float, dt: float) -> float:
+	if rise > 0.0:
+		return minf(dt, 2.0 * depth / rise)
+	if rise < 0.0:
+		return minf(dt, 2.0 * depth * dry_over_wet / -rise)
+	return dt
+
+
+## Damping ratio of bobbing from the waves a floating body makes, for a body whose waterplane area
+## over its draft squared is `width_to_draft`: about 0.005 for a deep post or spar buoy (0.2), 0.05 for
+## a cube or a ball floating half under (4 to 5), 0.14 for a light ball or a log (30) and 0.2 for a raft
+## or a boat (100 to 400). Fitted to the exact damping ratios of linear wave theory for floating boxes,
+## upright cylinders, spheres and logs, computed with the boundary-element solver Capytaine
+## (reference/wave_damping.py): 0.8 to 1.5 times the exact value for flat-bottomed bodies, about 0.6
+## to 0.7 times for round-bottomed ones (balls, logs) floating at least half out of the water, and more
+## for heavy balls floating mostly under (4 times at nine tenths under).
+static func wave_damping_ratio(width_to_draft: float) -> float:
+	if not (width_to_draft > 0.0):
+		return 0.0
+	var x := pow(width_to_draft, 0.869)
+	return 0.0182 * x / (1.0 + 0.0798 * x)
 
 
 func _add_appendage(node: Node) -> void:

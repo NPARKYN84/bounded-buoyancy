@@ -113,7 +113,9 @@ func run() -> void:
 	var runs := []
 	i = 0
 	for c in b2:
-		runs.append([c, make_body(c[1], BB.Model.BOUNDED, i * 0.2, -0.5), -1.0, -1e9])
+		var paper_ball := make_body(c[1], BB.Model.BOUNDED, i * 0.2, -0.5)
+		paper_ball.wave_damping = 0.0   # the paper's model: no wave-making damping
+		runs.append([c, paper_ball, -1.0, -1e9])
 		i += 1
 	await physics_frame
 	for e in runs:
@@ -294,8 +296,8 @@ func run() -> void:
 	# B8: fast bodies. Water 60 m deep, so nothing falls out of the bottom.
 	print("B8  Fast bodies")
 	var deep := BW.new()
-	deep.size = Vector3(10, 60, 10)
-	deep.position = Vector3(200, 0, 0)
+	deep.size = Vector3(10, 60, 30)   # long enough for the skimmer to slow down in
+	deep.position = Vector3(200, 0, 10)
 	deep.show_surface = false
 	root.add_child(deep)
 	var falling := make_air_ball(2700.0, BB.Model.BOUNDED, Vector3(199, 50.0, 0), 0.0)
@@ -326,6 +328,7 @@ func run() -> void:
 	check("then sinks at its terminal speed in water (m/s)", -falling.linear_velocity.y, v_stone, 0.1)
 	check("light ball fired down at 30 m/s: floats again (cm)", 100.0 * fired.global_position.y, 100.0 * (0.1 - 2.0 * 0.1 * _cap_fraction(0.1)), 1.0)
 	check("box skimming at 25 m/s: slowed, still level (deg)", tilt_deg(skimmer), 0.0, 1.0)
+	check("box skimming at 25 m/s: stopped within 15 m (z, m)", skimmer.global_position.z, 6.0, 6.0)
 	check("fastest speed seen: the stone's, as it hits (m/s)", worst, v_hit, 0.5)
 	for b in [falling, fired, skimmer]:
 		b.queue_free()
@@ -519,7 +522,12 @@ func run() -> void:
 
 	# B13: the surface of another water system. A stand-in "ocean" gives the same waves as a water
 	# node 40 m away, so bodies on it must move exactly as their twins on the water node's own waves.
+	# Both twins cut the waterline in GDScript, so that only the surfaces differ: the native kernel
+	# works in single precision, and its last-digit differences grow as the capsule tumbles (the
+	# wave-making damping, which reads how fast the surface under a body rises, feels them most).
 	print("B13 Other water systems")
+	var native_was := BB.use_native
+	BB.use_native = false
 	var own := BW.new()
 	own.size = Vector3(20, 4, 20)
 	own.position = Vector3(0, 0, 500)
@@ -570,6 +578,7 @@ func run() -> void:
 			range_hi = maxf(range_hi, twins[0][1].global_position.y)
 	check("same waves from another system: height (mm)", 1000.0 * worst_y, 0.0, 0.5)
 	check("same waves from another system: tilt (deg)", worst_tilt, 0.0, 0.2)
+	BB.use_native = native_was
 	check("raft on the other system's waves rises and falls (cm)", 100.0 * (range_hi - range_lo), 20.0, 12.0)
 	for e in twins:
 		e[0].queue_free()
@@ -806,6 +815,264 @@ func run() -> void:
 	check("dinghy: holds its course (deg)", absf(rad_to_deg(Vector2(-dinghy.global_transform.basis.z.x, -dinghy.global_transform.basis.z.z).angle_to(Vector2(course.x, course.z)))), 0.0, 8.0)
 	breeze14.queue_free()
 
+	# B15: wave-making damping. A body bobbing at the surface sends out ripples that carry its energy
+	# away, so it settles; a body riding waves is not held back.
+	print("B15 Wave-making damping (bobbing settles)")
+	# Damping ratios against the exact ones of linear wave theory (Capytaine; reference/wave_damping.csv).
+	for e in [["cube floating half under", 4.0, 0.0401, true], ["box 1 x 1, draft 0.1 (a raft)", 100.0, 0.1597, true],
+			["upright post, draft 4 x its width", 0.194, 0.0044, true], ["ball floating half under", 4.972, 0.0848, false],
+			["log floating half under", 15.536, 0.1464, false]]:
+		check("%s: ratio / exact" % e[0], BB.wave_damping_ratio(e[1]) / e[2], 1.15 if e[3] else 0.675, 0.35 if e[3] else 0.075)
+	for e in [[0.5, 0.0270], [1.0, 0.0514], [4.0, 0.1508], [20.0, 0.2894]]:
+		check("side view, beam %s x draft: ratio / exact" % e[0], BB2.wave_damping_ratio(e[0]) / e[1], 1.0, 0.03)
+	var still15 := BW.new()
+	still15.size = Vector3(40, 5, 40)
+	still15.position = Vector3(0, 0, 2900)
+	still15.show_surface = false
+	still15.splashes = false
+	still15.ripples = false
+	root.add_child(still15)
+	# Let go from rest half under, a box starts exactly as without the damping.
+	var half15 := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 250.0, Vector3(-15, 0, 2890), 0.0)
+	# Let go 3 cm below where they float, with and without the damping.
+	var crate15 := make_shape_body(_box(Vector3(0.4, 0.4, 0.4)), 500.0, Vector3(-10, -0.03, 2900), 0.0)
+	crate15.drag_coefficient = 0.0        # wave-making damping alone, to compare with its damping ratio
+	crate15.keep_momentum_on_entry = false
+	var ball15 := make_shape_body(_sphere(0.1), 500.0, Vector3(-7, -0.03, 2900), 0.0)
+	var ball15_0 := make_shape_body(_sphere(0.1), 500.0, Vector3(-4, -0.03, 2900), 0.0)
+	ball15_0.wave_damping = 0.0
+	var raft15 := make_shape_body(_box(Vector3(1.0, 0.2, 1.0)), 300.0, Vector3(-1, 0.01, 2900), 0.0)
+	var post15 := make_shape_body(_box(Vector3(0.2, 1.0, 0.2)), 800.0, Vector3(7, -0.33, 2900), 0.0)
+	post15.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	post15.center_of_mass = Vector3(0, -0.4, 0)
+	var sunk15 := make_shape_body(_sphere(0.1), 2000.0, Vector3(10, -2.0, 2900), 0.0)
+	var set15 := [half15, crate15, ball15, ball15_0, raft15, post15, sunk15]
+	await physics_frame
+	for b in set15:
+		b.freeze = false
+	await physics_frame
+	check("box at a quarter of water's density, half under: first frame (m/s^2)", half15.linear_velocity.y / dt, G * 0.5, 0.01)
+	check("  with the damping on", 1.0 if half15.heave_damping > 0.0 else 0.0, 1.0, 0.0)
+	var crate_y: Array = []
+	var post_y: Array = []
+	var sunk_damped := false
+	# The largest distance from the floating height over a second (a whole bob or more), from 3 s and 9 s.
+	var ball3 := 0.0
+	var ball03 := 0.0
+	var raft3 := 0.0
+	var ball9 := 0.0
+	var ball09 := 0.0
+	var t15 := dt
+	while t15 < 10.0:
+		await physics_frame
+		t15 += dt
+		crate_y.append(crate15.global_position.y)
+		post_y.append(post15.global_position.y)
+		sunk_damped = sunk_damped or sunk15.heave_damping != 0.0
+		if t15 > 3.0 and t15 <= 4.0:
+			ball3 = maxf(ball3, absf(ball15.global_position.y))
+			ball03 = maxf(ball03, absf(ball15_0.global_position.y))
+			raft3 = maxf(raft3, absf(raft15.global_position.y - 0.04))
+		if t15 > 9.0:
+			ball9 = maxf(ball9, absf(ball15.global_position.y))
+			ball09 = maxf(ball09, absf(ball15_0.global_position.y))
+	var crests := _crests(crate_y, 0.0)
+	var seen: float = log(crests[0] / crests[2]) / (4.0 * PI) if crests.size() >= 3 else 0.0
+	check("crate bobbing, no drag: damping ratio seen / formula", seen / BB.wave_damping_ratio(4.0), 1.0, 0.1)
+	print("  wooden ball let go 3 cm low, bob from 3 s to 4 s: %.1f mm with wave damping, %.1f mm without; from 9 s: %.2f mm, %.1f mm" % [1000.0 * ball3, 1000.0 * ball03, 1000.0 * ball9, 1000.0 * ball09])
+	check("wooden ball let go 3 cm low: bob from 3 s to 4 s (mm)", 1000.0 * ball3, 2.5, 2.5)
+	check("  without wave damping, at least 3 times that", 1.0 if ball03 > 3.0 * ball3 else 0.0, 1.0, 0.0)
+	check("  with it, settled after 9 s (mm)", 1000.0 * ball9, 0.0, 0.5)
+	check("  without, still bobbing after 9 s (mm, > 2)", 1.0 if 1000.0 * ball09 > 2.0 else 0.0, 1.0, 0.0)
+	check("raft let go 3 cm low: settled after 3 s (mm)", 1000.0 * raft3, 0.0, 0.5)
+	# Damped only while at the surface (rising out, plunging in, still).
+	check("at the surface for: rising out (s)", BB.at_surface(0.05, 1.0, 10.0, dt), 0.01, 1e-9)
+	check("at the surface for: plunging in (s)", BB.at_surface(0.05, 1.0, -10.0, dt), 0.01, 1e-9)
+	check("at the surface for: plunging in, 3 times as much out (s)", BB.at_surface(0.05, 3.0, -10.0, dt), dt, 1e-9)
+	var post_crests := _crests(post_y, -0.3)
+	check("deep post: still bobbing after 10 s (last crest / first)", post_crests[-1] / post_crests[0] if post_crests.size() >= 3 else 0.0, 0.75, 0.25)
+	check("body wholly under water: no wave damping", 1.0 if sunk_damped else 0.0, 0.0, 0.0)
+	for b in set15:
+		b.queue_free()
+
+	# Riding long waves the raft is not held back: the damping acts on its bobbing relative to the surface.
+	var sea15 := BW.new()
+	sea15.size = Vector3(80, 5, 80)
+	sea15.position = Vector3(0, 0, 3100)
+	sea15.wave_height = 0.15
+	sea15.wave_length = 12.0
+	sea15.wave_direction = 0.0
+	sea15.show_surface = false
+	sea15.splashes = false
+	sea15.ripples = false
+	root.add_child(sea15)
+	var rider15 := make_shape_body(_box(Vector3(0.6, 0.15, 0.4)), 400.0, Vector3(0, 0.015, 3100), 0.0)
+	await physics_frame
+	rider15.freeze = false
+	var lo15 := 1e9
+	var hi15 := -1e9
+	var slo15 := 1e9
+	var shi15 := -1e9
+	t15 = dt
+	while t15 < 20.0:
+		await physics_frame
+		t15 += dt
+		if t15 > 5.0:
+			var y15 := rider15.global_position.y
+			var s15: float = sea15.height_at(rider15.global_transform * rider15.center_of_mass)
+			lo15 = minf(lo15, y15)
+			hi15 = maxf(hi15, y15)
+			slo15 = minf(slo15, s15)
+			shi15 = maxf(shi15, s15)
+	check("raft on long waves follows the surface (rise and fall / surface's)", (hi15 - lo15) / (shi15 - slo15), 1.0, 0.06)
+	rider15.queue_free()
+
+	# Moved into water 10 cm higher, by a teleport or by gliding across into it, a body is not kicked by
+	# the jump in the surface: it moves as its twin without wave damping, both having been at rest.
+	var low15 := BW.new()
+	low15.size = Vector3(20, 5, 20)
+	low15.position = Vector3(-10, 0, 3300)
+	var high15 := BW.new()
+	high15.size = Vector3(20, 5, 20)
+	high15.position = Vector3(10, 0.1, 3300)
+	for w15 in [low15, high15]:
+		w15.show_surface = false
+		w15.splashes = false
+		w15.ripples = false
+		root.add_child(w15)
+	var twins15 := []
+	for k in 4:
+		var tw := make_shape_body(_box(Vector3(0.4, 0.4, 0.4)), 500.0, Vector3(-15, 0, 3292 + 4 * k), 0.0)
+		tw.drag_coefficient = 0.0
+		tw.angular_drag = 0.0
+		if k % 2 == 1:
+			tw.wave_damping = 0.0
+		twins15.append(tw)
+	await physics_frame
+	for b in twins15:
+		b.freeze = false
+	await _wait(0.5)
+	# Twins 0 and 1 are teleported 25 m into the higher water; twins 2 and 3 glide across into it at 2 m/s.
+	for k in [0, 1]:
+		twins15[k].global_position += Vector3(25, 0, 0)
+	for k in [2, 3]:
+		twins15[k].global_position = Vector3(-0.5, 0, twins15[k].global_position.z)
+		twins15[k].linear_velocity = Vector3(2, 0, 0)
+	# Over the step into the new water and the two after it (later the damped twin rightly bobs less).
+	var tele_worst := 0.0
+	var glide_worst := 0.0
+	var crossed_at := -1
+	for n in 30:
+		await physics_frame
+		if n < 3:
+			tele_worst = maxf(tele_worst, absf(twins15[0].linear_velocity.y - twins15[1].linear_velocity.y))
+		if crossed_at < 0 and twins15[2].global_position.x > 2.0 * dt + 1e-6:
+			crossed_at = n
+		if crossed_at >= 0 and n < crossed_at + 3:
+			glide_worst = maxf(glide_worst, absf(twins15[2].linear_velocity.y - twins15[3].linear_velocity.y))
+	check("teleported into water 10 cm higher: as its twin without (m/s)", tele_worst, 0.0, 0.005)
+	check("glided into water 10 cm higher: as its twin while crossing (m/s)", glide_worst, 0.0, 0.005)
+	check("  (it did cross)", 1.0 if crossed_at >= 0 else 0.0, 1.0, 0.0)
+	for b in twins15:
+		b.queue_free()
+
+	# Water rising steadily (a lock filling, speeding up smoothly to 0.2 m/s over 2 s) carries a raft up at the same
+	# depth as a raft without wave damping: the damping acts on its speed relative to the surface, not on its own
+	# speed (which would hold it about 8 mm deeper). Then the water is lifted 15 cm in one step: the raft gets no
+	# kick from the jump, beyond its twin's.
+	var lock15 := BW.new()
+	lock15.size = Vector3(20, 6, 20)
+	lock15.position = Vector3(0, 0, 3500)
+	lock15.show_surface = false
+	lock15.splashes = false
+	lock15.ripples = false
+	root.add_child(lock15)
+	var lock_rafts := [make_shape_body(_box(Vector3(1.0, 0.2, 1.0)), 300.0, Vector3(-3, 0.04, 3500), 0.0),
+		make_shape_body(_box(Vector3(1.0, 0.2, 1.0)), 300.0, Vector3(3, 0.04, 3500), 0.0)]
+	lock_rafts[1].wave_damping = 0.0
+	var lock2d := BW2.new()
+	lock2d.size = Vector2(1000, 600)
+	lock2d.position = Vector2(8000, 30000)   # clear of the other 2D water (a 2D water holds everything above it)
+	lock2d.show_water = false
+	root.add_child(lock2d)
+	# 2D rafts 120 x 30 px at 400 kg/m³: draft 12 px, so the centre 3 px above the surface (y down).
+	var lock_rafts2d := [make_body_2d(_rect2(Vector2(120, 30)), 400.0, Vector2(7800, 29997), 0.0),
+		make_body_2d(_rect2(Vector2(120, 30)), 400.0, Vector2(8200, 29997), 0.0)]
+	lock_rafts2d[1].wave_damping = 0.0
+	await physics_frame
+	for b in lock_rafts + lock_rafts2d:
+		b.freeze = false
+	var lock_sum := [0.0, 0.0, 0.0, 0.0]
+	var lock_n := 0
+	t15 = 0.0
+	while t15 < 6.0:
+		await physics_frame
+		t15 += dt
+		var speed15 := 0.1 * (1.0 - cos(PI * t15 / 2.0)) if t15 < 2.0 else 0.2   # speeding up smoothly
+		lock15.position.y += speed15 * dt
+		lock2d.position.y -= 100.0 * speed15 * dt
+		if t15 > 5.0:
+			for k in 2:
+				lock_sum[k] += lock_rafts[k].global_position.y - lock15.position.y - 0.04
+				lock_sum[2 + k] += -(lock_rafts2d[k].global_position.y - lock2d.position.y) - 3.0
+			lock_n += 1
+	print("  raft in water rising at 0.2 m/s: %.2f mm from its usual depth with wave damping, %.2f mm without; 2D: %.3f px, %.3f px" % [1000.0 * lock_sum[0] / lock_n, 1000.0 * lock_sum[1] / lock_n, lock_sum[2] / lock_n, lock_sum[3] / lock_n])
+	check("raft in water rising at 0.2 m/s: depth, less a raft's without (mm)", 1000.0 * (lock_sum[0] - lock_sum[1]) / lock_n, 0.0, 0.5)
+	check("2D raft in water rising at 20 px/s: depth, less a raft's without (px)", (lock_sum[2] - lock_sum[3]) / lock_n, 0.0, 0.05)
+	# Slow the water smoothly to a stop, let the rafts settle, then lift it 15 cm (and the 2D water 15 px) in one
+	# step: over that step and the two after it, each raft's speed changes as its twin's does.
+	t15 = 0.0
+	while t15 < 2.0:
+		await physics_frame
+		t15 += dt
+		var slowing := 0.1 * (1.0 + cos(PI * t15 / 2.0))
+		lock15.position.y += slowing * dt
+		lock2d.position.y -= 100.0 * slowing * dt
+	await _wait(4.0)
+	var before15: float = lock_rafts[0].linear_velocity.y - lock_rafts[1].linear_velocity.y
+	var before2d: float = lock_rafts2d[0].linear_velocity.y - lock_rafts2d[1].linear_velocity.y
+	lock15.position.y += 0.15
+	lock2d.position.y -= 15.0
+	var lift_worst := 0.0
+	var lift_worst2d := 0.0
+	for n in 3:
+		await physics_frame
+		lift_worst = maxf(lift_worst, absf(lock_rafts[0].linear_velocity.y - lock_rafts[1].linear_velocity.y - before15))
+		lift_worst2d = maxf(lift_worst2d, absf(lock_rafts2d[0].linear_velocity.y - lock_rafts2d[1].linear_velocity.y - before2d))
+	check("water lifted 15 cm in a step: as its twin without (m/s)", lift_worst, 0.0, 0.01)
+	check("2D water lifted 15 px in a step: as its twin without (px/s)", lift_worst2d, 0.0, 1.0)
+	for b in lock_rafts + lock_rafts2d:
+		b.queue_free()
+
+	# Side view: a 2D crate bobs down at its damping ratio; a plank settles; without the damping the crate bobs on.
+	var tank15 := BW2.new()
+	tank15.size = Vector2(6000, 1000)
+	tank15.position = Vector2(0, 20000)
+	tank15.show_water = false
+	root.add_child(tank15)
+	var crate2d := make_body_2d(_rect2(Vector2(40, 40)), 500.0, Vector2(-1000, 20003), 0.0)
+	crate2d.drag_coefficient = 0.0
+	crate2d.keep_momentum_on_entry = false
+	var crate2d_0 := make_body_2d(_rect2(Vector2(40, 40)), 500.0, Vector2(-500, 20003), 0.0)
+	crate2d_0.wave_damping = 0.0
+	var plank15 := make_body_2d(_rect2(Vector2(160, 20)), 400.0, Vector2(0, 20000 - 2 + 3), 0.0)
+	await physics_frame
+	for b in [crate2d, crate2d_0, plank15]:
+		b.freeze = false
+	var ys2d: Array = []
+	t15 = dt
+	while t15 < 10.0:
+		await physics_frame
+		t15 += dt
+		ys2d.append(-(crate2d.global_position.y - 20000.0))   # up positive
+	var crests2d := _crests(ys2d, 0.0)
+	var seen2d: float = log(crests2d[0] / crests2d[2]) / (4.0 * PI) if crests2d.size() >= 3 else 0.0
+	check("2D crate bobbing, no drag: damping ratio seen / formula", seen2d / BB2.wave_damping_ratio(2.0), 1.0, 0.1)
+	check("2D plank let go 3 px low: settled after 10 s (px)", absf(plank15.global_position.y - 19998.0), 0.0, 0.05)
+	check("2D crate without wave damping still bobbing after 10 s (px, > 0.05)", 1.0 if absf(crate2d_0.global_position.y - 20000.0) > 0.05 else 0.0, 1.0, 0.0)
+	for b in [crate2d, crate2d_0, plank15]:
+		b.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -904,6 +1171,15 @@ func _autopilot(b: RigidBody3D, course: Vector3) -> float:
 	var f := -b.global_transform.basis.z
 	var error := rad_to_deg(atan2(f.cross(course).y, f.x * course.x + f.z * course.z))
 	return clampf(-1.5 * error + 25.0 * rad_to_deg(b.angular_velocity.y) / 60.0, -30.0, 30.0)
+
+
+## Heights of the successive crests of a bob about `rest`, from a list of heights.
+func _crests(ys: Array, rest: float) -> Array:
+	var out := []
+	for k in range(1, ys.size() - 1):
+		if ys[k] > ys[k - 1] and ys[k] >= ys[k + 1] and ys[k] > rest:
+			out.append(ys[k] - rest)
+	return out
 
 
 ## Fraction of a sphere's diameter under water when it floats at density ratio `r`.

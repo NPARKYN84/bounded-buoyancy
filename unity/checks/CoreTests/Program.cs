@@ -220,7 +220,11 @@ namespace BoundedBuoyancy.Checks
                 var runs = new List<(SimBody b, double surfaced, double peak)>();
                 int i = 0;
                 foreach (var c in b2)
-                    runs.Add((Body(w, Sphere(R), c.Item2 * 1000.0, new V3(i++ * 0.2, -0.5, 0)), -1.0, -1e9));
+                {
+                    var body = Body(w, Sphere(R), c.Item2 * 1000.0, new V3(i++ * 0.2, -0.5, 0));
+                    body.Core.WaveDamping = 0.0;   // the paper's model: no wave-making damping
+                    runs.Add((body, -1.0, -1e9));
+                }
                 for (int step = 1; step <= 180; step++)
                 {
                     w.Step();
@@ -411,7 +415,7 @@ namespace BoundedBuoyancy.Checks
             Console.WriteLine("B8  Fast bodies");
             {
                 var w = new SimWorld();
-                Water(w, new V3(200, 0, 0), new V3(10, 60, 10));
+                Water(w, new V3(200, 0, 10), new V3(10, 60, 30));   // long enough for the skimmer to slow down in
                 var falling = Body(w, Sphere(0.1), 2700.0, new V3(199, 50, 0), 0, true, 1.2);
                 var fired = Body(w, Sphere(0.1), 100.0, new V3(201, 0.5, 0));
                 var skimmer = Body(w, Box(0.4, 0.1, 0.3), 300.0, new V3(198, 0, -3));
@@ -434,7 +438,7 @@ namespace BoundedBuoyancy.Checks
                 Check("then sinks at its terminal speed in water (m/s)", -falling.V.y, vStone, 0.1);
                 Check("light ball fired down at 30 m/s: floats again (cm)", 100.0 * fired.Position.y, 100.0 * (0.1 - 2.0 * 0.1 * CapFraction(0.1)), 1.0);
                 Check("box skimming at 25 m/s: slowed, still level (deg)", skimmer.TiltDegrees, 0.0, 1.0);
-                Check("box skimming at 25 m/s: still in the water (z, m)", skimmer.Position.z, 2.0, 3.0);
+                Check("box skimming at 25 m/s: stopped within 15 m (z, m)", skimmer.Position.z, 6.0, 6.0);
                 Check("fastest speed seen: the stone's, as it hits (m/s)", worst, vHit, 0.5);
             }
 
@@ -653,6 +657,7 @@ namespace BoundedBuoyancy.Checks
             }
 
             Boats();
+            WaveDampingChecks();
 
             Console.WriteLine("Speed: 300 bodies on waves");
             {

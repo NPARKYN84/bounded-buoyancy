@@ -216,6 +216,29 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void WaveMakingDampingFollowsLinearWaveTheory()
+        {
+            // Damping ratios against the exact ones (Capytaine; reference/wave_damping.csv).
+            Assert.AreEqual(1.15, BodyCore3D.WaveDampingRatio(4.0) / 0.0401, 0.35, "cube floating half under");
+            Assert.AreEqual(1.15, BodyCore3D.WaveDampingRatio(100.0) / 0.1597, 0.35, "box 1 x 1, draft 0.1");
+            Assert.AreEqual(0.675, BodyCore3D.WaveDampingRatio(4.972) / 0.0848, 0.075, "ball floating half under");
+            Assert.AreEqual(1.0, BodyCore2D.WaveDampingRatio(4.0) / 0.1508, 0.03, "side view, beam 4 x draft");
+            // B = 2 ζ m ω for a box 0.4 m wide floating 0.2 m deep, with its inertial mass.
+            double omega;
+            double b = BodyCore3D.WaveDampingCoefficient(1000.0, 9.81, 0.032, 0.1, 48.0, out omega);
+            Assert.AreEqual(Math.Sqrt(1000.0 * 9.81 * 0.16 / 48.0), omega, 1e-12, "its own bobbing frequency");
+            Assert.AreEqual(2.0 * BodyCore3D.WaveDampingRatio(4.0) * 48.0 * omega, b, 1e-9);
+            // Let go from rest half under, a box starts exactly as without it.
+            var shape = new ShapeBuilder3D();
+            shape.AddBox(V3.Zero, new V3(0.1, 0, 0), new V3(0, 0.1, 0), new V3(0, 0, 0.1));
+            var core = new BodyCore3D { Shape = shape.Build(), Density = 250.0, AirDensity = 0.0 };
+            var pose = new BodyPose(V3.Zero, M3.Identity);
+            core.Step(pose, pose.Position, V3.Zero, WaterSample.Flat(0.0, 1000.0), V3.Zero, 9.80665, 1.0 / 60.0);
+            Assert.IsTrue(core.HeaveDamping > 0.0, "damping on");
+            Assert.AreEqual(9.80665 * 0.5, core.LastAcceleration.y, 1e-9, "first frame unchanged");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

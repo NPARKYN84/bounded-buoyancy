@@ -10,12 +10,20 @@ namespace BoundedBuoyancy.Core
         /// measured against the surface above it.</summary>
         public static void Immerse(BuoyancyShape3D s, BodyPose pose, WaterSurface surface, out double volume, out V3 centre)
         {
+            double level;
+            Immerse(s, pose, surface, out volume, out centre, out level);
+        }
+
+        /// <summary>As above, and `level` the height of the surface over the centre of the body's volume.</summary>
+        public static void Immerse(BuoyancyShape3D s, BodyPose pose, WaterSurface surface, out double volume, out V3 centre, out double level)
+        {
             if (s.SingleSphere)
             {
                 // Exact spherical cap, the same whichever way the sphere has turned.
                 V3 c = pose.Apply(s.SphereCentre);
                 double r = s.Radius;
-                double h = WaterVolume.Clamp(r + surface.HeightAt(c) - c.y, 0.0, 2.0 * r);
+                level = surface.HeightAt(c);
+                double h = WaterVolume.Clamp(r + level - c.y, 0.0, 2.0 * r);
                 volume = Math.PI * h * h * (3.0 * r - h) / 3.0;
                 double drop = h <= 0.0 ? 0.0 : 3.0 * (2.0 * r - h) * (2.0 * r - h) / (4.0 * (3.0 * r - h));
                 centre = c - V3.Up * drop;
@@ -26,9 +34,10 @@ namespace BoundedBuoyancy.Core
             {
                 volume = 0.0;
                 centre = cw;
+                level = surface.HeightAt(cw);
                 return;
             }
-            double level = surface.HeightAt(cw);
+            level = surface.HeightAt(cw);
             // swell bounds how far the surface anywhere under the body can be from its height over the centre: twice
             // the most it rises or falls from its mean.
             double swell = 2.0 * surface.MaxWave;

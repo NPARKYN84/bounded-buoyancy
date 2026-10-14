@@ -96,7 +96,7 @@ namespace BoundedBuoyancy.Compare
 
         // Tests --------------------------------------------------------------------------------------------------------
 
-        /// <summary>A wooden ball (10 cm, 500 kg/m³) dropped with its lowest point 30 cm above the water.</summary>
+        /// <summary>A wooden ball (20 cm across, 500 kg/m³) dropped with its lowest point 30 cm above the water.</summary>
         static (double settle, double deepest, double rebound, double depthErr, List<double> ys) WoodenFloat(Method m, double dt, double seconds = 20.0)
         {
             var water = Water();
@@ -197,16 +197,18 @@ namespace BoundedBuoyancy.Compare
                 }
                 Row(label, "first-frame acceleration (g)", F((1.0 - ratio) / (ratio + 0.5)) + " (added mass)", m => F(first[m], first[m] >= 10 ? "F0" : "F2"));
                 Row(label, "highest point above its floating height (cm)", "a few cm", m => F(100.0 * peak[m], "F1"));
-                Row(label, "still bobbing more than 1 mm until (s)", "", m => settle[m] >= 20.0 ? "never" : F(settle[m], "F1"));
+                Row(label, "still bobbing more than 1 mm until (s)", "", m => settle[m] >= 19.9 ? "never" : F(settle[m], "F1"));
                 Console.WriteLine();
             }
 
             // 2. The wooden float dropped in (the test the damping was tuned on).
-            Header("2. A wooden ball (10 cm, 500 kg/m³) dropped from 30 cm");
+            Header("2. A wooden ball (20 cm across, 500 kg/m³) dropped from 30 cm");
             var wood = Methods.ToDictionary(m => m, m => WoodenFloat(m, dt));
             Row("wooden float", "plunges below its floating height (cm)", "", m => F(100.0 * wood[m].deepest, "F1"));
             Row("wooden float", "rebounds above it (cm)", "", m => F(100.0 * wood[m].rebound, "F1"));
-            Row("wooden float", "still bobbing more than 1 mm until (s)", "", m => wood[m].settle >= 20.0 ? "never" : F(wood[m].settle, "F1"));
+            // Linear wave theory (reference/wave_damping.py): a ball floating half under bobs at 10.1 rad/s with a damping
+            // ratio of 0.085, so its 7 cm rebound dies to 1 mm in ln(73) / (0.085 x 10.1) = 5 s, before any drag.
+            Row("wooden float", "still bobbing more than 1 mm until (s)", "about 5 (wave-making, linear theory)", m => wood[m].settle >= 19.9 ? "never" : F(wood[m].settle, "F1"));
             Row("wooden float", "floating height error (mm)", "0 (Archimedes)", m => F(1000.0 * wood[m].depthErr, "F1"));
             Console.WriteLine();
 
@@ -227,7 +229,7 @@ namespace BoundedBuoyancy.Compare
                 double tail = ys.Skip(ys.Count - (int)(2.0 / dt)).Average();
                 raft[m] = (SettledAfter(tilts, 0.0, 1.0, dt), tilts[tilts.Count - 1], tail - 0.015);
             }
-            Row("raft", "rocks more than 1 deg until (s)", "", m => raft[m].right >= 20.0 ? "never" : F(raft[m].right, "F1"));
+            Row("raft", "rocks more than 1 deg until (s)", "", m => raft[m].right >= 19.9 ? "never" : F(raft[m].right, "F1"));
             Row("raft", "floating height error (mm)", "0 (Archimedes)", m => F(1000.0 * raft[m].err, "F1"));
             Console.WriteLine();
 
@@ -264,7 +266,9 @@ namespace BoundedBuoyancy.Compare
                 }
                 follow[m] = (ratio, bestK * dt);
             }
-            Row("raft on waves", "rises and falls, of the surface under it (%)", "about 100 (waves 5x its length)", m => F(100.0 * follow[m].ratio, "F0"));
+            // Linear wave theory (Capytaine; reference/wave_damping.py --raft) gives this raft a heave response of 0.98 in
+            // the 3 m waves and 1.00 in the shorter second wave.
+            Row("raft on waves", "rises and falls, of the surface under it (%)", "98 to 100 (linear theory)", m => F(100.0 * follow[m].ratio, "F0"));
             Row("raft on waves", "lags the surface by (s)", "close to 0", m => F(follow[m].lag, "F2"));
             Console.WriteLine();
 
@@ -312,7 +316,12 @@ namespace BoundedBuoyancy.Compare
             for (int i = 0; i < (int)(3.0 / dt); i++)
                 trace.Add(F((i + 1) * dt, "F4") + "," + string.Join(",", Methods.Select(m => F(100.0 * traces[m][i], "F3"))));
             File.WriteAllLines("compare_table_tennis_trace.csv", trace);
-            Console.WriteLine("Wrote compare_results.csv and compare_table_tennis_trace.csv (ball height in cm, first 3 s).");
+            var woodTrace = new List<string> { "t," + string.Join(",", Methods.Select(m => "\"" + Name(m) + "\"")) };
+            for (int i = 0; i < (int)(10.0 / dt); i++)
+                woodTrace.Add(F((i + 1) * dt, "F4") + "," + string.Join(",", Methods.Select(m => F(100.0 * wood[m].ys[i], "F3"))));
+            File.WriteAllLines("compare_wooden_trace.csv", woodTrace);
+            Console.WriteLine("Wrote compare_results.csv, and the heights (cm) of the table-tennis ball (first 3 s) and the wooden ball");
+            Console.WriteLine("(first 10 s) in compare_table_tennis_trace.csv and compare_wooden_trace.csv.");
             return 0;
         }
     }

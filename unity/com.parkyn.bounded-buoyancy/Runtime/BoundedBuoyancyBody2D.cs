@@ -45,6 +45,9 @@ namespace BoundedBuoyancy
         [Tooltip("Keep momentum when the added mass grows as the body enters the water.")]
         public bool keepMomentumOnEntry = true;
 
+        [Tooltip("Wave-making damping: a body bobbing at the surface sends out ripples (here to the left and right) that carry its energy away, so it settles: within a few bobs if it is wide and shallow (a raft, a boat), slowly if it is deep and narrow. It acts on bobbing relative to the surface, so riding waves is not held back. 1 is the physics; 0 leaves it out; other values scale it.")]
+        [Range(0f, 3f)] public float waveDamping = 1f;
+
         [Header("Air")]
         [Tooltip("Density of the air, kg/m³ (1.2). 0 leaves air out.")]
         [Min(0f)] public float airDensity = 1.2f;
@@ -131,6 +134,7 @@ namespace BoundedBuoyancy
 
         void OnEnable()
         {
+            core.Frozen();   // start afresh: the surface may have moved while it was off
             if (!BoundedBuoyancySimulation.bodies2D.Contains(this))
                 BoundedBuoyancySimulation.bodies2D.Add(this);
             if (setUp)
@@ -223,6 +227,7 @@ namespace BoundedBuoyancy
             core.DragCoefficient = dragCoefficient;
             core.AngularDrag = angularDrag;
             core.KeepMomentumOnEntry = keepMomentumOnEntry;
+            core.WaveDamping = waveDamping;
             core.AirDensity = airDensity;
             core.AirHalfHeight = airHalfHeight;
             core.SailSize = sailSize;

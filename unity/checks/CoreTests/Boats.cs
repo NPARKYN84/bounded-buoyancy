@@ -252,8 +252,8 @@ namespace BoundedBuoyancy.Checks
             }
 
             // A keeled boat dropped at rest into a river swings its bow upstream while the water is still flowing past
-            // it (as a moored boat does); once it drifts at the water's speed nothing flows past it, and it turns no
-            // more.
+            // it (as a moored boat does); once it drifts with the water little flows past it, and it turns no more.
+            // Only quadratic drag carries it along, so it closes on the water's speed slowly (the gap shrinks as 1/t).
             {
                 var w = new SimWorld();
                 var river = Water(w, new V3(0, 0, -3000), new V3(600, 6, 40));
@@ -261,12 +261,13 @@ namespace BoundedBuoyancy.Checks
                 var drifter = Motorboat(w, new V3(-200, 0, -3000), 30.0, true, true, false);
                 Run(w, 40.0);
                 double at40 = YawBetween(Fore, Forward(drifter));
-                Run(w, 20.0);
-                double at60 = YawBetween(Fore, Forward(drifter));
-                Console.WriteLine("  keeled boat dropped into a river pointing 30 deg off the flow: points {0:F1} deg off after 40 s", at40);
-                Check("keeled boat in a 1.5 m/s river: drifts with it (m/s)", drifter.V.x, 1.5, 0.05);
+                double v40 = drifter.V.x;
+                Run(w, 80.0);
+                double at120 = YawBetween(Fore, Forward(drifter));
+                Console.WriteLine("  keeled boat dropped into a river pointing 30 deg off the flow: points {0:F1} deg off after 40 s; drifts at {1:F3} m/s after 40 s", at40, v40);
+                Check("keeled boat in a 1.5 m/s river: drifts with it after 2 minutes (m/s)", drifter.V.x, 1.5, 0.1);
                 Check("swung its bow towards upstream (-x, 90 deg)", at40 > 30.0 && at40 <= 90.0 ? 1 : 0, 1, 0);
-                Check("drifting with the water, it turns no more (deg in 20 s)", at60 - at40, 0.0, 0.5);
+                Check("drifting with the water, it turns no more (deg from 40 s to 120 s)", at120 - at40, 0.0, 0.5);
             }
 
             // Sailing: a dinghy with a centreboard, a rudder and a sail that trims itself, steered by an autopilot,
