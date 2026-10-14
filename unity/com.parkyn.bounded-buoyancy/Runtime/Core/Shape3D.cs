@@ -29,6 +29,8 @@ namespace BoundedBuoyancy.Core
         /// <summary>Area the body shows looking along each body axis (bounding-box faces times how much of the
         /// box the shape fills), for drag.</summary>
         public V3 FaceArea;
+        /// <summary>Size of the bounding box along the body's own axes (m).</summary>
+        public V3 Size;
         /// <summary>Area seen from above (or the sphere's cross-section).</summary>
         public double Area;
 
@@ -242,6 +244,7 @@ namespace BoundedBuoyancy.Core
                 s.BoundRadius = r;
                 s.Area = Math.PI * r * r;
                 s.FaceArea = new V3(s.Area, s.Area, s.Area);
+                s.Size = new V3(2.0 * r, 2.0 * r, 2.0 * r);
                 return s;
             }
             // Spheres sharing a body with other parts are faceted, with their exact volume.
@@ -288,6 +291,7 @@ namespace BoundedBuoyancy.Core
             }
             s.BoundRadius = bound;
             V3 size = hi - lo;
+            s.Size = size;
             double boxVolume = size.x * size.y * size.z;
             double fill = boxVolume > 0.0 ? WaterVolume.Clamp(volume / boxVolume, 0.3, 1.0) : 1.0;
             s.FaceArea = new V3(size.y * size.z, size.x * size.z, size.x * size.y) * fill;

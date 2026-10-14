@@ -93,6 +93,8 @@ var water: Node2D = null
 var wind_here: Vector2 = Vector2.ZERO
 ## Wave-making damping of bobbing this step, N per m/s (0 when the body is not at the surface).
 var heave_damping: float = 0.0
+## Acceleration of the water in the waves at the body this step, along +y (downwards, px/s²), which pushes it.
+var wave_acceleration: float = 0.0
 
 const _Water2D := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water_2d.gd")
 const _Wind2D := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind_2d.gd")
@@ -227,6 +229,13 @@ func _physics_process(dt: float) -> void:
 	# Density-state drive (weight minus buoyancy; y points down), then drag on the speed through the
 	# water and through the air, applied implicitly.
 	var drive := Vector2(0.0, (own_mass - displaced) * g)
+	# The water's own motion in waves pushes the body with it, as in BoundedBuoyancyBody, averaged
+	# across the body (two Gauss points across its bounding box).
+	wave_acceleration = 0.0
+	if model == Model.BOUNDED and submerged_area > 0.0 and water:
+		var a: float = water.vertical_acceleration_at(centre_of_buoyancy, absf(xf.x.x) * _box.x + absf(xf.y.x) * _box.y)
+		wave_acceleration = clampf(a, -0.5 * g, 0.5 * g)
+		drive += Vector2(0.0, (1.0 + added_mass_coefficient) * rho * submerged_area * _kg * wave_acceleration)
 	var wind := _Wind2D.total_at(cw, _world) if not _Wind2D.instances.is_empty() else Vector2.ZERO
 	wind_here = wind
 	var through_water := v - flow

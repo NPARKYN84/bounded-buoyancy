@@ -110,6 +110,33 @@ func height_at(x: float) -> float:
 	return y + wave_height * (sin(_k1 * lx - _w1 * time) + SECOND_HEIGHT * sin(_k2 * lx - _w2 * time + 1.3))
 
 
+## Acceleration of the water in the waves at the point `p`, along +y (downwards, px/s²), as
+## BoundedBuoyancyWater.vertical_acceleration_at (with y pointing down here); with `across` (px),
+## averaged over that width centred on p (two Gauss points).
+func vertical_acceleration_at(p: Vector2, across := 0.0) -> float:
+	if wave_height <= 0.0:
+		return 0.0
+	var lx := p.x - global_position.x
+	var h := across / (2.0 * sqrt(3.0))
+	# The waves' parts as heights upwards: the surface is pushed down (+y) where the sines are positive.
+	var h1 := -wave_height * sin(_k1 * lx - _w1 * time)
+	var h2 := -wave_height * SECOND_HEIGHT * sin(_k2 * lx - _w2 * time + 1.3)
+	var z := mean_height(global_position.y - p.y, h1, _k1, h2, _k2)
+	# Upward acceleration -(ω² h ...); downward is its negative.
+	return _w1 * _w1 * h1 * cos(_k1 * h) * exp(_k1 * z) + _w2 * _w2 * h2 * cos(_k2 * h) * exp(_k2 * z)
+
+
+## The average height z (no more than 0, upwards) of the water that is `y` above the average level
+## now, as BoundedBuoyancyWater.mean_height.
+static func mean_height(y: float, h1: float, k1: float, h2: float, k2: float) -> float:
+	var z := minf(y - h1 - h2, 0.0)
+	for i in 2:   # two steps of Newton's method: well under a millimetre for waves that do not break
+		var e1 := h1 * exp(k1 * z)
+		var e2 := h2 * exp(k2 * z)
+		z = minf(z - (z - y + e1 + e2) / maxf(1.0 + k1 * e1 + k2 * e2, 0.2), 0.0)
+	return z
+
+
 ## The most the surface rises or falls from its mean height.
 func max_wave() -> float:
 	return wave_height * (1.0 + SECOND_HEIGHT)

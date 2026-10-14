@@ -129,8 +129,9 @@ namespace BoundedBuoyancy.Checks
             }
         }
 
-        /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `offset`.</summary>
-        sealed class CopiedSurface : ISurfaceHeights
+        /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `offset`, with how its
+        /// water moves in them.</summary>
+        sealed class CopiedSurface : ISurfaceHeights, ISurfaceMotion
         {
             readonly WaterVolume from;
             readonly V3 offset;
@@ -152,6 +153,12 @@ namespace BoundedBuoyancy.Checks
             }
 
             public double MaxWave { get { return most; } }
+
+            public bool VerticalAccelerationAt(V3 p, double across, double along, out double acceleration)
+            {
+                acceleration = from.Surface.VerticalAccelerationAt(p - offset, across, along);
+                return true;
+            }
         }
 
         /// <summary>Another water system's flat surface at a fixed height.</summary>
@@ -658,6 +665,7 @@ namespace BoundedBuoyancy.Checks
 
             Boats();
             WaveDampingChecks();
+            WavePushChecks();
 
             Console.WriteLine("Speed: 300 bodies on waves");
             {

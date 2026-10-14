@@ -98,6 +98,17 @@ extends Node3D
 ## The most the other surface rises or falls from its average height, in metres. Set it at least as
 ## high as the highest crest: bodies further than twice this from the surface are not measured.
 @export_range(0.0, 50.0, 0.01, "or_greater", "suffix:m") var surface_max_wave: float = 2.0
+## Optional: name of a method on surface_source that takes a world point (Vector3) in the water and
+## returns the water's upward acceleration there in its waves (m/s²). With it, bodies are pushed by
+## the water's motion and rise and fall as far as the water does, as on this node's own waves;
+## without it they are buoyed by the surface alone, and a small raft rises and falls 5 to 15%
+## further than the water. For waves made of sines, each wave's part is
+## -height * ω² * sin(phase) * exp(k * z), ω its frequency, k its wave number and z the average
+## height of the water now at the point: its height above the average level less how far the waves
+## have lifted that water, no more than 0 (see mean_height(); the demo's ocean_example.gd has one).
+## Bodies ask for the average over their footprint at four points; a method that also takes
+## `across` and `along` (world X and Z, metres) is asked once for that average instead.
+@export var surface_acceleration_method: StringName = &""
 
 ## Set from code instead of surface_source: a Callable that takes a world point (Vector3) and returns
 ## the height (world Y) of the surface there. Takes priority over surface_source.
@@ -105,6 +116,10 @@ var height_function: Callable:
 	set(value):
 		height_function = value
 		_update_surface()
+
+## Set from code with height_function: a Callable that takes a world point (Vector3) in the water and
+## returns the water's upward acceleration there (m/s²), as surface_acceleration_method does.
+var acceleration_function: Callable
 
 ## Wave clock in seconds, advanced with the physics step.
 var time: float = 0.0
@@ -165,6 +180,10 @@ var _k2 := Vector2.ZERO
 var _w1 := 0.0
 var _w2 := 0.0
 var _inv := Transform3D.IDENTITY
+var _kw := Vector4.ZERO                 # wave vectors in world X and Z (first wave x, z, second wave x, z)
+var _k1_len := 0.0
+var _level := 0.0                       # height of the water's middle (its average level), this frame
+var _k2_len := 0.0
 var _inv_frame := -1
 var _params := PackedFloat64Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1.0])
 var _params_frame := -1
@@ -250,6 +269,65 @@ func height_at(p: Vector3) -> float:
 	var l := _inverse() * p
 	var xz := Vector2(l.x, l.z)
 	return y + wave_height * (sin(_k1.dot(xz) - _w1 * time) + SECOND_HEIGHT * sin(_k2.dot(xz) - _w2 * time + 1.3))
+
+
+## Upward acceleration of the water in the waves at the world point `p` (m/s²): from this node's
+## waves, or from the other water system if it gives one, else 0. For each wave, minus its height x
+## its frequency² x the sine of its phase, dying away with depth as exp(k z), z the average height of
+## the water that is at `p` now (mean_height). Water under a crest is slowing as it rises, so it
+## accelerates downwards. With `across` and `along` (world X and Z, m), averaged over that footprint
+## centred on p, at the four points that average a uniform rectangle exactly for anything varying no
+## faster than a cubic (two-point Gauss-Legendre each way); for this node's waves, each wave's part is
+## then multiplied by cos(kx hx) cos(kz hz), hx and hz the points' offsets.
+func vertical_acceleration_at(p: Vector3, across := 0.0, along := 0.0) -> float:
+	var hx := across * 0.28867513459481287   # 1 / (2 sqrt 3)
+	var hz := along * 0.28867513459481287
+	if (height_function.is_valid() or surface_source != null) and outside_height().is_valid():
+		var call := acceleration_function
+		if not call.is_valid() and not height_function.is_valid() and surface_acceleration_method != &"" \
+				and surface_source != null and is_instance_valid(surface_source) and surface_source.has_method(surface_acceleration_method):
+			call = Callable(surface_source, surface_acceleration_method)
+		if not call.is_valid():
+			return 0.0
+		if hx == 0.0 and hz == 0.0:
+			return float(call.call(p))
+		if call.get_argument_count() >= 3:   # it averages a footprint itself
+			return float(call.call(p, across, along))
+		return 0.25 * (float(call.call(p + Vector3(-hx, 0.0, -hz))) + float(call.call(p + Vector3(hx, 0.0, -hz)))
+			+ float(call.call(p + Vector3(-hx, 0.0, hz))) + float(call.call(p + Vector3(hx, 0.0, hz))))
+	if wave_height <= 0.0:
+		return 0.0
+	var inv := _inverse()
+	var l := inv * p
+	var h1 := wave_height * sin(_k1.x * l.x + _k1.y * l.z - _w1 * time)
+	var h2 := wave_height * SECOND_HEIGHT * sin(_k2.x * l.x + _k2.y * l.z - _w2 * time + 1.3)
+	# The average height of the water now at p (mean_height, two steps of Newton's method inline).
+	var y := p.y - _level
+	var z := minf(y - h1 - h2, 0.0)
+	for i in 2:
+		var e1 := h1 * exp(_k1_len * z)
+		var e2 := h2 * exp(_k2_len * z)
+		z = minf(z - (z - y + e1 + e2) / maxf(1.0 + _k1_len * e1 + _k2_len * e2, 0.2), 0.0)
+	var a1 := _w1 * _w1 * h1 * exp(_k1_len * z)
+	var a2 := _w2 * _w2 * h2 * exp(_k2_len * z)
+	if hx != 0.0 or hz != 0.0:
+		a1 *= cos(_kw.x * hx) * cos(_kw.y * hz)
+		a2 *= cos(_kw.z * hx) * cos(_kw.w * hz)
+	return -(a1 + a2)
+
+
+## The average height z (no more than 0) of the water that is `y` metres above the average level now,
+## where the waves have lifted the surface there by h1 + h2 (the two waves' parts; k1 and k2 their
+## wave numbers): water at average height z is lifted by h exp(k z), so z solves
+## z = y - h1 exp(k1 z) - h2 exp(k2 z), by Newton's method. A body under the water that moves with
+## it keeps the same z, so it feels the same strength of wave as the water round it.
+static func mean_height(y: float, h1: float, k1: float, h2: float, k2: float) -> float:
+	var z := minf(y - h1 - h2, 0.0)
+	for i in 2:   # two steps of Newton's method: well under a millimetre for waves that do not break
+		var e1 := h1 * exp(k1 * z)
+		var e2 := h2 * exp(k2 * z)
+		z = minf(z - (z - y + e1 + e2) / maxf(1.0 + k1 * e1 + k2 * e2, 0.2), 0.0)
+	return z
 
 
 ## Velocity of the water at the world point `p` (world frame), slowing towards the banks if current_edge is set.
@@ -447,8 +525,15 @@ func inverse_transform() -> Transform3D:
 func _inverse() -> Transform3D:
 	var frame := Engine.get_physics_frames()
 	if frame != _inv_frame:
-		_inv = global_transform.affine_inverse()
+		var xf := global_transform
+		_inv = xf.affine_inverse()
 		_inv_frame = frame
+		_level = xf.origin.y
+		# The waves' wave vectors in world X and Z, for averaging over a footprint.
+		var b := xf.basis.orthonormalized()
+		var kw1 := b * Vector3(_k1.x, 0.0, _k1.y)
+		var kw2 := b * Vector3(_k2.x, 0.0, _k2.y)
+		_kw = Vector4(kw1.x, kw1.z, kw2.x, kw2.z)
 	return _inv
 
 
@@ -461,6 +546,9 @@ func _update_waves() -> void:
 	var n2 := TAU / (wave_length * SECOND_LENGTH)
 	_k1 = Vector2(cos(a1), sin(a1)) * n1
 	_k2 = Vector2(cos(a2), sin(a2)) * n2
+	_k1_len = n1
+	_k2_len = n2
+	_inv_frame = -1
 	_w1 = sqrt(g * n1)   # deep-water waves: frequency = sqrt(g x wave number)
 	_w2 = sqrt(g * n2)
 

@@ -128,6 +128,8 @@ var wind_here: Vector3 = Vector3.ZERO
 var water: Node3D = null
 ## Wave-making damping of bobbing this step, N per m/s (0 when the body is not at the surface).
 var heave_damping: float = 0.0
+## Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.
+var wave_acceleration: float = 0.0
 
 ## Use the native kernel (addons/bounded_buoyancy_native) when it is installed. The results are the
 ## same either way; the native kernel is many times faster for bodies crossing the surface.
@@ -153,6 +155,7 @@ var _centroid := Vector3.ZERO                 # body space
 var _bound_radius := 0.0                      # about _centroid
 var _area := 0.0
 var _face_area := Vector3.ZERO                # area seen looking along each body axis, for drag
+var _box_size := Vector3.ZERO                 # bounding box along the body axes
 var _prev_added_mass := -1.0
 var _auto_inertia := false
 var _was_in_water := false
@@ -282,7 +285,8 @@ func _physics_process(dt: float) -> void:
 		_report_crossing(in_water, cw, flow)
 
 	var inertial_mass := own_mass + added_mass if model == Model.BOUNDED else own_mass
-	var v := linear_velocity
+	var v_start := linear_velocity
+	var v := v_start
 	if model == Model.BOUNDED and keep_momentum_on_entry and added_mass > _prev_added_mass:
 		# The water taken along starts with the water's own velocity, so momentum is shared
 		# relative to the water.
@@ -293,6 +297,21 @@ func _physics_process(dt: float) -> void:
 	# may be flowing) on the part under water, and through the air on the rest. With still water
 	# and air this reproduces the reference update of the paper step for step.
 	var drive := Vector3.UP * (displaced - own_mass) * g
+	# The water's own motion in waves pushes the body with it. The pressure in an accelerating wave
+	# gives the water the body displaces the water's acceleration (ρ V a), and the water it takes
+	# along is set moving by the waves as well as by the body (C ρ V a): (1 + C) ρ V a in all, a the
+	# water's upward acceleration at the centre of buoyancy, averaged over the body's footprint as its
+	# buoyancy is. So a floating body rises and falls with the waves as linear wave theory gives, not a
+	# little further, and a body under water moves up and down with the water round it. Water under a
+	# real wave never accelerates faster than about half of g (steeper waves break), so a is held to that.
+	wave_acceleration = 0.0
+	if model == Model.BOUNDED and submerged_volume > 0.0 and water and (water.wave_height > 0.0 or water.surface_source or water.height_function.is_valid()):
+		var b := xf.basis
+		var across := absf(b.x.x) * _box_size.x + absf(b.y.x) * _box_size.y + absf(b.z.x) * _box_size.z
+		var along := absf(b.x.z) * _box_size.x + absf(b.y.z) * _box_size.y + absf(b.z.z) * _box_size.z
+		var a: float = water.vertical_acceleration_at(centre_of_buoyancy, across, along)
+		wave_acceleration = clampf(a, -0.5 * g, 0.5 * g)
+		drive += Vector3.UP * (1.0 + added_mass_coefficient) * rho * submerged_volume * wave_acceleration
 	var wind := _Wind.total_at(cw, _world) if not _Wind.instances.is_empty() else Vector3.ZERO
 	wind_here = wind
 	var through_water := v - flow
@@ -318,19 +337,27 @@ func _physics_process(dt: float) -> void:
 		var level_now: float = water.global_position.y if water else (water_surface.global_position.y if water_surface else water_level)
 		var follows := not is_nan(_prev_surface) and water == _prev_water and frame == _prev_frame + 1 \
 			and absf(level_now - _prev_level) < TELEPORT_DISTANCE \
-			and (com_now - _prev_com - linear_velocity * dt).length_squared() < TELEPORT_DISTANCE * TELEPORT_DISTANCE
+			and (com_now - _prev_com - v_start * dt).length_squared() < TELEPORT_DISTANCE * TELEPORT_DISTANCE
 		var surface_rate := (surface_here - _prev_surface) / dt if follows else 0.0
 		_prev_surface = surface_here
 		_prev_water = water
 		_prev_level = level_now
 		_prev_com = com_now
 		_prev_frame = frame
+		# wave_damping_coefficient() and at_surface(), written out here, as this runs for every body.
 		var depth := surface_here - centre_of_buoyancy.y
-		heave_damping = wave_damping * wave_damping_coefficient(rho, g, submerged_volume, depth, inertial_mass)
-		if heave_damping > 0.0:
+		if depth > 1e-9 and rho > 0.0 and g > 0.0:
+			var draft := 2.0 * depth
+			var waterplane := submerged_volume / draft
+			var x := pow(waterplane / (draft * draft), 0.869)
+			heave_damping = wave_damping * 2.0 * 0.0182 * x / (1.0 + 0.0798 * x) * sqrt(rho * g * waterplane * inertial_mass)
 			# Damped for as long as it is at the surface this step: until it leaves the water or goes under.
 			var rel := v.y - surface_rate
-			var time := at_surface(depth, (volume - submerged_volume) / submerged_volume, rel, dt)
+			var time := dt
+			if rel > 0.0:
+				time = minf(dt, draft / rel)
+			elif rel < 0.0:
+				time = minf(dt, draft * (volume - submerged_volume) / submerged_volume / -rel)
 			v_target.y -= (1.0 - exp(-heave_damping * time / inertial_mass)) * rel
 	else:
 		_prev_surface = NAN
@@ -344,7 +371,7 @@ func _physics_process(dt: float) -> void:
 
 	# The engine integrates F / mass over this step, so this force lands exactly on v_target.
 	mass = inertial_mass
-	var dv := v_target - linear_velocity
+	var dv := v_target - v_start
 	apply_central_force(inertial_mass * dv / dt)
 	last_acceleration = (v_target - v) / dt
 
@@ -711,6 +738,7 @@ func _build_shape() -> void:
 		_bound_radius = _radius
 		_area = PI * _radius * _radius
 		_face_area = Vector3.ONE * _area
+		_box_size = Vector3.ONE * 2.0 * _radius
 		return
 	if buoyancy_mesh != null:
 		_add_faces(buoyancy_mesh.get_faces(), Transform3D.IDENTITY, -1.0)
@@ -778,6 +806,7 @@ func _build_shape() -> void:
 		hi = hi.max(v)
 		_bound_radius = maxf(_bound_radius, v.distance_to(_centroid))
 	var size := hi - lo
+	_box_size = size
 	var fill := clampf(volume / (size.x * size.y * size.z), 0.3, 1.0)
 	_face_area = Vector3(size.y * size.z, size.x * size.z, size.x * size.y) * fill
 	_area = _face_area.y

@@ -27,6 +27,17 @@ namespace BoundedBuoyancy.Core
         }
 
         public double MaxWave { get { return Height * (1.0 + WaveSet.SecondHeight); } }
+
+        /// <summary>Upward acceleration of the water at lx, `y` metres above the water's average level, time t (m/s²),
+        /// as WaveSet.VerticalAcceleration.</summary>
+        public double VerticalAcceleration(double lx, double y, double t, double average1 = 1.0, double average2 = 1.0)
+        {
+            if (Height <= 0.0)
+                return 0.0;
+            double h1 = Height * Math.Sin(K1 * lx - W1 * t), h2 = Height * WaveSet.SecondHeight * Math.Sin(K2 * lx - W2 * t + WaveSet.SecondPhase);
+            double z = WaveSet.MeanHeight(y, h1, K1, h2, K2);
+            return -(W1 * W1 * h1 * average1 * Math.Exp(K1 * z) + W2 * W2 * h2 * average2 * Math.Exp(K2 * z));
+        }
     }
 
     public struct WaterSurface2D
@@ -48,6 +59,16 @@ namespace BoundedBuoyancy.Core
             if (Waves.Height <= 0.0)
                 return Level;
             return Level + Waves.Offset(x - OriginX, Time);
+        }
+
+        /// <summary>Upward acceleration of the water in the waves at the point p (m/s²); with `across`, averaged over that
+        /// width centred on p (two Gauss points).</summary>
+        public double VerticalAccelerationAt(V2 p, double across = 0.0)
+        {
+            if (Waves.Height <= 0.0)
+                return 0.0;
+            double h = across / (2.0 * Math.Sqrt(3.0));
+            return Waves.VerticalAcceleration(p.x - OriginX, p.y - Level, Time, Math.Cos(Waves.K1 * h), Math.Cos(Waves.K2 * h));
         }
     }
 
@@ -494,6 +515,8 @@ namespace BoundedBuoyancy.Core
         public double AngularDamp;
         /// <summary>Wave-making damping of bobbing this step, N per m/s (0 when not at the surface).</summary>
         public double HeaveDamping;
+        /// <summary>Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.</summary>
+        public double WaveAcceleration;
         public Crossing Crossing;
         public double CrossingSpeed;
         public V2 CrossingPoint;
@@ -600,6 +623,15 @@ namespace BoundedBuoyancy.Core
 
             double m = InertialMass;
             V2 drive = new V2(0.0, (displaced - own) * g);
+            // The water's own motion in waves pushes the body with it, as in BodyCore3D, averaged across the body (two
+            // Gauss points across its bounding box).
+            WaveAcceleration = 0.0;
+            if (Bounded && SubmergedArea > 0.0)
+            {
+                double a = water.Surface.VerticalAccelerationAt(CentreOfBuoyancy, Math.Abs(pose.Cos) * Shape.Box.x + Math.Abs(pose.Sin) * Shape.Box.y);
+                WaveAcceleration = Math.Max(-0.5 * g, Math.Min(0.5 * g, a));
+                drive += new V2(0.0, (1.0 + AddedMassCoefficient) * rho * SubmergedArea * kg * WaveAcceleration);
+            }
             WindHere = wind;
             V2 throughWater = v - flow;
             V2 throughAir = v - wind;

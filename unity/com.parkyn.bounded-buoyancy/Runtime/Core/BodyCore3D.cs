@@ -55,6 +55,8 @@ namespace BoundedBuoyancy.Core
         public double AngularDamp;
         /// <summary>Wave-making damping of bobbing this step, N per m/s (0 when not at the surface).</summary>
         public double HeaveDamping;
+        /// <summary>Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.</summary>
+        public double WaveAcceleration;
         public Crossing Crossing;
         public double CrossingSpeed;
         public V3 CrossingPoint;
@@ -181,6 +183,23 @@ namespace BoundedBuoyancy.Core
             // reference update of the paper step for step.
             double m = InertialMass;
             V3 drive = V3.Up * ((displaced - own) * g);
+            // The water's own motion in waves pushes the body with it. The pressure in an accelerating wave gives the
+            // water the body displaces the water's acceleration (ρ V a), and the water it takes along is set moving by
+            // the waves as well as by the body (C ρ V a): (1 + C) ρ V a in all, a the water's upward acceleration at the
+            // centre of buoyancy. So a floating body rises and falls with the waves as linear wave theory gives, not a
+            // little further, and a body under water moves up and down with the water round it. Water under a real wave
+            // never accelerates faster than about half of g (steeper waves break), so a is held to that. Like the buoyancy,
+            // it is taken over the body's footprint, not at one point.
+            WaveAcceleration = 0.0;
+            if (Bounded && SubmergedVolume > 0.0)
+            {
+                M3 b = pose.Basis;
+                double across = Math.Abs(b.X.x) * Shape.Size.x + Math.Abs(b.Y.x) * Shape.Size.y + Math.Abs(b.Z.x) * Shape.Size.z;
+                double along = Math.Abs(b.X.z) * Shape.Size.x + Math.Abs(b.Y.z) * Shape.Size.y + Math.Abs(b.Z.z) * Shape.Size.z;
+                double a = water.Surface.VerticalAccelerationAt(CentreOfBuoyancy, across, along);
+                WaveAcceleration = Math.Max(-0.5 * g, Math.Min(0.5 * g, a));
+                drive += V3.Up * ((1.0 + AddedMassCoefficient) * rho * SubmergedVolume * WaveAcceleration);
+            }
             WindHere = wind;
             V3 throughWater = v - flow;
             V3 throughAir = v - wind;

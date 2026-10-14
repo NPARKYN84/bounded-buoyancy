@@ -627,6 +627,7 @@ func _build_sea() -> void:
 		add_child(_ocean)
 		_sea.surface_source = _ocean
 		_sea.surface_method = &"get_height"
+		_sea.surface_acceleration_method = &"get_vertical_acceleration"
 		_sea.surface_max_wave = _ocean.max_wave()
 	else:
 		_sea.wave_height = 0.06

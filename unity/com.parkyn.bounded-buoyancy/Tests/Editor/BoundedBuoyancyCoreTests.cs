@@ -239,6 +239,26 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void WaterAccelerationIsTheSurfacesSecondDerivative()
+        {
+            // At the surface the water's upward acceleration is the second time derivative of the surface's height;
+            // well below, the waves' motion has died away.
+            var sea = new WaterVolume { Position = new V3(3, 0.5, -2), Size = new V3(100, 20, 100) };
+            sea.SetWaves(0.3, 8.0, 20.0, 9.81);
+            var p = new V3(1, 0, 2);
+            double h = 1e-3, t = 2.1;
+            sea.Time = t + h;
+            double up = sea.HeightAt(p);
+            sea.Time = t - h;
+            double down = sea.HeightAt(p);
+            sea.Time = t;
+            double here = sea.HeightAt(p);
+            double fd = (up - 2.0 * here + down) / (h * h);
+            Assert.AreEqual(fd, sea.Surface.VerticalAccelerationAt(new V3(p.x, here, p.z)), 1e-3, "at the surface");
+            Assert.AreEqual(0.0, sea.Surface.VerticalAccelerationAt(new V3(p.x, -49.5, p.z)), 1e-9, "50 m down");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

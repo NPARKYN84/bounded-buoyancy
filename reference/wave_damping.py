@@ -19,7 +19,7 @@ waterplane area A = V / d. In 3D s = A / d^2; in a side view (2D, per metre into
 
     python3 wave_damping.py          # solve every case (about 15 minutes), write wave_damping.csv, fit
     python3 wave_damping.py --fit    # fit the cases in wave_damping.csv only (no Capytaine needed)
-    python3 wave_damping.py --raft   # how far the comparison's raft rises and falls on its waves (a minute)
+    python3 wave_damping.py --raft   # how far the comparison's raft rises and falls on its waves (under a minute)
 
 Deep water, density 1000 kg/m^3, g 9.81 m/s^2; all results are for bodies floating at rest (own mass = mass of water
 displaced), and scale with size (Froude scaling), so one size of each is enough.
@@ -144,7 +144,8 @@ def fit():
 def raft():
     """The raft of unity/checks/Compare (60 x 40 cm, 15 cm deep, 400 kg/m^3, so 6 cm under) on that test's waves: the
     heave response (how far it rises and falls, of the wave's own rise and fall) to each of the two waves that make up
-    the surface, 3 m long head on, and 1.89 m long 35 degrees round, free to heave, pitch, roll and the rest."""
+    the surface (for 3 m waves, 3 m long head on and 1.89 m long 35 degrees round; the same for 12 m waves), free to
+    heave, pitch, roll and the rest."""
     import warnings
     import logging
     import numpy as np
@@ -160,7 +161,7 @@ def raft():
     body.inertia_matrix = body.add_dofs_labels_to_matrix(np.diag([m, m, m, m * (0.4 ** 2 + 0.15 ** 2) / 12,
                                                                   m * (0.6 ** 2 + 0.15 ** 2) / 12, m * (0.6 ** 2 + 0.4 ** 2) / 12]))
     body.hydrostatic_stiffness = body.compute_hydrostatic_stiffness(rho=RHO, g=G)
-    for length, heading in [(3.0, 0.0), (3.0 * 0.63, 35.0)]:
+    for length, heading in [(3.0, 0.0), (3.0 * 0.63, 35.0), (12.0, 0.0), (12.0 * 0.63, 35.0)]:
         w = math.sqrt(G * 2.0 * math.pi / length)
         test = xr.Dataset(coords={"omega": [w], "wave_direction": [math.radians(heading)], "radiating_dof": list(body.dofs),
                                   "water_depth": [np.inf], "rho": [RHO], "g": [G]})

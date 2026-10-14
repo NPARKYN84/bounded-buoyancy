@@ -62,6 +62,42 @@ namespace BoundedBuoyancy.Core
 
         /// <summary>The most the surface rises or falls from its mean height.</summary>
         public double MaxWave { get { return Height * (1.0 + SecondHeight); } }
+
+        /// <summary>Upward acceleration of the water at (lx, lz) in the water's frame, `y` metres above the water's
+        /// average level, at time t (m/s²): for each wave, minus its height x its frequency² x the sine of its phase,
+        /// dying away with depth as e^(k z), z the average height of the water that is there now (MeanHeight). Water
+        /// under a crest is slowing as it rises, so it accelerates downwards. Each wave's part is multiplied by
+        /// `average1` or `average2`, for an average over a footprint.</summary>
+        public double VerticalAcceleration(double lx, double y, double lz, double t, double average1 = 1.0, double average2 = 1.0)
+        {
+            if (Height <= 0.0)
+                return 0.0;
+            double k1 = Math.Sqrt(K1x * K1x + K1z * K1z), k2 = Math.Sqrt(K2x * K2x + K2z * K2z);
+            double h1 = Height * Math.Sin(K1x * lx + K1z * lz - W1 * t);
+            double h2 = Height * SecondHeight * Math.Sin(K2x * lx + K2z * lz - W2 * t + SecondPhase);
+            double z = MeanHeight(y, h1, k1, h2, k2);
+            return -(W1 * W1 * h1 * average1 * Math.Exp(k1 * z) + W2 * W2 * h2 * average2 * Math.Exp(k2 * z));
+        }
+
+        /// <summary>
+        /// The average height z (no more than 0) of the water that is `y` metres above the average level now, where the
+        /// waves have lifted the surface there by h1 + h2 (h1 and h2 the two waves' parts, k1 and k2 their wave numbers):
+        /// water at average height z is lifted by h e^(k z), so z solves z = y − h1 e^(k1 z) − h2 e^(k2 z). Two steps of
+        /// Newton's method from y − h1 − h2 find it to well under a millimetre for waves that do not break. A body under
+        /// the water that moves with it then keeps the same z, so it feels the same strength of wave as it rises and
+        /// falls, as the water round it does.
+        /// </summary>
+        public static double MeanHeight(double y, double h1, double k1, double h2, double k2)
+        {
+            double z = Math.Min(y - h1 - h2, 0.0);
+            for (int i = 0; i < 2; i++)
+            {
+                double e1 = h1 * Math.Exp(k1 * z), e2 = h2 * Math.Exp(k2 * z);
+                double slope = Math.Max(1.0 + k1 * e1 + k2 * e2, 0.2);   // above a half for waves that do not break
+                z = Math.Min(z - (z - y + e1 + e2) / slope, 0.0);
+            }
+            return z;
+        }
     }
 
     /// <summary>
@@ -86,6 +122,22 @@ namespace BoundedBuoyancy.Core
     {
         /// <summary>The water's velocity (world frame) at the world point p; false to use the water volume's current.</summary>
         bool FlowAt(V3 p, out V3 flow);
+    }
+
+    /// <summary>
+    /// A water system that also knows how its water accelerates up and down in its waves. An ISurfaceHeights that
+    /// implements this pushes bodies with the water's motion, as the water node's own waves do; without it, bodies on it
+    /// are buoyed by its surface alone.
+    /// </summary>
+    public interface ISurfaceMotion
+    {
+        /// <summary>The water's upward acceleration (m/s²) at the world point p in the water, averaged over a footprint
+        /// `across` (world X) by `along` (world Z) metres centred on p (both 0 for the point itself); false if not known.
+        /// For waves made of sines, each wave's part is −height x ω² x sin(phase) x e^(k z), ω its frequency, k its wave
+        /// number and z the average height of the water now at p: p's height above the water's average level less how
+        /// far the waves have lifted that water, no more than 0 (WaveSet.MeanHeight works it out for two waves). A
+        /// footprint can be averaged at the four points p ± (across, along) / (2√3).</summary>
+        bool VerticalAccelerationAt(V3 p, double across, double along, out double acceleration);
     }
 
     /// <summary>The water surface a body is measured against: flat at Level, with waves, or another water system's
@@ -129,6 +181,28 @@ namespace BoundedBuoyancy.Core
                 return Level;
             V3 l = Frame.Inverse(p);
             return Level + Waves.Offset(l.x, l.z, Time);
+        }
+
+        /// <summary>Upward acceleration of the water in the waves at the world point p (m/s²): from the waves, or from
+        /// another water system if it says (ISurfaceMotion), otherwise 0. With `across` and `along` (world X and Z, m),
+        /// averaged over that footprint centred on p, at the four points that average a uniform rectangle exactly for
+        /// anything varying no faster than a cubic (two-point Gauss–Legendre each way); for the waves, each wave's part
+        /// is then multiplied by cos(kx hx) cos(kz hz), hx and hz the points' offsets.</summary>
+        public double VerticalAccelerationAt(V3 p, double across = 0.0, double along = 0.0)
+        {
+            double hx = across / (2.0 * Math.Sqrt(3.0)), hz = along / (2.0 * Math.Sqrt(3.0));
+            if (Source != null)
+            {
+                double a;
+                var motion = Source as ISurfaceMotion;
+                return motion != null && motion.VerticalAccelerationAt(p, across, along, out a) ? a : 0.0;
+            }
+            if (Waves.Height <= 0.0)
+                return 0.0;
+            V3 l = Frame.Inverse(p);
+            V3 k1 = Frame.Basis.Mul(new V3(Waves.K1x, 0.0, Waves.K1z)), k2 = Frame.Basis.Mul(new V3(Waves.K2x, 0.0, Waves.K2z));
+            return Waves.VerticalAcceleration(l.x, p.y - Level, l.z, Time,
+                Math.Cos(k1.x * hx) * Math.Cos(k1.z * hz), Math.Cos(k2.x * hx) * Math.Cos(k2.z * hz));
         }
     }
 

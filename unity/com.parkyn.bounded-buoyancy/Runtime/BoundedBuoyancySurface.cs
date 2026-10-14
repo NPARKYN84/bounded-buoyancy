@@ -40,6 +40,36 @@ namespace BoundedBuoyancy
             return false;
         }
 
+        /// <summary>The water's upward acceleration (m/s²) at the world point `worldPoint` in the water, if this water
+        /// system knows how its water moves in its waves: return true and set `acceleration`. Bodies are then pushed by
+        /// the water's motion, rising and falling with the waves as far as the water does. False (the default) buoys them
+        /// on the surface alone, so a small raft rises and falls a little further than the water (about 105% on waves 20
+        /// times its length). For waves made of sines, each wave's part is −height × ω² × sin(phase) × e^(k z), ω its
+        /// frequency, k its wave number and z the point's height above the water's average level (no more than 0).</summary>
+        public virtual bool VerticalAccelerationAt(Vector3 worldPoint, out float acceleration)
+        {
+            acceleration = 0f;
+            return false;
+        }
+
+        /// <summary>The same averaged over a footprint `across` (world X) by `along` (world Z) metres centred on
+        /// `worldPoint`, as bodies ask for it. By default the average at four points (two-point Gauss–Legendre each way);
+        /// override it if your water can average a footprint itself.</summary>
+        public virtual bool VerticalAccelerationOver(Vector3 worldPoint, float across, float along, out float acceleration)
+        {
+            float hx = across / (2f * Mathf.Sqrt(3f)), hz = along / (2f * Mathf.Sqrt(3f)), sum = 0f;
+            acceleration = 0f;
+            for (int i = 0; i < 4; i++)
+            {
+                float a;
+                if (!VerticalAccelerationAt(worldPoint + new Vector3((i & 1) != 0 ? hx : -hx, 0f, (i & 2) != 0 ? hz : -hz), out a))
+                    return false;
+                sum += a;
+            }
+            acceleration = 0.25f * sum;
+            return true;
+        }
+
         /// <summary>Called when the component is added: links it to the Bounded Buoyancy Water on the same object.</summary>
         protected virtual void Reset()
         {
@@ -70,7 +100,7 @@ namespace BoundedBuoyancy
     }
 
     /// <summary>A BoundedBuoyancySurface as the engine-free core sees it.</summary>
-    internal sealed class SurfaceLink : ISurfaceHeights, ISurfaceFlow
+    internal sealed class SurfaceLink : ISurfaceHeights, ISurfaceFlow, ISurfaceMotion
     {
         internal BoundedBuoyancySurface Target;
         Vector3[] points = new Vector3[0];
@@ -102,6 +132,15 @@ namespace BoundedBuoyancy
             }
             flow = V3.Zero;
             return false;
+        }
+
+        public bool VerticalAccelerationAt(V3 p, double across, double along, out double acceleration)
+        {
+            float a;
+            bool known = across == 0.0 && along == 0.0 ? Target.VerticalAccelerationAt(Bridge.U(p), out a)
+                : Target.VerticalAccelerationOver(Bridge.U(p), (float)across, (float)along, out a);
+            acceleration = known ? a : 0.0;
+            return known;
         }
     }
 }

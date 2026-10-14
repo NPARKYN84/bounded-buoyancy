@@ -5,7 +5,9 @@ extends MeshInstance3D
 ##
 ## To float bodies on your own ocean: give it a function like get_height() below that returns the
 ## height of its surface at a world point, add a BoundedBuoyancyWater over it, and set the water's
-## surface_source to your ocean's node and surface_method to the function's name.
+## surface_source to your ocean's node and surface_method to the function's name. If you can, give
+## it get_vertical_acceleration() too and set surface_acceleration_method to its name, so the water's
+## motion in the waves pushes the bodies as well.
 
 ## The waves, each as (height in m, length crest to crest in m, direction in degrees, phase).
 @export var waves: Array[Vector4] = [
@@ -30,6 +32,7 @@ var _w: Array[float] = []       # frequency of each wave
 var _a: Array[float] = []       # height of each wave
 var _p: Array[float] = []       # phase of each wave
 var _material: ShaderMaterial
+var _lifts := PackedFloat64Array()   # each wave's lift at the point asked about
 
 const SHADER := """
 shader_type spatial;
@@ -102,6 +105,35 @@ func get_height(p: Vector3) -> float:
 	for i in _k.size():
 		s += _a[i] * sin(_k[i].dot(xz) - _w[i] * time + _p[i])
 	return global_position.y + s
+
+
+## Upward acceleration (m/s²) of the water at the world point `p`: for each wave, -height x
+## frequency² x the sine of its phase, dying away as exp(k z) with z the average height of the water
+## now at `p` (below a crest the water is lifted, so z is p's height less that lift). Bounded Buoyancy
+## asks this too (surface_acceleration_method), so bodies are pushed by the water's motion.
+func get_vertical_acceleration(p: Vector3) -> float:
+	var xz := Vector2(p.x, p.z)
+	_lifts.resize(_k.size())
+	for i in _k.size():
+		_lifts[i] = _a[i] * sin(_k[i].dot(xz) - _w[i] * time + _p[i])
+	# z solves z = y - (sum of lift x exp(k z)): a few steps of Newton's method.
+	var y := p.y - global_position.y
+	var z := y
+	for lift in _lifts:
+		z -= lift
+	z = minf(z, 0.0)
+	for n in 4:
+		var f := z - y
+		var slope := 1.0
+		for i in _k.size():
+			var e: float = _lifts[i] * exp(_k[i].length() * z)
+			f += e
+			slope += _k[i].length() * e
+		z = minf(z - f / maxf(slope, 0.2), 0.0)
+	var s := 0.0
+	for i in _k.size():
+		s -= _w[i] * _w[i] * _lifts[i] * exp(_k[i].length() * z)
+	return s
 
 
 ## The most the surface rises above (or falls below) its average height.

@@ -233,44 +233,49 @@ namespace BoundedBuoyancy.Compare
             Row("raft", "floating height error (mm)", "0 (Archimedes)", m => F(1000.0 * raft[m].err, "F1"));
             Console.WriteLine();
 
-            // 4. The raft on waves: how far it follows the surface under it, and how late.
-            Header("4. The raft on waves (5 cm swell, 3 m long)");
-            var follow = new Dictionary<Method, (double ratio, double lag)>();
-            foreach (Method m in Methods)
+            // 4. The raft on waves: how far it follows the surface under it, and how late. Short waves (5 times its length)
+            // and long ones (20 times). Linear wave theory (Capytaine; reference/wave_damping.py --raft) gives this raft a
+            // heave response of 0.98 in the 3 m waves and 1.00 in their shorter second wave, and 1.00 in the 12 m waves.
+            foreach (var (length, label, truth) in new[] { (3.0, "3 m long, 5 times its length", "98 to 100 (linear theory)"),
+                (12.0, "12 m long, 20 times its length", "100 (linear theory)") })
             {
-                var water = Water(0.05, 3.0);
-                var f = Raft(m, new V3(0, 0.015, 0), 0.0, water);
-                var ys = new List<double>();
-                var hs = new List<double>();
-                for (int i = 0; i < (int)(25.0 / dt); i++)
+                Header("4. The raft on waves (5 cm swell, " + label + ")");
+                var follow = new Dictionary<Method, (double ratio, double lag)>();
+                foreach (Method m in Methods)
                 {
-                    water.Time += dt;
-                    f.Step(G, dt);
-                    if (i * dt > 10.0)
+                    var water = Water(0.05, length);
+                    var f = Raft(m, new V3(0, 0.015, 0), 0.0, water);
+                    var ys = new List<double>();
+                    var hs = new List<double>();
+                    for (int i = 0; i < (int)(40.0 / dt); i++)
                     {
-                        ys.Add(f.Com.y);
-                        hs.Add(water.HeightAt(f.Com));
+                        water.Time += dt;
+                        f.Step(G, dt);
+                        if (i * dt > 10.0)
+                        {
+                            ys.Add(f.Com.y);
+                            hs.Add(water.HeightAt(f.Com));
+                        }
                     }
+                    double ratio = (ys.Max() - ys.Min()) / (hs.Max() - hs.Min());
+                    // The lag that best lines the raft's heave up with the surface under it.
+                    double ym = ys.Average(), hm = hs.Average();
+                    int bestK = 0;
+                    double best = -1e18;
+                    for (int k = 0; k < (int)(1.0 / dt); k++)
+                    {
+                        double sum = 0.0;
+                        for (int i = 0; i + k < ys.Count; i++)
+                            sum += (ys[i + k] - ym) * (hs[i] - hm);
+                        if (sum > best) { best = sum; bestK = k; }
+                    }
+                    follow[m] = (ratio, bestK * dt);
                 }
-                double ratio = (ys.Max() - ys.Min()) / (hs.Max() - hs.Min());
-                // The lag that best lines the raft's heave up with the surface under it.
-                double ym = ys.Average(), hm = hs.Average();
-                int bestK = 0;
-                double best = -1e18;
-                for (int k = 0; k < (int)(1.0 / dt); k++)
-                {
-                    double s = 0.0;
-                    for (int i = 0; i + k < ys.Count; i++)
-                        s += (ys[i + k] - ym) * (hs[i] - hm);
-                    if (s > best) { best = s; bestK = k; }
-                }
-                follow[m] = (ratio, bestK * dt);
+                string test = "raft on " + F(length, "F0") + " m waves";
+                Row(test, "rises and falls, of the surface under it (%)", truth, m => F(100.0 * follow[m].ratio, "F0"));
+                Row(test, "lags the surface by (s)", "close to 0", m => F(follow[m].lag, "F2"));
+                Console.WriteLine();
             }
-            // Linear wave theory (Capytaine; reference/wave_damping.py --raft) gives this raft a heave response of 0.98 in
-            // the 3 m waves and 1.00 in the shorter second wave.
-            Row("raft on waves", "rises and falls, of the surface under it (%)", "98 to 100 (linear theory)", m => F(100.0 * follow[m].ratio, "F0"));
-            Row("raft on waves", "lags the surface by (s)", "close to 0", m => F(follow[m].lag, "F2"));
-            Console.WriteLine();
 
             // 5. The same table-tennis ball at three time steps: the physics should not change with the step.
             Header("5. The table-tennis ball again, at 30, 60 and 120 steps a second");

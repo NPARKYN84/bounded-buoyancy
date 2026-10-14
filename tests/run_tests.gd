@@ -538,7 +538,8 @@ func run() -> void:
 	root.add_child(own)
 	var ocean_script := GDScript.new()
 	ocean_script.source_code = "extends Node3D\nvar target: Node3D\nvar offset := Vector3.ZERO\nvar calls := 0\n" \
-		+ "func get_height(p: Vector3) -> float:\n\tcalls += 1\n\treturn target.height_at(p - offset)\n"
+		+ "func get_height(p: Vector3) -> float:\n\tcalls += 1\n\treturn target.height_at(p - offset)\n" \
+		+ "func get_acceleration(p: Vector3, across := 0.0, along := 0.0) -> float:\n\treturn target.vertical_acceleration_at(p - offset, across, along)\n"
 	ocean_script.reload()
 	var ocean := Node3D.new()
 	ocean.set_script(ocean_script)
@@ -551,6 +552,7 @@ func run() -> void:
 	outside_water.surface_source = ocean
 	outside_water.surface_method = &"get_height"
 	outside_water.surface_max_wave = 0.12
+	outside_water.surface_acceleration_method = &"get_acceleration"
 	root.add_child(outside_water)
 	var twins := []
 	var ki := 0
@@ -577,7 +579,9 @@ func run() -> void:
 			range_lo = minf(range_lo, twins[0][1].global_position.y)
 			range_hi = maxf(range_hi, twins[0][1].global_position.y)
 	check("same waves from another system: height (mm)", 1000.0 * worst_y, 0.0, 0.5)
-	check("same waves from another system: tilt (deg)", worst_tilt, 0.0, 0.2)
+	# The capsule stands up, falls over and tumbles at up to 300 degrees a second, so a thousandth of a
+	# second's difference in its fall (single-precision positions, 40 m apart) shows as tenths of a degree.
+	check("same waves from another system: tilt (deg)", worst_tilt, 0.0, 0.5)
 	BB.use_native = native_was
 	check("raft on the other system's waves rises and falls (cm)", 100.0 * (range_hi - range_lo), 20.0, 12.0)
 	for e in twins:
@@ -924,7 +928,7 @@ func run() -> void:
 			hi15 = maxf(hi15, y15)
 			slo15 = minf(slo15, s15)
 			shi15 = maxf(shi15, s15)
-	check("raft on long waves follows the surface (rise and fall / surface's)", (hi15 - lo15) / (shi15 - slo15), 1.0, 0.06)
+	check("raft on long waves follows the surface (rise and fall / surface's)", (hi15 - lo15) / (shi15 - slo15), 1.0, 0.03)
 	rider15.queue_free()
 
 	# Moved into water 10 cm higher, by a teleport or by gliding across into it, a body is not kicked by
@@ -1073,6 +1077,149 @@ func run() -> void:
 	for b in [crate2d, crate2d_0, plank15]:
 		b.queue_free()
 
+	# B16: the water's push in waves. Water accelerating up and down in the waves pushes bodies with it.
+	print("B16 The water's push in waves")
+	# The water's upward acceleration is the second time derivative of the surface's height: for a water
+	# node's own waves, for the 2D water's, and for the ocean example's (the template for linking an ocean).
+	var sea16 := BW.new()
+	sea16.size = Vector3(100, 20, 100)
+	sea16.position = Vector3(3, 0.5, 3998)
+	sea16.rotation_degrees = Vector3(0, 30, 0)
+	sea16.wave_height = 0.3
+	sea16.wave_length = 8.0
+	sea16.wave_direction = 20.0
+	sea16.show_surface = false
+	sea16.splashes = false
+	sea16.ripples = false
+	root.add_child(sea16)
+	var sea16_2d := BW2.new()
+	sea16_2d.size = Vector2(10000, 2000)
+	sea16_2d.position = Vector2(400, 40050)
+	sea16_2d.wave_height = 30.0
+	sea16_2d.wave_length = 800.0
+	sea16_2d.show_water = false
+	root.add_child(sea16_2d)
+	var ocean16: Node3D = load("res://addons/bounded_buoyancy/demo/ocean_example.gd").new()
+	ocean16.position = Vector3(0, 0.2, 0)
+	root.add_child(ocean16)
+	await physics_frame
+	var worst16 := [0.0, 0.0, 0.0]
+	var h16 := 1e-3
+	for p16 in [Vector3(1, 0, 4000), Vector3(-7, 0, 4004.5), Vector3(12, 0, 3989)]:
+		for t16 in [0.3, 2.1, 5.7]:
+			var f1 := func(time_now: float) -> float:
+				sea16.time = time_now
+				return sea16.height_at(p16)
+			var fd1: float = (f1.call(t16 + h16) - 2.0 * f1.call(t16) + f1.call(t16 - h16)) / (h16 * h16)
+			sea16.time = t16
+			worst16[0] = maxf(worst16[0], absf(sea16.vertical_acceleration_at(Vector3(p16.x, sea16.height_at(p16), p16.z)) - fd1))
+			var f2 := func(time_now: float) -> float:
+				sea16_2d.time = time_now
+				return sea16_2d.height_at(p16.x * 100.0)
+			var fd2: float = (f2.call(t16 + h16) - 2.0 * f2.call(t16) + f2.call(t16 - h16)) / (h16 * h16)
+			sea16_2d.time = t16
+			worst16[1] = maxf(worst16[1], absf(sea16_2d.vertical_acceleration_at(Vector2(p16.x * 100.0, sea16_2d.height_at(p16.x * 100.0))) - fd2))
+			var f3 := func(time_now: float) -> float:
+				ocean16.time = time_now
+				return ocean16.get_height(p16)
+			var fd3: float = (f3.call(t16 + h16) - 2.0 * f3.call(t16) + f3.call(t16 - h16)) / (h16 * h16)
+			ocean16.time = t16
+			worst16[2] = maxf(worst16[2], absf(ocean16.get_vertical_acceleration(Vector3(p16.x, ocean16.get_height(p16), p16.z)) - fd3))
+	check("water's acceleration at the surface = surface height's 2nd derivative (m/s^2)", worst16[0], 0.0, 1e-3)
+	check("  2D (px/s^2)", worst16[1], 0.0, 0.1)
+	check("  the ocean example (m/s^2)", worst16[2], 0.0, 1e-3)
+	check("  50 m down, gone: water node, 2D, ocean example", absf(sea16.vertical_acceleration_at(Vector3(1, -49.5, 4000)))
+		+ absf(sea16_2d.vertical_acceleration_at(Vector2(100, 40050 + 5000))) / 100.0 + absf(ocean16.get_vertical_acceleration(Vector3(1, -49.8, 4000))), 0.0, 1e-6)
+	ocean16.queue_free()
+	# The same in a side view: a 2D ball as dense as water, 100 px (1 m) under 12 m waves 20 px high.
+	sea16_2d.position = Vector2(0, 40050)
+	sea16_2d.wave_height = 20.0
+	sea16_2d.wave_length = 1200.0
+	sea16_2d.time = 0.0
+	var deep2d := make_body_2d(_circle2(10), 1000.0, Vector2(0, 40150), 0.0)
+	deep2d.drag_coefficient = 0.0
+	await physics_frame
+	deep2d.freeze = false
+	var g2d := float(ProjectSettings.get_setting("physics/2d/default_gravity"))
+	var k2a := TAU / 1200.0
+	var k2b := TAU / (1200.0 * 0.63)
+	var w2a := sqrt(g2d * k2a)
+	var w2b := sqrt(g2d * k2b)
+	var t0_2d := sea16_2d.time + 0.5 * dt
+	deep2d.linear_velocity = Vector2(0, 20.0 * (-w2a * cos(-w2a * t0_2d) * exp(-k2a * 100.0) - 0.4 * w2b * cos(-w2b * t0_2d + 1.3) * exp(-k2b * 100.0)))
+	var ts2d := []
+	var ys2d16 := []
+	var water2d := []
+	t15 = 0.0
+	while t15 < 20.0:
+		await physics_frame
+		t15 += dt
+		ts2d.append(t15)
+		ys2d16.append(deep2d.global_position.y)
+		water2d.append(20.0 * (sin(-w2a * sea16_2d.time) * exp(-k2a * 100.0) + 0.4 * sin(-w2b * sea16_2d.time + 1.3) * exp(-k2b * 100.0)))
+	var fit2d := _follows(ts2d, ys2d16, water2d)
+	check("2D ball as dense as water under waves: rises and falls, of the water there", fit2d.x, 1.0, 0.05)
+	check("  in step with it (correlation)", fit2d.y, 1.0, 0.01)
+	deep2d.queue_free()
+	sea16_2d.queue_free()
+	# A ball as dense as the water, 1 m under 12 m waves, moves up and down with the water round it, as
+	# far as the water there does (each wave's height x exp(-k x 1 m)). Before, it stayed put. It is let
+	# go moving with the water there; any difference left stays with it as a steady drift (nothing here
+	# slows it), so the straight line that best fits its height is taken out first.
+	sea16.time = 0.0
+	sea16.wave_height = 0.2
+	sea16.wave_length = 12.0
+	sea16.wave_direction = 0.0
+	sea16.rotation_degrees = Vector3.ZERO
+	var deep16 := make_shape_body(_sphere(0.1), 1000.0, Vector3(3, -0.5, 3998), 0.0)
+	deep16.drag_coefficient = 0.0
+	await physics_frame
+	deep16.freeze = false
+	var k16a := TAU / 12.0
+	var k16b := TAU / (12.0 * 0.63)
+	var t0_16 := sea16.time + 0.5 * dt
+	deep16.linear_velocity = Vector3(0, -0.2 * (sqrt(G * k16a) * cos(-sqrt(G * k16a) * t0_16) * exp(-k16a)
+		+ 0.4 * sqrt(G * k16b) * cos(-sqrt(G * k16b) * t0_16 + 1.3) * exp(-k16b)), 0)
+	var ts16 := []
+	var ys16 := []
+	var water16 := []
+	t15 = 0.0
+	while t15 < 20.0:
+		await physics_frame
+		t15 += dt
+		ts16.append(t15)
+		ys16.append(deep16.global_position.y)
+		var wa := sqrt(G * k16a)
+		var wb := sqrt(G * k16b)
+		water16.append(0.2 * (sin(-wa * sea16.time) * exp(-k16a) + 0.4 * sin(-wb * sea16.time + 1.3) * exp(-k16b)))
+	var fit16 := _follows(ts16, ys16, water16)
+	print("  ball as dense as water, 1 m under 12 m waves: rises and falls %.2f times as far as the water there, correlation %.4f" % [fit16.x, fit16.y])
+	check("ball as dense as water under waves: rises and falls, of the water there", fit16.x, 1.0, 0.05)
+	check("  in step with it (correlation)", fit16.y, 1.0, 0.01)
+	deep16.queue_free()
+	# Waves too steep to be real (1 m high, 2 m long): the water's acceleration is held to half of g.
+	sea16.wave_height = 1.0
+	sea16.wave_length = 2.0
+	var steep16 := make_shape_body(_box(Vector3(0.4, 0.4, 0.4)), 500.0, Vector3(3, 0, 3998), 0.0)
+	await physics_frame
+	steep16.freeze = false
+	var most16 := 0.0
+	for n in 300:
+		await physics_frame
+		most16 = maxf(most16, absf(steep16.wave_acceleration))
+	check("waves too steep to be real: the water's acceleration (g)", most16 / G, 0.5, 0.01)
+	steep16.queue_free()
+	var usual16 := make_shape_body(_box(Vector3(0.4, 0.4, 0.4)), 500.0, Vector3(3, 0, 3998), 0.0)
+	usual16.model = BB.Model.USUAL
+	await physics_frame
+	usual16.freeze = false
+	var usual_push := 0.0
+	for n in 30:
+		await physics_frame
+		usual_push = maxf(usual_push, absf(usual16.wave_acceleration))
+	check("  the usual model is not pushed (m/s^2)", usual_push, 0.0, 0.0)
+	usual16.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -1171,6 +1318,41 @@ func _autopilot(b: RigidBody3D, course: Vector3) -> float:
 	var f := -b.global_transform.basis.z
 	var error := rad_to_deg(atan2(f.cross(course).y, f.x * course.x + f.z * course.z))
 	return clampf(-1.5 * error + 25.0 * rad_to_deg(b.angular_velocity.y) / 60.0, -30.0, 30.0)
+
+
+## How a body's height `ys` (at times `ts`) follows the water's rise `water`, once the straight line
+## that best fits its height (a steady drift) is taken out: (rise and fall over the water's, correlation).
+func _follows(ts: Array, ys: Array, water: Array) -> Vector2:
+	var n := ts.size()
+	var tm := 0.0
+	var ym := 0.0
+	var wm := 0.0
+	for i in n:
+		tm += ts[i] / n
+		ym += ys[i] / n
+		wm += water[i] / n
+	var stt := 0.0
+	var sty := 0.0
+	for i in n:
+		stt += (ts[i] - tm) * (ts[i] - tm)
+		sty += (ts[i] - tm) * (ys[i] - ym)
+	var lo := 1e18
+	var hi := -1e18
+	var wlo := 1e18
+	var whi := -1e18
+	var cov := 0.0
+	var vb := 0.0
+	var vw := 0.0
+	for i in n:
+		var b: float = ys[i] - ym - sty / stt * (ts[i] - tm)
+		lo = minf(lo, b)
+		hi = maxf(hi, b)
+		wlo = minf(wlo, water[i])
+		whi = maxf(whi, water[i])
+		cov += b * (water[i] - wm)
+		vb += b * b
+		vw += (water[i] - wm) * (water[i] - wm)
+	return Vector2((hi - lo) / (whi - wlo), cov / sqrt(vb * vw))
 
 
 ## Heights of the successive crests of a bob about `rest`, from a list of heights.

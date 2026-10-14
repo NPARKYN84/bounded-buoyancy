@@ -188,6 +188,14 @@ namespace BoundedBuoyancy
         /// <summary>Height of the water surface (world Y) above or below the world point p.</summary>
         public float HeightAt(Vector3 p) { return (float)core.HeightAt(Bridge.V(p)); }
 
+        /// <summary>Upward acceleration of the water in the waves at the world point p in the water (m/s²), which pushes
+        /// bodies with it: from this water's waves, or from its Surface Source if that gives one. With `across` and
+        /// `along` (world X and Z, m), averaged over that footprint centred on p.</summary>
+        public float VerticalAccelerationAt(Vector3 p, float across = 0f, float along = 0f)
+        {
+            return (float)core.Surface.VerticalAccelerationAt(Bridge.V(p), across, along);
+        }
+
         /// <summary>Velocity of the water at the world point p (world frame).</summary>
         public Vector3 CurrentAt(Vector3 p) { return Bridge.U(core.CurrentAt(Bridge.V(p))); }
 

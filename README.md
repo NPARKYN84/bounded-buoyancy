@@ -54,7 +54,7 @@ Set **Wave Damping** to 0 to leave it out (the paper's benchmarks do, as they le
 
 ## Water you can place, with waves
 
-Add a **BoundedBuoyancyWater** node where you want the surface and set its **Size**: the water fills that box below the node. Once a scene has one, bodies float only inside water nodes, so a pond, a pool and the sea can sit at different heights with different densities (1000 kg/m³ fresh, about 1025 sea). Give it a **Wave Height** and **Wave Length** and every body rides and rocks on the surface it sits on, each part of it measured against the water above that part. The node draws a simple surface that moves with the waves; turn **Show Surface** off to use your own.
+Add a **BoundedBuoyancyWater** node where you want the surface and set its **Size**: the water fills that box below the node. Once a scene has one, bodies float only inside water nodes, so a pond, a pool and the sea can sit at different heights with different densities (1000 kg/m³ fresh, about 1025 sea). Give it a **Wave Height** and **Wave Length** and every body rides and rocks on the surface it sits on, each part of it measured against the water above that part. The water moving up and down in the waves pushes on everything in it too, so a small raft rises and falls as far as the water does (99% on waves 20 times its length, where exact wave theory gives 100%), and a ball as dense as water, drifting a metre under the surface, moves up and down with the water round it. The node draws a simple surface that moves with the waves; turn **Show Surface** off to use your own.
 
 ![A boat, a raft, a crate, a log and a ball on waves](docs/waves.gif)
 
@@ -63,6 +63,8 @@ Add a **BoundedBuoyancyWater** node where you want the surface and set its **Siz
 Already have an ocean or water shader, or an ocean add-on? Keep it for the look, and let Bounded Buoyancy do the floating. Add a **BoundedBuoyancyWater** over it, set **Surface Source** to the ocean's node and **Surface Method** to the name of its function that gives the height of the surface at a world point (`func get_height(p: Vector3) -> float`, say). Bodies then ride that ocean's waves, every vertex measured against the surface above it, with the added mass, righting and drag described here. The water node still sets where bodies float (its **Size**), the water's density and any current, and it stops drawing its own surface. Set **Surface Max Wave** to the height of the ocean's highest crest above its average level; for bodies further than twice that from the surface, the ocean is asked only for the height over their centre.
 
 From code, `height_function` takes a Callable instead: `$Water.height_function = func(p: Vector3) -> float: return ocean.wave_height_at(p)`.
+
+For the water's own push in the waves as well, give the ocean a second function that returns the water's upward acceleration at a world point in the water (`func get_vertical_acceleration(p: Vector3) -> float`) and set **Surface Acceleration Method** to its name (or `acceleration_function` from code). For waves made of sines, each wave's part is −height × ω² × sin(phase) × e^(k z), ω the wave's frequency, k its wave number and z the point's height above the average level (no more than 0); the example ocean below has one to copy. Without it, bodies are buoyed by the ocean's surface alone, and a small raft rises and falls 5 to 15% further than the water.
 
 Shaders run on the graphics card, where the physics cannot read them, so the ocean's script needs the same wave formula on the CPU. An ocean add-on that floats objects of its own already has such a function; for a shader of your own, copy its wave sum into GDScript. The demo's ninth scene does exactly this with an ocean drawn by its own shader (`addons/bounded_buoyancy/demo/ocean_example.gd`, a template to copy):
 
@@ -125,19 +127,19 @@ The same law covers air, with air's density (1.2 kg/m³) in place of water's. Wh
 
 ## Hundreds of bodies, and fast ones
 
-The waterline cut runs in compiled code when the optional native kernel is installed (`addons/bounded_buoyancy_native`, included for Windows and Linux), and in GDScript otherwise. The results are the same either way. With the kernel, 300 bodies riding waves at once take 2.5 to 4.5 ms per frame, of the 16.7 ms a 60 fps frame allows:
+The waterline cut runs in compiled code when the optional native kernel is installed (`addons/bounded_buoyancy_native`, included for Windows and Linux), and in GDScript otherwise. The results are the same either way. With the kernel, 300 bodies riding waves at once take 3.5 to 6 ms per frame, of the 16.7 ms a 60 fps frame allows:
 
 ![300 crates, barrels, balls and buoys dropped onto waves](docs/many.gif)
 
 | 300 bodies on waves, ms per frame | Native kernel | GDScript only |
 | --- | ---: | ---: |
-| Spheres | 2.4 | 2.5 |
-| Boxes | 3.3 | 6.8 |
-| Convex hulls (boats) | 3.0 | 7.2 |
-| Cylinders | 3.6 | 20.1 |
-| Capsules | 4.5 | 45.9 |
+| Spheres | 3.6 | 3.7 |
+| Boxes | 4.0 | 10.0 |
+| Convex hulls (boats) | 5.0 | 11.0 |
+| Cylinders | 5.7 | 23.9 |
+| Capsules | 4.8 | 54.7 |
 
-Measured with `tests/bench_scale.gd` on a 2.1 GHz server processor, including Godot's own physics step for the bodies; faster desktop processors take less. In calm water the GDScript times are about a third lower. The plugin's own share per body is about 5 µs plus the waterline cut, and the added mass itself costs about 9 ns (`reference/cost_bench.c`).
+Measured with `tests/bench_scale.gd` on a 2.1 GHz server processor, including Godot's own physics step for the bodies; faster desktop processors take less. In calm water the GDScript times are about a third lower. The plugin's own share per body is about 10 µs plus the waterline cut, 4 to 5 µs of it the settling and the water's push in waves added in version 2.3 (Wave Damping 0 skips the settling), and the added mass itself costs about 9 ns (`reference/cost_bench.c`).
 
 Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows straight to its sinking speed of 3.1 m/s; a light ball fired into the water at 30 m/s comes back up and floats; a box skimming the surface at 25 m/s slows without tipping. The tests check all three.
 
@@ -151,10 +153,11 @@ Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows
 | --- | ---: | ---: | ---: | ---: | --- |
 | Table-tennis ball let go under water: first-frame acceleration | 11g | 7.0g | 11g | 1.58g | 1.58g (added mass) |
 | Wooden ball dropped onto still water: bobbing more than 1 mm until | over 20 s | 0.6 s | 0.7 s | 7.0 s | about 5 s (linear wave theory) |
-| Raft on waves 5 times its length: rises and falls, of the surface | 103% | 61% | 90% | 111% | 98 to 100% (linear wave theory, `reference/wave_damping.py --raft`) |
+| Raft on waves 20 times its length: rises and falls, of the surface | 102% | 90% | 101% | 99% | 100% (linear wave theory, `reference/wave_damping.py --raft`) |
+| Raft on waves 5 times its length: rises and falls, of the surface | 106% | 61% | 92% | 93% | 98 to 100% (linear wave theory) |
 | Raft on those waves: lags the surface by | 0 s | 0.18 s | 0.08 s | 0 s | close to 0 |
 
-Damping strong enough to stop the bouncing also stops a body following the waves: the damped raft rises and falls only 61% as far as the water, a beat late, and the damped ball dropped from 30 cm barely dips below its floating height. Bounded Buoyancy keeps the first frame right without any damping, takes away only the energy the ripples carry, and keeps up with the waves. The rest is in the tool's output: floating heights, a raft righting itself, the same test at 30, 60 and 120 steps a second, and the cost. `python3 chart.py` there redraws the chart.
+Damping strong enough to stop the bouncing also stops a body following the waves: on the shorter waves the damped raft rises and falls only 61% as far as the water, a beat late, and the damped ball dropped from 30 cm barely dips below its floating height. Bounded Buoyancy keeps the first frame right without any damping, takes away only the energy the ripples carry, and keeps up with the waves, though on waves only five times its length its raft rises and falls a little less than exact theory gives. The rest is in the tool's output: floating heights, a raft righting itself, the same test at 30, 60 and 120 steps a second, and the cost. `python3 chart.py` there redraws the chart.
 
 ## Install
 
@@ -190,7 +193,7 @@ To give a boat ballast, set the body's **Center of Mass** to Custom and move it 
 | Buoyancy Mesh | Optional closed mesh used instead of the collision shapes | none |
 | Curve Segments | Facets around cylinders and capsules (the volume is corrected to the exact value) | 16 |
 
-The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, **Splashes**, **Ripples** and **Splash Min Speed**, and, to use another water system's surface, **Surface Source**, **Surface Method** and **Surface Max Wave** (or `height_function` from code). The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
+The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, **Splashes**, **Ripples** and **Splash Min Speed**, and, to use another water system's surface, **Surface Source**, **Surface Method**, **Surface Max Wave** and **Surface Acceleration Method** (or `height_function` and `acceleration_function` from code). From code, `height_at(p)` and `vertical_acceleration_at(p)` give the surface's height and the water's upward acceleration at a world point. The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
 
 ## Demo
 
@@ -202,7 +205,7 @@ Open the project folder in Godot 4.4 or later and press Play. The first scene re
 godot --headless --fixed-fps 60 --script res://tests/run_tests.gd
 ```
 
-prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, the 2D version, another water system's surface (bodies on a copy of a water node's waves must move exactly as on the waves themselves), foils and propellers (lift at known angles, the bounded force, a keel against leeway, a fin behind or ahead of the centre of mass, a propeller's top speed, turning circles both ways, a boat at anchor swinging bow upstream, and a dinghy sailing upwind), and wave-making damping (the damping against the exact values, bobs dying away at the rate it gives, floats settling, a raft still riding waves and rising water, no kick from a teleport, a step into other water or water lifted at once), and ends with PASS. The paper's benchmarks leave out air and wave-making damping, so those checks set Air Density and Wave Damping to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`), the cost benchmark (`cost_bench.c`), and the exact wave-making damping results and their fit (`wave_damping.py`, `wave_damping.csv`).
+prints the first-frame accelerations and the release-and-surfacing results from the paper, then checks volumes, centres of buoyancy and righting for each shape, water nodes and waves, balloons in air, fast bodies, rivers, wind and sails, splashes, the 2D version, another water system's surface (bodies on a copy of a water node's waves must move exactly as on the waves themselves), foils and propellers (lift at known angles, the bounded force, a keel against leeway, a fin behind or ahead of the centre of mass, a propeller's top speed, turning circles both ways, a boat at anchor swinging bow upstream, and a dinghy sailing upwind), wave-making damping (the damping against the exact values, bobs dying away at the rate it gives, floats settling, a raft still riding waves and rising water, no kick from a teleport, a step into other water or water lifted at once), and the water's push in waves (its acceleration against the surface's own, for the water node, the 2D water and the example ocean; a ball as dense as water moving with the water under the waves; steep waves held to half of g), and ends with PASS. The paper's benchmarks leave out air and wave-making damping, so those checks set Air Density and Wave Damping to 0. Add `-- --gdscript` to run everything without the native kernel; the results agree. The `reference/` folder has the paper's Python reference implementation (`bounded_buoyancy.py`), the cost benchmark (`cost_bench.c`), and the exact wave-making damping results and their fit (`wave_damping.py`, `wave_damping.csv`).
 
 Without the native kernel, lower **Curve Segments** to make cylinders and capsules cheaper (`tests/bench_immerse.gd` times each shape).
 
@@ -212,7 +215,7 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
 - Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only. The energy a body's bobbing sends out as ripples is taken away (Wave Damping), but the ripples themselves do not move other bodies, a moving boat makes no wake to slow it, and splashes are drawn, not simulated. Wave damping acts on bobbing up and down; rolling and pitching are slowed by Angular Drag. It is worked out for deep water, from the volume under water and the depth of its centre, so two shapes that share those settle alike. The volume under a wave is accurate while the waves are long compared with the body.
-- In waves, the water taken along is set moving by the body but not by the waves, so a small raft rises and falls a little further than the surface does (about 110% on waves five times its length, where linear wave theory gives 98 to 100%).
+- Only the water's up-and-down motion in waves pushes bodies; its to-and-fro motion does not, so things floating in waves do not sway back and forth with them, or drift slowly the way the waves run. A body that is a good part of a wavelength long rises and falls a little less than linear wave theory gives (a raft on waves five times its length, 93% against 98%). On another water system's surface the push needs the water's acceleration (**Surface Acceleration Method**); without it, bodies are buoyed by the surface alone and a small raft rises and falls 5 to 15% further than the water.
 - Wave damping acts in the steps that find a body partly under water. A light ball shooting out of the water crosses the surface in a step or two, so how high it pops up depends a little on the time step (4.7, 4.1 and 3.9 cm above its floating height at 30, 60 and 120 steps a second, against 4.4 cm at each without wave damping).
 - From another water system only the height of the surface is taken: near the surface, one request per vertex of the body's shape each step, plus one at its centre (just one for a lone sphere), so for big fleets on an expensive ocean use simple shapes or a low-poly Buoyancy Mesh. Its currents are not read; set **Current** on the water node. The 2D water has no other-system link yet.
 - A current is the same everywhere in its water node (apart from the banks), and so is the wind in its node (apart from gusts). A body's own drag acts at its centre, so a current or wind turns it only through its foils (a keel aft of the centre of mass weathervanes a boat at anchor; a boat already drifting with the water has nothing flowing past it and does not turn). Sail Area always faces the wind it feels; for sailing across or into the wind, use a sail foil and a keel.
