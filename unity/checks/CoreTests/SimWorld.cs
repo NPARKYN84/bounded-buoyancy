@@ -158,11 +158,16 @@ namespace BoundedBuoyancy.Checks
                 b.ApplyAppendages(pose, sample, wind, Dt);
                 // AddForce(VelocityChange): the body lands on the target velocity.
                 b.V = b.Core.VelocityTarget;
-                // Torque about the centre of mass, through the (fixed, own) rotational inertia.
+                // Torque about the centre of mass, through the body's own rotational inertia, with any flood water's
+                // added as BoundedBuoyancyBody does (there only when it has changed by 1%; here every step).
                 M3 r = b.Basis;
-                V3 tl = b.Axes.MulT(r.MulT(b.Core.Torque));
-                V3 al = new V3(tl.x / b.Moments.x, tl.y / b.Moments.y, tl.z / b.Moments.z);
-                b.W += r.Mul(b.Axes.Mul(al)) * Dt;
+                M3 axes = b.Axes;
+                V3 moments = b.Moments;
+                if (b.Core.FloodMass > 0.0)
+                    (Sym3.FromPrincipal(b.Moments, b.Axes) + b.Core.FloodInertia).Principal(out moments, out axes);
+                V3 tl = axes.MulT(r.MulT(b.Core.Torque));
+                V3 al = new V3(tl.x / moments.x, tl.y / moments.y, tl.z / moments.z);
+                b.W += r.Mul(axes.Mul(al)) * Dt;
                 b.W *= Math.Max(0.0, 1.0 - b.Core.AngularDamp * Dt);
                 b.Com += b.V * Dt;
                 b.Rot = b.Rot.Integrate(b.W, Dt);

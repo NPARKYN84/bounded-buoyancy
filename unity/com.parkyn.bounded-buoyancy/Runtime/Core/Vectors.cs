@@ -166,6 +166,26 @@ namespace BoundedBuoyancy.Core
             return new Sym3 { xx = a.xx * s, yy = a.yy * s, zz = a.zz * s, xy = a.xy * s, xz = a.xz * s, yz = a.yz * s };
         }
 
+        public static Sym3 operator +(Sym3 a, Sym3 b)
+        {
+            return new Sym3 { xx = a.xx + b.xx, yy = a.yy + b.yy, zz = a.zz + b.zz, xy = a.xy + b.xy, xz = a.xz + b.xz, yz = a.yz + b.yz };
+        }
+
+        /// <summary>The tensor with principal moments `m` along the columns of `axes`: A diag(m) Aᵀ.</summary>
+        public static Sym3 FromPrincipal(V3 m, M3 axes)
+        {
+            V3 a = axes.X, b = axes.Y, c = axes.Z;
+            return new Sym3
+            {
+                xx = m.x * a.x * a.x + m.y * b.x * b.x + m.z * c.x * c.x,
+                yy = m.x * a.y * a.y + m.y * b.y * b.y + m.z * c.y * c.y,
+                zz = m.x * a.z * a.z + m.y * b.z * b.z + m.z * c.z * c.z,
+                xy = m.x * a.x * a.y + m.y * b.x * b.y + m.z * c.x * c.y,
+                xz = m.x * a.x * a.z + m.y * b.x * b.z + m.z * c.x * c.z,
+                yz = m.x * a.y * a.z + m.y * b.y * b.z + m.z * c.y * c.z,
+            };
+        }
+
         /// <summary>Principal moments and axes (columns of a right-handed rotation): I = A diag(m) Aᵀ.</summary>
         public void Principal(out V3 moments, out M3 axes)
         {

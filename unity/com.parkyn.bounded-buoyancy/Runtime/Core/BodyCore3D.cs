@@ -1,5 +1,6 @@
 // Bounded Buoyancy for Unity. Engine-free core. Copyright (c) 2026 Nicholas Parkyn. MIT licence.
 using System;
+using System.Collections.Generic;
 
 namespace BoundedBuoyancy.Core
 {
@@ -60,6 +61,14 @@ namespace BoundedBuoyancy.Core
         public Crossing Crossing;
         public double CrossingSpeed;
         public V3 CrossingPoint;
+        /// <summary>Mass of the water in the compartments this step (kg).</summary>
+        public double FloodMass;
+        /// <summary>The compartments' water as weight at its centres: its inertia about the centre of mass, in the
+        /// body's own axes (the water does not turn with the body, so only as weight at its centre).</summary>
+        public Sym3 FloodInertia;
+
+        /// <summary>Spaces inside the body that can flood (see Compartment3D).</summary>
+        public readonly List<Compartment3D> Compartments = new List<Compartment3D>();
 
         double prevAddedMass = -1.0;
         bool wasInWater;
@@ -68,6 +77,19 @@ namespace BoundedBuoyancy.Core
         object prevWater;                  // the water it was in then
         double prevLevel;                  // that water's level
         V3 prevCom;                        // and where its centre of mass was
+        double prevFlood;                  // the compartments' water last step
+        WaterSample floodWater;            // the water round the body, for the compartments this step
+        readonly Func<V3, double> floodSurface;
+
+        public BodyCore3D()
+        {
+            floodSurface = FloodSurfaceAt;
+        }
+
+        double FloodSurfaceAt(V3 p)
+        {
+            return floodWater.HasWater ? floodWater.Surface.HeightAt(p) : double.NaN;
+        }
 
         /// <summary>The body's own mass, density x volume (kg).</summary>
         public double OwnMass { get { return Density * Shape.Volume; } }
@@ -150,8 +172,23 @@ namespace BoundedBuoyancy.Core
             double airVolume = volumeAll - SubmergedVolume;
             double displaced = rho * SubmergedVolume + AirDensityHere * airVolume;   // mass of water and air displaced
             AddedMass = AddedMassCoefficient * displaced;
+            // Water in the compartments: weight the body carries, at the water's own centre.
+            V3 floodTorque = V3.Zero;
+            if (Compartments.Count > 0)
+            {
+                floodTorque = Flood(pose, comWorld, water, rho, g, dt);
+            }
+            else
+            {
+                FloodMass = 0.0;
+                FloodInertia = new Sym3();
+            }
             if (prevAddedMass < 0.0)
+            {
+                // The first step, or the first since it was frozen: the water it carries and takes along now is its own.
                 prevAddedMass = AddedMass;
+                prevFlood = FloodMass;
+            }
 
             bool inWater = SubmergedVolume > 0.0;
             Crossing = Crossing.None;
@@ -169,12 +206,15 @@ namespace BoundedBuoyancy.Core
             }
 
             double own = OwnMass;
-            InertialMass = Bounded ? own + AddedMass : own;
+            double carried = own + FloodMass;   // what the body weighs: itself and the water inside it
+            InertialMass = Bounded ? carried + AddedMass : carried;
             V3 v = velocity;
-            if (Bounded && KeepMomentumOnEntry && AddedMass > prevAddedMass)
+            if (Bounded && KeepMomentumOnEntry)
             {
-                // The water taken along starts with the water's own velocity, so momentum is shared relative to it.
-                v = flow + (v - flow) * ((own + prevAddedMass) / InertialMass);
+                // Water taken along, or let in, starts with the water's own velocity, so momentum is shared relative to it.
+                double grown = Math.Max(AddedMass - prevAddedMass, 0.0) + Math.Max(FloodMass - prevFlood, 0.0);
+                if (grown > 0.0)
+                    v = flow + (v - flow) * ((InertialMass - grown) / InertialMass);
             }
 
             // Density-state drive (weight minus buoyancy), then drag applied implicitly, as engines apply damping.
@@ -182,7 +222,7 @@ namespace BoundedBuoyancy.Core
             // part under water, and through the air on the rest. With still water and air this reproduces the
             // reference update of the paper step for step.
             double m = InertialMass;
-            V3 drive = V3.Up * ((displaced - own) * g);
+            V3 drive = V3.Up * ((displaced - carried) * g);
             // The water's own motion in waves pushes the body with it. The pressure in an accelerating wave gives the
             // water the body displaces the water's acceleration (ρ V a), and the water it takes along is set moving by
             // the waves as well as by the body (C ρ V a): (1 + C) ρ V a in all, a the water's upward acceleration at the
@@ -228,9 +268,11 @@ namespace BoundedBuoyancy.Core
                 if (arm.x * arm.x + arm.z * arm.z > 1e-14)
                     Torque += arm.Cross(V3.Up * (displaced * g));
             }
+            Torque += floodTorque;
             // Spin is damped by the water, and by the air in proportion to how light the body is against it.
             AngularDamp = AngularDrag * (SubmergedVolume + airVolume * Math.Min(1.0, AirDensityHere / Density)) / volumeAll;
             prevAddedMass = AddedMass;
+            prevFlood = FloodMass;
 
             // Wave-making damping: bobbing relative to the surface under the body (which rises and falls with any
             // waves, so a body riding them is not held back) sends out ripples that carry energy away. It acts on the
@@ -267,6 +309,39 @@ namespace BoundedBuoyancy.Core
             {
                 prevSurface = double.NaN;
             }
+        }
+
+        /// <summary>The compartments for one step: moves water through their holes and pumps, and sets FloodMass and
+        /// FloodInertia. The water is weight carried at its own centre, which stays level in its compartment as the body
+        /// leans, so its weight acts toward the low side (the free-surface effect). It is applied as weight on the body
+        /// plus its turning moment about the body's own centre of mass, which balances exactly as the weight at the
+        /// shifted centre of mass would. Returns that turning moment (world).</summary>
+        V3 Flood(BodyPose pose, V3 comWorld, WaterSample water, double rho, double g, double dt)
+        {
+            floodWater = water;
+            FloodMass = 0.0;
+            FloodInertia = new Sym3();
+            V3 torque = V3.Zero;
+            for (int k = 0; k < Compartments.Count; k++)
+            {
+                Compartment3D c = Compartments[k];
+                var world = new BodyPose(pose.Apply(c.Pose.Position), pose.Basis * c.Pose.Basis);
+                double m = c.Step(world, floodSurface, rho, g, dt);
+                if (m <= 0.0)
+                    continue;
+                V3 arm = c.WaterCentre - comWorld;
+                FloodMass += m;
+                torque += arm.Cross(new V3(0.0, -m * g, 0.0));
+                V3 e = pose.Basis.MulT(arm);   // in the body's own axes
+                FloodInertia.xx += m * (e.y * e.y + e.z * e.z);
+                FloodInertia.yy += m * (e.x * e.x + e.z * e.z);
+                FloodInertia.zz += m * (e.x * e.x + e.y * e.y);
+                FloodInertia.xy -= m * e.x * e.y;
+                FloodInertia.xz -= m * e.x * e.z;
+                FloodInertia.yz -= m * e.y * e.z;
+            }
+            floodWater = default(WaterSample);
+            return torque;
         }
 
         /// <summary>A body found this far from where its velocity would have carried it, or water whose level has moved

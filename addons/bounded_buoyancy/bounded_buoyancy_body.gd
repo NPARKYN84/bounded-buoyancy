@@ -35,6 +35,10 @@ extends RigidBody3D
 ## Boats: BoundedBuoyancyFoil children (keels, rudders, sails) and BoundedBuoyancyThruster children
 ## (propellers, fans) are applied after the buoyancy each step, each with a bounded impulse at its
 ## own point, so a boat holds its course, steers, sails across and into the wind, and drives.
+##
+## Flooding: BoundedBuoyancyCompartment children are spaces inside the body that fill with water
+## through their holes. The water inside is weight the body carries, at the water's own centre, so a
+## holed ship settles, lists toward its flooded side and sinks or capsizes.
 
 ## The body has just touched the water, at `speed` (m/s, through the water) at the world point `at`
 ## on the surface. Use it for splash sounds.
@@ -130,6 +134,8 @@ var water: Node3D = null
 var heave_damping: float = 0.0
 ## Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.
 var wave_acceleration: float = 0.0
+## Mass of the water inside the body's compartments this step (kg).
+var flood_mass: float = 0.0
 
 ## Use the native kernel (addons/bounded_buoyancy_native) when it is installed. The results are the
 ## same either way; the native kernel is many times faster for bodies crossing the surface.
@@ -173,6 +179,12 @@ var _prev_com := Vector3.ZERO                 # where its centre of mass was
 var _prev_frame := -1                         # and which physics frame that was
 var _foils: Array = []                        # BoundedBuoyancyFoil nodes under the body
 var _thrusters: Array = []                    # BoundedBuoyancyThruster nodes under the body
+var _compartments: Array = []                 # BoundedBuoyancyCompartment nodes under the body
+var _prev_flood := 0.0                        # flood water's mass last step
+var _flooded := false                         # the inertia includes flood water
+var _dry_inertia := Vector3.ZERO              # the inertia without it, when set by hand
+var _wet_inertia := Vector3.ZERO              # the inertia as last set with it
+var _flood_torque := Vector3.ZERO             # the flood water's weight about the centre of mass, this step
 
 
 func _ready() -> void:
@@ -274,8 +286,13 @@ func _physics_process(dt: float) -> void:
 	var air_volume := volume - submerged_volume
 	var displaced := rho * submerged_volume + air_density_here * air_volume   # mass of water and air displaced
 	added_mass = added_mass_coefficient * displaced
+	# Water in the compartments: weight the body carries, at the water's own centre.
+	flood_mass = _flood(xf, rho, g, dt) if not _compartments.is_empty() or _flooded else 0.0
 	if _prev_added_mass < 0.0:
+		# The first step, or the first since it was frozen: the water it carries and takes along now
+		# is its own.
 		_prev_added_mass = added_mass
+		_prev_flood = flood_mass
 	var in_water := submerged_volume > 0.0
 	if _first_step:
 		_was_in_water = in_water
@@ -284,19 +301,22 @@ func _physics_process(dt: float) -> void:
 		_was_in_water = in_water
 		_report_crossing(in_water, cw, flow)
 
-	var inertial_mass := own_mass + added_mass if model == Model.BOUNDED else own_mass
+	var carried := own_mass + flood_mass   # what the body weighs: itself and the water inside it
+	var inertial_mass := carried + added_mass if model == Model.BOUNDED else carried
 	var v_start := linear_velocity
 	var v := v_start
-	if model == Model.BOUNDED and keep_momentum_on_entry and added_mass > _prev_added_mass:
-		# The water taken along starts with the water's own velocity, so momentum is shared
+	if model == Model.BOUNDED and keep_momentum_on_entry:
+		# Water taken along, or let in, starts with the water's own velocity, so momentum is shared
 		# relative to the water.
-		v = flow + (v - flow) * ((own_mass + _prev_added_mass) / inertial_mass)
+		var grown := maxf(added_mass - _prev_added_mass, 0.0) + maxf(flood_mass - _prev_flood, 0.0)
+		if grown > 0.0:
+			v = flow + (v - flow) * ((inertial_mass - grown) / inertial_mass)
 
 	# Density-state drive (weight minus buoyancy), then drag applied implicitly, as engines
 	# apply damping. Drag acts on the body's speed through each medium: through the water (which
 	# may be flowing) on the part under water, and through the air on the rest. With still water
 	# and air this reproduces the reference update of the paper step for step.
-	var drive := Vector3.UP * (displaced - own_mass) * g
+	var drive := Vector3.UP * (displaced - carried) * g
 	# The water's own motion in waves pushes the body with it. The pressure in an accelerating wave
 	# gives the water the body displaces the water's acceleration (ρ V a), and the water it takes
 	# along is set moving by the waves as well as by the body (C ρ V a): (1 + C) ρ V a in all, a the
@@ -386,6 +406,8 @@ func _physics_process(dt: float) -> void:
 		var arm := centre - xf * center_of_mass
 		if arm.x * arm.x + arm.z * arm.z > 1e-14:
 			apply_torque(arm.cross(Vector3.UP * displaced * g))
+	if flood_mass > 0.0:
+		apply_torque(_flood_torque)
 	if turn != Vector3.ZERO:
 		apply_torque(turn / dt)
 	# Spin is damped by the water, and by the air in proportion to how light the body is against it.
@@ -393,6 +415,7 @@ func _physics_process(dt: float) -> void:
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
 	_prev_added_mass = added_mass
+	_prev_flood = flood_mass
 
 
 ## Wave-making (radiation) damping of bobbing, N per m/s, for a body with `submerged` m³ under water
@@ -436,6 +459,77 @@ static func wave_damping_ratio(width_to_draft: float) -> float:
 		return 0.0
 	var x := pow(width_to_draft, 0.869)
 	return 0.0182 * x / (1.0 + 0.0798 * x)
+
+
+func _add_compartment(node: Node) -> void:
+	if not _compartments.has(node):
+		_compartments.append(node)
+
+
+func _remove_compartment(node: Node) -> void:
+	_compartments.erase(node)
+
+
+## The compartments for one step: moves water through their holes and pumps, and puts the water's
+## weight on the body. The water is weight carried at its own centre, which stays level in its
+## compartment as the body leans, so its weight acts toward the low side (the free-surface effect).
+## It is applied as a weight on the body plus its turning moment about the body's own centre of mass,
+## which balances exactly as the weight at the shifted centre of mass would, without moving the body's
+## centre of mass in the engine. The water does not turn with the body, so it adds to the inertia only
+## as weight at its centre. Returns the water's mass (kg).
+func _flood(xf: Transform3D, rho: float, g: float, dt: float) -> float:
+	var surface: Callable
+	if water:
+		var w: Node3D = water
+		surface = func(p: Vector3) -> float: return w.height_at(p)
+	elif water_surface or not _world_has_water:
+		var level: float = water_surface.global_position.y if water_surface else water_level
+		surface = func(_p: Vector3) -> float: return level
+	else:
+		surface = func(_p: Vector3) -> float: return NAN
+	var com := xf * center_of_mass
+	var axes := xf.basis.orthonormalized()
+	var total := 0.0
+	var spin := Vector3.ZERO
+	var torque := Vector3.ZERO
+	for comp in _compartments:
+		if not is_instance_valid(comp) or not comp.is_inside_tree():
+			continue
+		var r: Array = comp.flood_step(comp.global_transform, surface, rho, g, dt)
+		var m: float = r[0]
+		if m <= 0.0:
+			continue
+		var arm: Vector3 = r[1] - com
+		total += m
+		torque += arm.cross(Vector3.DOWN * m * g)
+		var e := axes.transposed() * arm   # in the body's own axes
+		spin += m * Vector3(e.y * e.y + e.z * e.z, e.x * e.x + e.z * e.z, e.x * e.x + e.y * e.y)
+	_flood_torque = torque
+	if _flooded and inertia != _wet_inertia:
+		# Set from elsewhere while flooded (by hand, or the density or the shape changed): that is the
+		# body's own inertia now.
+		_dry_inertia = inertia
+	if total <= 0.0:
+		if _flooded:
+			# Dry again: back to the body's own inertia.
+			_flooded = false
+			inertia = _own_inertia_now()
+		return 0.0
+	if not _flooded:
+		_flooded = true
+		_dry_inertia = inertia
+	# Godot's inertia is along the body's own axes only, so the water's products of inertia (from
+	# water off to one side and below, say) are left out; Unity's port includes them.
+	var i := _own_inertia_now() + spin
+	if (i - inertia).length_squared() > 1e-4 * i.length_squared():   # set when it has changed by 1%
+		inertia = i
+	_wet_inertia = inertia
+	return total
+
+
+## The body's own rotational inertia, without any flood water.
+func _own_inertia_now() -> Vector3:
+	return _unit_inertia * density if _auto_inertia else _dry_inertia
 
 
 func _add_appendage(node: Node) -> void:

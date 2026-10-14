@@ -15,7 +15,7 @@ const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const BWIND := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
 const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thruster.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_flood.tscn"
 
 const ORANGE := Color(0.93, 0.5, 0.15)
 const TEAL := Color(0.16, 0.62, 0.56)

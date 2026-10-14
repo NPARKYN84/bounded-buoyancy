@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.4.0] - 2026-10-14
+
+- Flooding: **Bounded Buoyancy Compartment** on child objects of a body: boxes that fill with water through their **Holes** (orifice law) and drain through holes above the water, with **Pump Rate**, `AddHole(worldPoint, area)` and `PatchHoles()`. The water lies level as the body leans and is weight carried at its own centre, applied as weight plus its turning moment about the centre of mass, and in the inertia tensor as weight at its centre (worked out again when it changes by 1%, and back to the body's own once dry). Bodies report `FloodMass`. In the core, `Compartment3D` and `BodyCore3D.Compartments`, `FloodMass` and `FloodInertia`.
+- Tests: a B17 play-mode test (a list toward the damaged side, upright again and the inertia back once pumped dry) and two edit-mode tests (the free-surface shift, the orifice law); the .NET checks add the Godot plugin's B17, with the flood water's inertia in the turning, and agree with it to the printed digits except the sinking speed of the filled bowl (2.41 m/s against 2.43 in Godot Physics, which depends on how it leans as it goes down). `Sym3.FromPrincipal` and `Sym3 +` in the core.
+
 ## [2.3.0] - 2026-10-14
 
 - Wave-making damping: a body bobbing at the surface sends out ripples that carry its energy away, so floats now settle after a few bobs, as real ones do. It acts on bobbing relative to the surface under the body (the Bounded Buoyancy Water's waves, or HDRP's), so riding waves is not held back, and on the speed at the start of each step, so the first frame after a release is unchanged. How much depends on the shape, from linear wave theory: a raft or a boat loses about 70% of each bob, a cube or a ball floating half under about 27%, a deep post 3%. The damping ratios were found exactly with the open-source solver Capytaine for 30 floating shapes and fitted with one curve (`reference/wave_damping.py` in the repository): in the simulation, 0.8 to 1.5 times the exact value for flat-bottomed bodies, about 0.5 to 0.7 times for balls and logs floating at least half out of the water, and within about 2% in 2D.

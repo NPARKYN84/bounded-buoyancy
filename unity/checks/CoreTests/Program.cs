@@ -667,6 +667,118 @@ namespace BoundedBuoyancy.Checks
             WaveDampingChecks();
             WavePushChecks();
 
+            Console.WriteLine("B17 Flooding");
+            {
+                // The free surface: water 0.4 m deep in a 2 m wide, 4 m long tank turned 10 degrees moves across the tank
+                // by i tan(angle) / V and up it by i tan²(angle) / 2V (i = l b³ / 12), as in any wall-sided tank.
+                var tank = new Compartment3D { Size = new V3(2, 1, 4) };
+                double tilt = 10.0 * Math.PI / 180.0;
+                var place = new V3(1, 2, 3);
+                var leaning = new BodyPose(place, M3.TurnAboutZ(10.0));
+                double vol = 2.0 * 0.4 * 4.0;
+                V3 up, lean;
+                double levelUp = Compartment3D.LevelFor((V3[])tank.Corners(new BodyPose(place, M3.Identity)).Clone(), vol, out up);
+                Compartment3D.LevelFor(tank.Corners(leaning), vol, out lean);
+                V3 shift = leaning.Inverse(lean) - (up - place);
+                double i = 4.0 * 8.0 / 12.0;
+                Check("free surface: water moves across the tank (mm)", 1000.0 * Math.Abs(shift.x), 1000.0 * i * Math.Tan(tilt) / vol, 0.001);
+                Check("free surface: and up it (mm)", 1000.0 * shift.y, 1000.0 * i * Math.Tan(tilt) * Math.Tan(tilt) / (2.0 * vol), 0.001);
+                Check("upright: the water's surface 0.4 m above the floor (mm)", 1000.0 * (levelUp - 1.5), 400.0, 0.001);
+                // A mirrored tank (scale -1 across, as a port tank copied from a starboard one) holds water the same.
+                V3 ignore;
+                var mirror = new M3(new V3(-1, 0, 0), new V3(0, 1, 0), new V3(0, 0, 1));
+                double levelMirrored = Compartment3D.LevelFor(tank.Corners(new BodyPose(place, mirror)), vol, out ignore);
+                Check("  mirrored: the same (mm)", 1000.0 * (levelMirrored - 1.5), 400.0, 0.001);
+
+                var w = new SimWorld();
+                Water(w, new V3(0, 0, 6000), new V3(200, 200, 200));
+                double g = w.G;
+                // The sinking-bowl water clock: a box 1 m square and 0.5 m tall at draft 0.15 m, open to a hole in its
+                // floor, sinks steadily and goes under at S (H - d0) / (C a √(2 g d0)); ballasted low to float upright.
+                var bowl = Body(w, Box(1, 0.5, 1), 300.0, new V3(0, 0.1, 6000), 0.0, true, 0.0, 0.0, new V3(0, -0.24, 0));
+                var hold = new Compartment3D { Size = new V3(1, 0.5, 1) };
+                hold.Holes.Add(new Hole(new V3(0, -0.25, 0), 0.005));
+                bowl.Core.Compartments.Add(hold);
+                double expect = (0.5 - 0.15) / (0.6 * 0.005 * Math.Sqrt(2.0 * g * 0.15));
+                double under = -1.0, half = -1.0;
+                Run(w, expect * 1.3, t =>
+                {
+                    double top = bowl.Position.y + 0.25;
+                    if (half < 0.0 && top <= 0.175)
+                        half = t;
+                    if (under < 0.0 && top <= 0.0)
+                        under = t;
+                });
+                Check("sinking bowl: goes under at the water clock's time (s)", under, expect, 0.01 * expect);
+                Check("  and sinks steadily: half way at half the time (s)", half, 0.5 * expect, 0.01 * expect);
+                Run(w, 15.0);
+                // Full, it weighs 650 kg against 500 kg of water displaced: it sinks at about its terminal speed.
+                Check("  then sinks at about its terminal speed (m/s)", -bowl.V.y, Math.Sqrt(2.0 * 150.0 * g / (1000.0 * 0.47 * 1.0)), 0.25);
+                Check("  and fills: the compartment holds 0.5 m³ (m³)", hold.FloodVolume, 0.5, 0.001);
+                bowl.Frozen = true;
+                // Without the ballast the same box lolls over as it floods.
+                var loose = Body(w, Box(1, 0.5, 1), 300.0, new V3(4, 0.1, 6000));
+                loose.Core.Compartments.Add(new Compartment3D { Size = new V3(1, 0.5, 1), FloodVolume = 0.06 });
+                loose.W = new V3(0, 0, 0.016);   // a nudge, as the Godot check's
+                Run(w, 15.0);
+                Check("  unballasted, it lolls over as it floods (deg)", loose.TiltDegrees, 20.0, 18.0);
+                loose.Frozen = true;
+
+                // Lost buoyancy: a barge 2 m wide and 6 m long at draft 0.4 m with its middle 2 m open to the sea settles at
+                // draft 0.4 x 6 / (6 - 2) = 0.6 m, level.
+                var barge = Body(w, Box(2, 1, 6), 400.0, new V3(10, 0.1, 6000));
+                var mid = new Compartment3D { Size = new V3(2, 1, 2) };
+                mid.Holes.Add(new Hole(new V3(0, -0.5, 0), 0.2));
+                barge.Core.Compartments.Add(mid);
+                Run(w, 40.0);
+                Check("lost buoyancy: barge settles at the draft of the textbook (cm)", 100.0 * (0.5 - barge.Position.y), 60.0, 0.5);
+                Check("  level (deg)", barge.TiltDegrees, 0.0, 0.2);
+                barge.Frozen = true;
+
+                // Slack water across a barge's whole floor takes away more stability than the barge has: it lolls. With
+                // bulkheads down the middle and across, the loss is a quarter and it stays upright.
+                var slack = Body(w, Box(2, 1, 4), 500.0, new V3(20, -0.2, 6000), 1.0);
+                slack.Core.Compartments.Add(new Compartment3D { Size = new V3(2, 1, 4), FloodVolume = 1.6 });
+                var split = Body(w, Box(2, 1, 4), 500.0, new V3(30, -0.2, 6000), 1.0);
+                foreach (double side in new[] { -0.5, 0.5 })
+                    foreach (double end in new[] { -1.0, 1.0 })
+                        split.Core.Compartments.Add(new Compartment3D
+                        {
+                            Size = new V3(1, 1, 2), FloodVolume = 0.4, Pose = new BodyPose(new V3(side, 0, end), M3.Identity),
+                        });
+                Run(w, 25.0);
+                Check("free surface: a slack tank across the barge makes it loll (deg)", slack.TiltDegrees, 15.0, 12.0);
+                Check("  bulkheads down the middle and across keep it upright (deg)", split.TiltDegrees, 0.0, 0.5);
+                slack.Frozen = true;
+                split.Frozen = true;
+
+                // Side damage: a hole in the starboard (+x) compartment below the waterline lists the ship to starboard;
+                // patched and pumped dry, it comes upright again.
+                var ship = Body(w, Box(3, 1.2, 8), 350.0, new V3(40, 0.18, 6000));
+                var port = new Compartment3D { Size = new V3(1.4, 1.2, 3), Pose = new BodyPose(new V3(-0.75, 0, 1.5), M3.Identity) };
+                var starboard = new Compartment3D { Size = new V3(1.4, 1.2, 3), Pose = new BodyPose(new V3(0.75, 0, 1.5), M3.Identity) };
+                starboard.Holes.Add(new Hole(new V3(0.7, -0.4, 0), 0.02));
+                ship.Core.Compartments.Add(port);
+                ship.Core.Compartments.Add(starboard);
+                Run(w, 30.0);
+                double heel = Math.Asin(Math.Max(-1.0, Math.Min(1.0, -ship.Basis.X.y))) * 180.0 / Math.PI;
+                Check("side damage: lists to the holed side (deg, + to starboard)", heel, 10.0, 9.0);
+                Check("  the port compartment stays dry (m³)", port.FloodVolume, 0.0, 0.0);
+                starboard.Holes.Clear();
+                starboard.PumpRate = 1.0;
+                Run(w, 20.0);
+                Check("  patched and pumped dry: upright again (deg)", ship.TiltDegrees, 0.0, 0.5);
+                Check("  no water left (kg)", ship.Core.FloodMass, 0.0, 0.0);
+                ship.Frozen = true;
+
+                // A body let go with water already in it keeps its speed: the water is its own, not let in.
+                var cask = Body(w, Box(1, 1, 1), 300.0, new V3(60, 20, 6000));
+                cask.Core.Compartments.Add(new Compartment3D { Size = new V3(0.9, 0.9, 0.9), FloodVolume = 0.5 });
+                cask.V = new V3(5, 0, 0);
+                w.Step();
+                Check("let go with water in it: keeps its speed (m/s)", cask.V.x, 5.0, 0.001);
+            }
+
             Console.WriteLine("Speed: 300 bodies on waves");
             {
                 foreach (var kind in new[] { "sphere", "box", "hull", "capsule" })

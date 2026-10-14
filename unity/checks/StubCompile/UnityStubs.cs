@@ -99,6 +99,15 @@ namespace UnityEngine
         public override int GetHashCode() { return 0; }
     }
 
+    public partial struct Vector4
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float w;
+        public Vector4(float x, float y, float z, float w) { this.x = x; this.y = y; this.z = z; this.w = w; }
+    }
+
     public struct Vector3
     {
         public float x, y, z;
@@ -196,6 +205,7 @@ namespace UnityEngine
         public static float Sin(float f) { return 0f; }
         public static float Cos(float f) { return 0f; }
         public static float Sqrt(float f) { return 0f; }
+        public static float Asin(float f) { return 0f; }
         public static float Abs(float f) { return 0f; }
         public static float Pow(float f, float p) { return 0f; }
         public static float Exp(float power) { return 0f; }

@@ -106,6 +106,11 @@ namespace BoundedBuoyancy
         readonly List<BoundedBuoyancyThruster> thrusters = new List<BoundedBuoyancyThruster>();
         readonly List<Foil3D> foilCores = new List<Foil3D>();
         readonly List<Thruster3D> thrusterCores = new List<Thruster3D>();
+        readonly List<BoundedBuoyancyCompartment> compartments = new List<BoundedBuoyancyCompartment>();
+        bool flooded;
+        Vector3 floodTensor;
+        Quaternion floodTensorRotation = Quaternion.identity;
+        Sym3 floodTotal;                   // the inertia last set with the water in it, as a tensor in the body's axes
         bool setUp;
         bool warned;
         float appliedMass = -1f;
@@ -184,6 +189,9 @@ namespace BoundedBuoyancy
             foreach (BoundedBuoyancyThruster t in GetComponentsInChildren<BoundedBuoyancyThruster>())
                 if (t.isActiveAndEnabled)
                     t.Register();
+            foreach (BoundedBuoyancyCompartment c in GetComponentsInChildren<BoundedBuoyancyCompartment>())
+                if (c.isActiveAndEnabled)
+                    c.Register();
         }
 
         void OnDisable()
@@ -288,7 +296,15 @@ namespace BoundedBuoyancy
             WaterSample sample = FindWater(cw, scene);
             V3 wind = BoundedBuoyancyWind.TotalAt(cw, scene);
             Vector3 v = Bridge.GetVelocity(rb);
+            core.Compartments.Clear();
+            for (int i = 0; i < compartments.Count; i++)
+                if (compartments[i] != null && compartments[i].isActiveAndEnabled)
+                    core.Compartments.Add(compartments[i].Prepare(transform));
             core.Step(pose, Bridge.V(rb.worldCenterOfMass), Bridge.V(v), sample, wind, -Physics.gravity.y, dt);
+            for (int i = 0; i < compartments.Count; i++)
+                if (compartments[i] != null && compartments[i].isActiveAndEnabled)
+                    compartments[i].Finish();
+            bool tensorChanged = FloodInertia();
             V3 turn = V3.Zero;
             if (foils.Count > 0 || thrusters.Count > 0)
                 turn = ApplyAppendages(sample, wind, dt);
@@ -296,11 +312,11 @@ namespace BoundedBuoyancy
             // The engine resists every force with the mass it has, so set it to the inertial mass (water and air
             // taken along included), and hold the rotational inertia at the body's own.
             float m = Mathf.Max((float)core.InertialMass, 1e-7f);
-            if (Mathf.Abs(m - appliedMass) > 1e-6f * m)
+            if (Mathf.Abs(m - appliedMass) > 1e-6f * m || tensorChanged)
             {
                 rb.mass = m;
-                rb.inertiaTensor = tensor;
-                rb.inertiaTensorRotation = tensorRotation;
+                rb.inertiaTensor = flooded ? floodTensor : tensor;
+                rb.inertiaTensorRotation = flooded ? floodTensorRotation : tensorRotation;
                 appliedMass = m;
             }
             // Land exactly on the target velocity this step, whatever the mass.
@@ -317,6 +333,49 @@ namespace BoundedBuoyancy
             }
             if (core.Crossing != Crossing.None)
                 ReportCrossing();
+        }
+
+        /// <summary>Compartments under the body register themselves here.</summary>
+        internal void AddCompartment(BoundedBuoyancyCompartment c) { if (!compartments.Contains(c)) compartments.Add(c); }
+        internal void RemoveCompartment(BoundedBuoyancyCompartment c) { compartments.Remove(c); }
+
+        /// <summary>The compartments under this body.</summary>
+        public IReadOnlyList<BoundedBuoyancyCompartment> Compartments { get { return compartments; } }
+        /// <summary>Mass of the water in the compartments this step (kg).</summary>
+        public float FloodMass { get { return (float)core.FloodMass; } }
+
+        /// <summary>The rotational inertia with the compartments' water in it, as weight at its centres (it does not turn
+        /// with the body): worked out again when the water has changed it by 1%, and back to the body's own once dry.
+        /// Returns whether it changed.</summary>
+        bool FloodInertia()
+        {
+            if (core.FloodMass <= 0.0)
+            {
+                if (!flooded)
+                    return false;
+                flooded = false;
+                return true;
+            }
+            // The body's own inertia plus the water's.
+            Sym3 i = Sym3.FromPrincipal(Bridge.V(tensor), Bridge.M(tensorRotation)) + core.FloodInertia;
+            if (flooded)
+            {
+                // Compare the whole tensor, so that a turn of its axes counts as well as a change in its moments.
+                double xx = i.xx - floodTotal.xx, yy = i.yy - floodTotal.yy, zz = i.zz - floodTotal.zz;
+                double xy = i.xy - floodTotal.xy, xz = i.xz - floodTotal.xz, yz = i.yz - floodTotal.yz;
+                double change = xx * xx + yy * yy + zz * zz + 2.0 * (xy * xy + xz * xz + yz * yz);
+                double whole = i.xx * i.xx + i.yy * i.yy + i.zz * i.zz + 2.0 * (i.xy * i.xy + i.xz * i.xz + i.yz * i.yz);
+                if (change <= 1e-4 * whole)
+                    return false;
+            }
+            V3 moments;
+            M3 axes;
+            i.Principal(out moments, out axes);
+            flooded = true;
+            floodTotal = i;
+            floodTensor = new Vector3((float)moments.x, (float)moments.y, (float)moments.z);
+            floodTensorRotation = Bridge.Q(axes);
+            return true;
         }
 
         /// <summary>Foils and thrusters under the body register themselves here.</summary>
@@ -345,8 +404,8 @@ namespace BoundedBuoyancy
             V3 before = core.VelocityTarget;
             V3 v = before;
             V3 w = Bridge.V(rb.angularVelocity);
-            M3 axes = Bridge.M(rb.rotation * tensorRotation);
-            V3 turn = Appendages.Apply(foilCores, thrusterCores, core.InertialMass, Bridge.V(rb.worldCenterOfMass), axes, Bridge.V(tensor),
+            M3 axes = Bridge.M(rb.rotation * (flooded ? floodTensorRotation : tensorRotation));
+            V3 turn = Appendages.Apply(foilCores, thrusterCores, core.InertialMass, Bridge.V(rb.worldCenterOfMass), axes, Bridge.V(flooded ? floodTensor : tensor),
                 ref v, ref w, sample, wind, core.AirDensityHere, dt);
             core.VelocityTarget = v;
             core.LastAcceleration += (v - before) / dt;

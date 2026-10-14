@@ -1220,11 +1220,188 @@ func run() -> void:
 	check("  the usual model is not pushed (m/s^2)", usual_push, 0.0, 0.0)
 	usual16.queue_free()
 
+	# B17: flooding. Compartments fill through their holes by the orifice law; the water inside is
+	# weight carried at its own centre, which stays level as the body leans.
+	print("B17 Flooding")
+	var sea17 := BW.new()
+	sea17.size = Vector3(200, 200, 200)
+	sea17.position = Vector3(0, 0, 6000)
+	sea17.show_surface = false
+	sea17.splashes = false
+	sea17.ripples = false
+	root.add_child(sea17)
+	# The free surface: water 0.4 m deep in a 2 m wide, 4 m long tank turned 10 degrees moves across
+	# the tank by i tan(angle) / V and up by i tan²(angle) / 2V (i = l b³ / 12), as for any wall-sided tank.
+	var tank17: Node3D = COMPARTMENT.new()
+	tank17.size = Vector3(2, 1, 4)
+	var tilt17 := deg_to_rad(10.0)
+	var xf17 := Transform3D(Basis(Vector3(0, 0, 1), tilt17), Vector3(1, 2, 3))
+	var v17 := 2.0 * 0.4 * 4.0
+	var upright17: Array = COMPARTMENT.level_for(tank17.corners(Transform3D(Basis(), Vector3(1, 2, 3))), v17)
+	var leaning17: Array = COMPARTMENT.level_for(tank17.corners(xf17), v17)
+	var shift17: Vector3 = xf17.affine_inverse() * leaning17[1] - (upright17[1] - Vector3(1, 2, 3))
+	var i17 := 4.0 * 8.0 / 12.0
+	check("free surface: water moves across the tank (mm)", 1000.0 * absf(shift17.x), 1000.0 * i17 * tan(tilt17) / v17, 0.01)
+	check("free surface: and up it (mm)", 1000.0 * shift17.y, 1000.0 * i17 * tan(tilt17) * tan(tilt17) / (2.0 * v17), 0.01)
+	check("upright: the water's surface 0.4 m above the floor (mm)", 1000.0 * (upright17[0] - 1.5), 400.0, 0.01)
+	# A mirrored tank (scale -1 across, as a port tank copied from a starboard one) holds water the same.
+	var mirrored17: Array = COMPARTMENT.level_for(tank17.corners(Transform3D(Basis().scaled(Vector3(-1, 1, 1)), Vector3(1, 2, 3))), v17)
+	check("  mirrored: the same (mm)", 1000.0 * (mirrored17[0] - 1.5), 400.0, 0.01)
+	tank17.free()
+
+	# The sinking-bowl water clock: a box 1 m square and 0.5 m tall floating at draft d0 = 0.15 m, open to
+	# a hole of area a in its floor. As water comes in the box sinks, and the head at the hole stays d0,
+	# so it fills at the steady rate C a √(2 g d0) and goes under at t = S (H - d0) / (C a √(2 g d0)).
+	# Water loose across the whole floor takes away all the stability the box's width gives it (ρ i / Δ
+	# equals the waterplane's I / V), so the box is ballasted low to float upright, as the textbook's does.
+	var g17 := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	var bowl17 := make_shape_body(_box(Vector3(1, 0.5, 1)), 300.0, Vector3(0, 0.1, 6000), 0.0)
+	bowl17.center_of_mass = Vector3(0, -0.24, 0)
+	var hold17: Node3D = COMPARTMENT.new()
+	hold17.size = Vector3(1, 0.5, 1)
+	hold17.holes.append(Vector4(0, -0.25, 0, 0.005))
+	bowl17.add_child(hold17)
+	var expect17 := 1.0 * (0.5 - 0.15) / (0.6 * 0.005 * sqrt(2.0 * g17 * 0.15))
+	await physics_frame
+	bowl17.freeze = false
+	var under17 := -1.0
+	var half17 := -1.0
+	t = 0.0
+	while t < expect17 * 1.3 and under17 < 0.0:
+		await physics_frame
+		t += dt
+		var top: float = bowl17.global_position.y + 0.25
+		if half17 < 0.0 and top <= 0.35 - 0.175:
+			half17 = t
+		if top <= 0.0:
+			under17 = t
+	check("sinking bowl: goes under at the water clock's time (s)", under17, expect17, 0.03 * expect17)
+	check("  and sinks steadily: half way at half the time (s)", half17, 0.5 * expect17, 0.03 * expect17)
+	await _wait(15.0)
+	# Full, it weighs 650 kg against 500 kg of water displaced: it sinks at about its terminal speed
+	# (a little less, as it leans and shows the water more of itself).
+	check("  then sinks at about its terminal speed (m/s)", -bowl17.linear_velocity.y, sqrt(2.0 * 150.0 * g17 / (1000.0 * 0.47 * 1.0)), 0.25)
+	check("  and fills: the compartment holds 0.5 m³ (m³)", hold17.flood_volume, 0.5, 0.001)
+	# Without the ballast the same box lolls over as it floods.
+	var loose17 := make_shape_body(_box(Vector3(1, 0.5, 1)), 300.0, Vector3(4, 0.1, 6000), 0.0)
+	var loosehold17: Node3D = COMPARTMENT.new()
+	loosehold17.size = Vector3(1, 0.5, 1)
+	loosehold17.flood_volume = 0.06
+	loose17.add_child(loosehold17)
+	await physics_frame
+	loose17.freeze = false
+	loose17.apply_torque_impulse(Vector3(0, 0, 0.5))
+	await _wait(15.0)
+	check("  unballasted, it lolls over as it floods (deg)", tilt_deg(loose17), 20.0, 18.0)
+	loose17.queue_free()
+	bowl17.queue_free()
+
+	# Lost buoyancy: a barge 2 m wide and 6 m long at draft 0.4 m with its middle 2 m open to the sea
+	# settles at draft 0.4 x 6 / (6 - 2) = 0.6 m, level.
+	var barge17 := make_shape_body(_box(Vector3(2, 1, 6)), 400.0, Vector3(10, 0.1, 6000), 0.0)
+	var mid17: Node3D = COMPARTMENT.new()
+	mid17.size = Vector3(2, 1, 2)
+	mid17.holes.append(Vector4(0, -0.5, 0, 0.2))
+	barge17.add_child(mid17)
+	await physics_frame
+	barge17.freeze = false
+	await _wait(40.0)
+	check("lost buoyancy: barge settles at the draft of the textbook (cm)", 100.0 * (0.5 - barge17.global_position.y), 60.0, 0.5)
+	check("  level (deg)", tilt_deg(barge17), 0.0, 0.2)
+	barge17.queue_free()
+
+	# Slack water: a barge 2 m wide, 1 m deep and 4 m long at half water's density, with 0.2 m of water
+	# loose across its whole floor, has GM 0.44 m as if the water were solid but 0.476 m less for its
+	# free surface (ρ i / Δ): it lolls over. With a bulkhead down the middle the loss is a quarter, and
+	# it stays upright. (A bulkhead across it too: water loose along its whole length takes away all of
+	# its stability end to end, just as water across its whole width does side to side.)
+	var slack17 := make_shape_body(_box(Vector3(2, 1, 4)), 500.0, Vector3(20, -0.2, 6000), 1.0)
+	var one17: Node3D = COMPARTMENT.new()
+	one17.size = Vector3(2, 1, 4)
+	one17.flood_volume = 1.6
+	slack17.add_child(one17)
+	var split17 := make_shape_body(_box(Vector3(2, 1, 4)), 500.0, Vector3(30, -0.2, 6000), 1.0)
+	for side in [-0.5, 0.5]:
+		for end in [-1.0, 1.0]:
+			var quarter: Node3D = COMPARTMENT.new()
+			quarter.size = Vector3(1, 1, 2)
+			quarter.position = Vector3(side, 0, end)
+			quarter.flood_volume = 0.4
+			split17.add_child(quarter)
+	await physics_frame
+	slack17.freeze = false
+	split17.freeze = false
+	await _wait(25.0)
+	check("free surface: a slack tank across the barge makes it loll (deg)", tilt_deg(slack17), 15.0, 12.0)
+	check("  bulkheads down the middle and across keep it upright (deg)", tilt_deg(split17), 0.0, 0.5)
+	slack17.queue_free()
+	split17.queue_free()
+
+	# Side damage: a hole in the starboard (+x) compartment below the waterline lists the ship to starboard.
+	var ship17 := make_shape_body(_box(Vector3(3, 1.2, 8)), 350.0, Vector3(40, 0.18, 6000), 0.0)
+	for side in [-1.0, 1.0]:
+		var sidec: Node3D = COMPARTMENT.new()
+		sidec.size = Vector3(1.4, 1.2, 3)
+		sidec.position = Vector3(0.75 * side, 0, 1.5)
+		sidec.name = "Starboard" if side > 0.0 else "Port"
+		ship17.add_child(sidec)
+	await physics_frame
+	ship17.freeze = false
+	var dry17: Vector3 = ship17.inertia
+	var starboard17: Node3D = ship17.get_node("Starboard")
+	starboard17.add_hole(ship17.to_global(Vector3(1.5, -0.4, 1.5)), 0.02)
+	await _wait(30.0)
+	var heel17 := rad_to_deg(asin(clampf(-ship17.global_transform.basis.x.normalized().y, -1.0, 1.0)))
+	check("side damage: lists to the holed side (deg, + to starboard)", heel17, 10.0, 9.0)
+	check("  the port compartment stays dry (m³)", (ship17.get_node("Port") as Node3D).flood_volume, 0.0, 0.0)
+	# Patch the hole and pump it dry: back upright, its centre of mass and inertia as before.
+	starboard17.patch_holes()
+	starboard17.pump_rate = 1.0
+	await _wait(20.0)
+	check("  patched and pumped dry: upright again (deg)", tilt_deg(ship17), 0.0, 0.5)
+	check("  its inertia back to its own (%)", 100.0 * (ship17.inertia - dry17).length() / dry17.length(), 0.0, 0.001)
+	check("  no water left (kg)", ship17.flood_mass, 0.0, 0.0)
+	ship17.queue_free()
+
+	# Taken out while flooded, a compartment takes its water's inertia with it.
+	var tub17 := make_shape_body(_box(Vector3(2, 1, 2)), 300.0, Vector3(50, 0.0, 6000), 0.0)
+	var tubhold17: Node3D = COMPARTMENT.new()
+	tubhold17.size = Vector3(1.8, 0.8, 1.8)
+	tubhold17.flood_volume = 0.3
+	tub17.add_child(tubhold17)
+	await physics_frame
+	var tubdry17: Vector3 = tub17.inertia
+	tub17.freeze = false
+	await _wait(0.5)
+	# 300 kg of water lying 9.26 cm deep on a floor 40 cm below the centre of mass adds m d² about
+	# the two level axes.
+	var tubwater17 := 300.0 * pow(0.4 - 0.5 * 0.3 / (1.8 * 1.8), 2.0)
+	check("compartment removed while flooded: had water's inertia (%)", 100.0 * (tub17.inertia - tubdry17).length() / tubdry17.length(), 100.0 * sqrt(2.0) * tubwater17 / tubdry17.length(), 0.05)
+	tubhold17.queue_free()
+	await _wait(0.1)
+	check("  its inertia back to its own (%)", 100.0 * (tub17.inertia - tubdry17).length() / tubdry17.length(), 0.0, 0.001)
+	tub17.queue_free()
+
+	# A body let go with water already in it keeps its speed: the water is its own, not let in.
+	var cask17 := make_shape_body(_box(Vector3(1, 1, 1)), 300.0, Vector3(60, 20, 6000), 0.0)
+	var caskhold17: Node3D = COMPARTMENT.new()
+	caskhold17.size = Vector3(0.9, 0.9, 0.9)
+	caskhold17.flood_volume = 0.5
+	cask17.add_child(caskhold17)
+	await physics_frame
+	cask17.freeze = false
+	cask17.linear_velocity = Vector3(5, 0, 0)
+	await physics_frame
+	await physics_frame
+	check("let go with water in it: keeps its speed (m/s)", cask17.linear_velocity.x, 5.0, 0.001)
+	cask17.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
 
 const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
+const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_compartment.gd")
 const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thruster.gd")
 
 

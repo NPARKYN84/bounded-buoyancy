@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B13). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B17). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -673,6 +673,43 @@ namespace BoundedBuoyancy.Tests
             Assert.Greater(1000f * ball09, 2f, "without, still bobbing after 9 s (mm)");
             Assert.AreEqual(0f, 1000f * raft3, 0.5f, "raft let go 3 cm low: settled after 3 s (mm)");
             Assert.AreEqual(1f, (hi - lo) / (shi - slo), 0.06f, "raft on long waves follows the surface (rise and fall / surface's)");
+        }
+
+        // B17 ------------------------------------------------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator B17_Flooding()
+        {
+            Fast();
+            Water(new Vector3(0f, 0f, 700f), new Vector3(60f, 30f, 60f));
+            // A ship with two side compartments, holed in the starboard (+X) one below the waterline.
+            BoundedBuoyancyBody ship = Box(new Vector3(3f, 1.2f, 8f), 350f, new Vector3(0f, 0.18f, 700f));
+            BoundedBuoyancyCompartment port = null, starboard = null;
+            foreach (float side in new[] { -1f, 1f })
+            {
+                var go = new GameObject(side > 0f ? "Starboard" : "Port");
+                go.transform.SetParent(ship.transform, false);
+                go.transform.localPosition = new Vector3(0.75f * side, 0f, 1.5f);
+                var c = go.AddComponent<BoundedBuoyancyCompartment>();
+                c.size = new Vector3(1.4f, 1.2f, 3f);
+                if (side > 0f)
+                    starboard = c;
+                else
+                    port = c;
+            }
+            yield return new WaitForFixedUpdate();
+            Vector3 dry = ship.Body.inertiaTensor;
+            starboard.AddHole(ship.transform.TransformPoint(new Vector3(1.5f, -0.4f, 1.5f)), 0.02f);
+            yield return Steps(1800);
+            float heel = Mathf.Asin(Mathf.Clamp(-(ship.transform.rotation * Vector3.right).y, -1f, 1f)) * Mathf.Rad2Deg;
+            Assert.AreEqual(10f, heel, 9f, "lists to the holed side (deg, + to starboard)");
+            Assert.AreEqual(0f, port.floodVolume, 0f, "the port compartment stays dry");
+            Assert.IsTrue(ship.FloodMass > 100f, "the starboard compartment has taken in water");
+            starboard.PatchHoles();
+            starboard.pumpRate = 1f;
+            yield return Steps(1200);
+            Assert.AreEqual(0f, Tilt(ship), 0.5f, "patched and pumped dry: upright again (deg)");
+            Assert.AreEqual(0f, (ship.Body.inertiaTensor - dry).magnitude / dry.magnitude, 1e-4f, "its inertia back to its own");
         }
 
         [UnityTest]

@@ -155,6 +155,30 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void LooseWaterMovesAcrossALeaningTankAsTheTextbookSays()
+        {
+            // Water 0.4 m deep in a 2 m wide, 4 m long tank turned 10 degrees: its centre moves across the tank by
+            // i tan(angle) / V, i = l b³ / 12 (the free-surface effect).
+            var tank = new Compartment3D { Size = new V3(2, 1, 4) };
+            var pose = new BodyPose(V3.Zero, M3.TurnAboutZ(10.0));
+            double vol = 3.2;
+            V3 centre;
+            Compartment3D.LevelFor(tank.Corners(pose), vol, out centre);
+            double across = Math.Abs(pose.Inverse(centre).x);
+            Assert.AreEqual((4.0 * 8.0 / 12.0) * Math.Tan(10.0 * Math.PI / 180.0) / vol, across, 1e-9);
+        }
+
+        [Test]
+        public void WaterComesInThroughAHoleByTheOrificeLaw()
+        {
+            // A hole of 0.01 m² 0.5 m below the water outside, in an empty compartment: Q = 0.6 A √(2 g h).
+            var c = new Compartment3D { Size = new V3(1, 1, 1) };
+            c.Holes.Add(new Hole(new V3(0, -0.5, 0), 0.01));
+            c.Step(new BodyPose(V3.Zero, M3.Identity), p => 0.0, 1000.0, 9.81, 0.001);
+            Assert.AreEqual(0.6 * 0.01 * Math.Sqrt(2.0 * 9.81 * 0.5), c.Inflow, 1e-9);
+        }
+
+        [Test]
         public void WavesHaveDeepWaterSpeedAndTheirHeight()
         {
             var w = WaveSet.Create(0.5, 4.0, 0.0, 9.81);

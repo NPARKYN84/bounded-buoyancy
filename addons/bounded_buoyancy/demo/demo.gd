@@ -38,7 +38,7 @@ const RELEASE_CASES := [
 const ORANGE := Color(0.93, 0.5, 0.15)
 const TEAL := Color(0.16, 0.62, 0.56)
 const INK := Color(0.12, 0.14, 0.18)
-const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_ocean.tscn", "res://addons/bounded_buoyancy/demo/demo_boats.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
+const SCENE_FILES := ["res://addons/bounded_buoyancy/demo/demo.tscn", "res://addons/bounded_buoyancy/demo/demo_float.tscn", "res://addons/bounded_buoyancy/demo/demo_tilt.tscn", "res://addons/bounded_buoyancy/demo/demo_waves.tscn", "res://addons/bounded_buoyancy/demo/demo_sky.tscn", "res://addons/bounded_buoyancy/demo/demo_many.tscn", "res://addons/bounded_buoyancy/demo/demo_river.tscn", "res://addons/bounded_buoyancy/demo/demo_wind.tscn", "res://addons/bounded_buoyancy/demo/demo_ocean.tscn", "res://addons/bounded_buoyancy/demo/demo_boats.tscn", "res://addons/bounded_buoyancy/demo/demo_flood.tscn", "res://addons/bounded_buoyancy/demo/demo_2d.tscn"]
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const OCEAN_EXAMPLE := preload("res://addons/bounded_buoyancy/demo/ocean_example.gd")
 
@@ -99,7 +99,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE:
 			_reset()
 		elif event.keycode == KEY_TAB:
-			get_tree().change_scene_to_file(SCENE_FILES[(scene + 1) % SCENE_FILES.size()])   # then BOATS (demo_boats.gd), then 2D
+			get_tree().change_scene_to_file(SCENE_FILES[(scene + 1) % SCENE_FILES.size()])   # then BOATS (demo_boats.gd), FLOOD (demo_flood.gd), then 2D
 		elif event.keycode == KEY_W and scene == Scene.WAVES:
 			_sea.wave_height = 0.12 if _sea.wave_height < 0.1 else 0.06
 		elif event.keycode == KEY_W and scene == Scene.OCEAN:

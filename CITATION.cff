@@ -6,7 +6,7 @@ authors:
   - family-names: Parkyn
     given-names: Nicholas
     orcid: "https://orcid.org/0009-0007-9843-9722"
-version: 2.3.0
+version: 2.4.0
 doi: "10.5281/zenodo.23305636"
 date-released: 2026-10-14
 license: MIT
