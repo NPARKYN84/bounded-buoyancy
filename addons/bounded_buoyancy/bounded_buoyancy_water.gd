@@ -65,15 +65,26 @@ extends Node3D
 @export var splash_color: Color = Color(0.95, 0.98, 1.0, 0.85)
 
 @export_group("Look")
-## Draw a simple translucent surface that moves with the waves. Turn off to use your own.
+## Draw a surface that moves with the waves. Turn off to use your own.
 @export var show_surface: bool = true:
 	set(value):
 		show_surface = value
 		_update_surface()
-## Colour and opacity of the drawn surface.
+## Colour of the water, and how murky it is: with opacity 0.55, things a metre down are seen through
+## about half of it; with 0.9, a tenth. Light from below is seen through it, and the sky in it.
 @export var surface_color: Color = Color(0.22, 0.52, 0.82, 0.55):
 	set(value):
 		surface_color = value
+		_update_surface()
+## Small ripples drawn on the surface, for the eye only: bodies do not feel them. 0 for none.
+@export_range(0.0, 2.0, 0.01) var surface_detail: float = 1.0:
+	set(value):
+		surface_detail = value
+		_update_surface()
+## Foam drawn where the water meets things, and on the crests of steep waves. 0 for none.
+@export_range(0.0, 1.0, 0.01) var foam: float = 0.6:
+	set(value):
+		foam = value
 		_update_surface()
 
 @export_group("Other Water System")
@@ -138,26 +149,89 @@ shader_type spatial;
 render_mode blend_mix, cull_disabled, depth_draw_opaque, specular_schlick_ggx;
 uniform vec4 color : source_color;
 uniform float amp;
+uniform float geo;
 uniform vec2 k1;
 uniform vec2 k2;
 uniform float w1;
 uniform float w2;
 uniform float t;
 uniform vec2 flow;
+uniform float detail;
+uniform float foam;
+uniform sampler2D depth_tex : hint_depth_texture, filter_linear, repeat_disable;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap, repeat_disable;
 varying vec2 pxz;
 float h(vec2 p) {
 	return amp * sin(dot(k1, p) - w1 * t) + 0.4 * amp * sin(dot(k2, p) - w2 * t + 1.3);
 }
+vec2 dh(vec2 p) {
+	return amp * k1 * cos(dot(k1, p) - w1 * t) + 0.4 * amp * k2 * cos(dot(k2, p) - w2 * t + 1.3);
+}
+float hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+float noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// The slope of small ripples, for the eye only: short waves at spread headings, each travelling as a
+// deep-water wave of its length does.
+vec2 ripples(vec2 p) {
+	vec2 g = vec2(0.0);
+	float len = 0.3;
+	for (int i = 0; i < 12; i++) {
+		float a = float(i) * 2.39996 + 0.5 + 0.3 * sin(float(i) * 7.1);
+		vec2 d = vec2(cos(a), sin(a));
+		float k = 6.2831853 / len;
+		g += d * (0.03 * cos(k * dot(d, p - flow * t) - sqrt(9.81 * k) * t + float(i) * 1.7));
+		len *= 1.27;
+	}
+	// Patchy, as a breeze ruffles the water more in some places than others.
+	float patch = 0.45 + 1.1 * noise(p * 0.035 + vec2(t * 0.02, -t * 0.013));
+	return g * patch;
+}
+// How far from the camera what lies behind this pixel is, along the view.
+float behind(vec2 uv, mat4 inv_projection) {
+	float raw = texture(depth_tex, uv).r;
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	vec3 ndc = vec3(uv, raw) * 2.0 - 1.0;
+#else
+	vec3 ndc = vec3(uv * 2.0 - 1.0, raw);
+#endif
+	vec4 v = inv_projection * vec4(ndc, 1.0);
+	return -v.z / v.w;
+}
 void vertex() {
-	vec2 p = VERTEX.xz;
-	pxz = p;
-	VERTEX.y += h(p);
-	float e = 0.02;
-	vec3 dx = vec3(2.0 * e, h(p + vec2(e, 0.0)) - h(p - vec2(e, 0.0)), 0.0);
-	vec3 dz = vec3(0.0, h(p + vec2(0.0, e)) - h(p - vec2(0.0, e)), 2.0 * e);
-	NORMAL = normalize(cross(dz, dx));
+	pxz = VERTEX.xz;
+	VERTEX.y += geo * h(VERTEX.xz);
 }
 void fragment() {
+	float far = length(VERTEX);
+	vec2 g = dh(pxz) + detail * exp(-far / 70.0) * ripples(pxz);
+	vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
+	NORMAL = normalize((VIEW_MATRIX * (MODEL_MATRIX * vec4(n, 0.0))).xyz);
+	if (!FRONT_FACING) {
+		NORMAL = -NORMAL;
+	}
+	// The water between the surface and what lies behind it: light from there comes through, less the
+	// deeper it is, bent a little by the ripples.
+	float here = -VERTEX.z;
+	float thick = max(behind(SCREEN_UV, INV_PROJECTION_MATRIX) - here, 0.0);
+	vec2 uv = SCREEN_UV + g * 0.06 * min(thick, 1.0);
+	if (behind(uv, INV_PROJECTION_MATRIX) < here) {
+		uv = SCREEN_UV;   // something in front of the water: no bending
+	}
+	float murk = -log(max(1.0 - color.a, 0.01));
+	float through = FRONT_FACING ? exp(-murk * thick) : 0.5;
+	vec3 below = textureLod(screen_tex, uv, 0.0).rgb;
+	// Foam where the water meets something, and on the crests of steep waves.
+	float pattern = 0.6 * noise(pxz * 2.7 + vec2(t * 0.25, 0.0)) + 0.4 * noise(pxz * 6.3 - vec2(0.0, t * 0.2));
+	float edge = (1.0 - smoothstep(0.0, 0.45, thick)) * step(0.001, thick);
+	float steep = amp * length(k1);
+	float crest = smoothstep(0.1, 0.2, steep) * smoothstep(0.7, 1.0, h(pxz) / max(amp, 1e-4));
+	float f = foam * max(smoothstep(0.45, 0.75, edge * (0.55 + pattern)), 0.7 * crest * smoothstep(0.55, 0.85, pattern));
 	float shade = 0.0;
 	float speed = length(flow);
 	if (speed > 0.0) {
@@ -167,9 +241,12 @@ void fragment() {
 		float across = dot(pxz, vec2(-dir.y, dir.x));
 		shade = 0.08 * sin(along * 2.5 + 1.5 * sin(across * 1.3)) * sin(along * 0.6 + across * 0.8);
 	}
-	ALBEDO = color.rgb * (1.0 + shade);
-	ALPHA = color.a;
-	ROUGHNESS = 0.15;
+	vec3 water = color.rgb * (1.0 + shade);
+	ALBEDO = mix(water * (1.0 - through), vec3(0.9, 0.93, 0.95), f);
+	EMISSION = below * through * (1.0 - f);
+	ROUGHNESS = mix(0.03, 0.85, f);
+	SPECULAR = 0.5;
+	ALPHA = 1.0;
 }
 """
 
@@ -191,7 +268,9 @@ var _source_call := Callable()
 var _warned_source := false
 var _splashes: Array = []     # [CPUParticles3D, age]
 var _ripples: Array = []      # [MeshInstance3D, ShaderMaterial, age, start radius, strength]
-var _droplet_mesh: SphereMesh
+var _droplet_mesh: QuadMesh
+var _droplet_material: StandardMaterial3D
+var _droplet_fade: Gradient
 var _ripple_shader: Shader
 
 const MAX_SPLASHES := 32
@@ -363,18 +442,36 @@ func _add_splash(l: Vector3, speed: float, size: float) -> void:
 		var old: Array = _splashes.pop_front()
 		old[0].queue_free()
 	if _droplet_mesh == null:
-		_droplet_mesh = SphereMesh.new()
-		_droplet_mesh.radius = 0.5
-		_droplet_mesh.height = 1.0
-		_droplet_mesh.radial_segments = 6
-		_droplet_mesh.rings = 3
+		# Soft round droplets that face the camera and fade as they fall.
+		_droplet_mesh = QuadMesh.new()
+		var dot := GradientTexture2D.new()
+		dot.width = 32
+		dot.height = 32
+		dot.fill = GradientTexture2D.FILL_RADIAL
+		dot.fill_from = Vector2(0.5, 0.5)
+		dot.fill_to = Vector2(1.0, 0.5)
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.7), Color(1, 1, 1, 0)])
+		dot.gradient = g
+		_droplet_material = StandardMaterial3D.new()
+		_droplet_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_droplet_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_droplet_material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		_droplet_material.billboard_keep_scale = true
+		_droplet_material.albedo_texture = dot
+		_droplet_material.vertex_color_use_as_albedo = true
+		_droplet_material.render_priority = 10
+		_droplet_fade = Gradient.new()
+		_droplet_fade.offsets = PackedFloat32Array([0.0, 0.7, 1.0])
+		_droplet_fade.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.8), Color(1, 1, 1, 0)])
+	_droplet_material.albedo_color = splash_color
 	var p := CPUParticles3D.new()
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = splash_color
 	p.mesh = _droplet_mesh
-	p.material_override = mat
+	p.material_override = _droplet_material
+	p.color_ramp = _droplet_fade
+	p.angle_min = -180.0
+	p.angle_max = 180.0
 	p.one_shot = true
 	p.explosiveness = 0.95
 	p.lifetime = clampf(0.25 * sqrt(speed), 0.5, 1.4)
@@ -391,8 +488,8 @@ func _add_splash(l: Vector3, speed: float, size: float) -> void:
 	p.initial_velocity_max = up
 	p.gravity = Vector3(0, -float(ProjectSettings.get_setting("physics/3d/default_gravity")), 0)
 	var drop := clampf(size, 0.1, 3.0)
-	p.scale_amount_min = 0.04 + 0.04 * drop
-	p.scale_amount_max = 0.08 + 0.08 * drop
+	p.scale_amount_min = 0.05 + 0.04 * drop
+	p.scale_amount_max = 0.1 + 0.08 * drop
 	p.position = Vector3(l.x, l.y + 0.02, l.z)
 	add_child(p, false, Node.INTERNAL_MODE_BACK)
 	p.emitting = true
@@ -580,6 +677,12 @@ func _update_surface() -> void:
 	_mesh_instance.mesh = plane
 	_material.set_shader_parameter("color", surface_color)
 	_material.set_shader_parameter("amp", wave_height)
+	# The mesh shows the waves only if its cells are short enough; otherwise it stays flat and the
+	# light shows them.
+	var cell := maxf(size.x, size.z) / float(cells)
+	_material.set_shader_parameter("geo", clampf(wave_length / (6.0 * cell) - 0.5, 0.0, 1.0))
+	_material.set_shader_parameter("detail", surface_detail)
+	_material.set_shader_parameter("foam", foam)
 	_material.set_shader_parameter("k1", _k1)
 	_material.set_shader_parameter("k2", _k2)
 	_material.set_shader_parameter("w1", _w1)

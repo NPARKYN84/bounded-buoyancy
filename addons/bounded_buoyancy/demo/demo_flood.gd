@@ -9,6 +9,7 @@ extends Node3D
 ## Everything here is ordinary Bounded Buoyancy bodies with BoundedBuoyancyCompartment nodes under
 ## them; the meshes are for show.
 
+const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_compartment.gd")
@@ -27,20 +28,10 @@ var _status: Label
 
 
 func _ready() -> void:
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.82, 0.9, 0.97)
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(1, 1, 1)
-	e.ambient_light_energy = 0.55
-	env.environment = e
-	add_child(env)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-45, -30, 0)
-	add_child(sun)
+	LOOK.sea_and_sky(self, Vector2(-35.0, -25.0))
 	var water := BW.new()
-	water.size = Vector3(80.0, 400.0, 80.0)
+	water.size = Vector3(3000.0, 400.0, 3000.0)
+	water.surface_color = Color(0.06, 0.22, 0.30, 0.85)
 	water.wave_height = 0.03
 	water.wave_length = 9.0
 	water.wave_direction = 95.0

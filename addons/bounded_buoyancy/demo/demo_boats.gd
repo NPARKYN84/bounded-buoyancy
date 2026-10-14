@@ -10,6 +10,7 @@ extends Node3D
 ## Everything here is ordinary Bounded Buoyancy bodies with BoundedBuoyancyFoil and
 ## BoundedBuoyancyThruster nodes under them; the meshes are for show.
 
+const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const BWIND := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
@@ -49,23 +50,10 @@ var _autodrive := false      # for recordings: --autodrive drives the motorboat 
 
 
 func _ready() -> void:
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.82, 0.9, 0.97)
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(1, 1, 1)
-	e.ambient_light_energy = 0.55
-	e.fog_enabled = true
-	e.fog_light_color = Color(0.82, 0.9, 0.97)
-	e.fog_density = 0.006
-	env.environment = e
-	add_child(env)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -35, 0)
-	add_child(sun)
+	LOOK.sea_and_sky(self, Vector2(-40.0, -35.0), 0.004)
 	_water = BW.new()
-	_water.size = Vector3(500.0, 4.0, 500.0)
+	_water.size = Vector3(3000.0, 4.0, 3000.0)
+	_water.surface_color = Color(0.06, 0.24, 0.32, 0.85)
 	_water.position = Vector3(0, 0, -30)
 	_water.wave_height = 0.05
 	_water.wave_length = 3.0
