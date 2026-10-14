@@ -161,7 +161,7 @@ Damping strong enough to stop the bouncing also stops a body following the waves
 
 ## Install
 
-- **From the Godot Asset Store (listing coming soon):** search for *Bounded Buoyancy* at [store.godotengine.org](https://store.godotengine.org) or, from Godot 4.7, in the editor's Asset Store tab; install it, then enable it under Project Settings → Plugins. The download includes the demo scenes in `addons/bounded_buoyancy/demo`.
+- **From the Godot Asset Store:** [Bounded Buoyancy on the Asset Store](https://store.godotengine.org/asset/valeriex/bounded-buoyancy/), or search for *Bounded Buoyancy* in the editor's Asset Store tab (Godot 4.7 and later); install it, then enable it under Project Settings → Plugins. The download includes the demo scenes in `addons/bounded_buoyancy/demo`.
 - **By hand:** copy the `addons/bounded_buoyancy` folder into your project's `addons/` folder and enable the plugin. Copy `addons/bounded_buoyancy_native` as well for the speed-up on Windows and Linux; on other platforms leave it out, or build it from the `native/` folder (its README says how, and the repository's GitHub workflow builds Windows, Linux and macOS automatically).
 
 ## Use
