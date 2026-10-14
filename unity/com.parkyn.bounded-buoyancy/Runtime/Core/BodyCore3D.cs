@@ -18,7 +18,7 @@ namespace BoundedBuoyancy.Core
     /// works out the velocity the body should reach this step, the torque of buoyancy and of a sail, and the
     /// damping of spin; the engine layer applies them.
     /// </summary>
-    public sealed class BodyCore3D
+    public sealed partial class BodyCore3D
     {
         public const double SailDrag = 1.2;   // drag coefficient of a flat sail facing the wind
 
@@ -245,7 +245,7 @@ namespace BoundedBuoyancy.Core
             V3 throughAir = v - wind;
             double cWater = 0.5 * DragCoefficient * Shape.DragArea(throughWater, pose.Basis) * rho * SubmergedVolume / volumeAll
                 * throughWater.Length * dt / m;
-            double cAir = 0.5 * DragCoefficient * Shape.DragArea(throughAir, pose.Basis) * AirDensityHere * airVolume / volumeAll
+            double cAir = 0.5 * AirDragCoefficient(throughAir.Length) * Shape.DragArea(throughAir, pose.Basis) * AirDensityHere * airVolume / volumeAll
                 * throughAir.Length * dt / m;
             double cSail = 0.5 * SailDrag * SailArea * AirDensityHere * throughAir.Length * dt / m;
             V3 target = (v + drive / m * dt + cWater * flow + (cAir + cSail) * wind) / (1.0 + cWater + cAir + cSail);

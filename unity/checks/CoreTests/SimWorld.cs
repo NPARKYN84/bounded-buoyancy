@@ -47,6 +47,8 @@ namespace BoundedBuoyancy.Checks
         public V3 Moments;
         public M3 Axes = M3.Identity;
         public bool Frozen;
+        /// <summary>A fast ball (BoundedBuoyancyCannonball): steps that meet the water are worked through by TryStepBall.</summary>
+        public bool Ball;
         public double WaterLevel;
         public double WaterDensity = 1000.0;
         public WaterVolume Water;          // the water it is in, this step
@@ -152,6 +154,18 @@ namespace BoundedBuoyancy.Checks
                 V3 wind = V3.Zero;
                 foreach (var w in Winds)
                     wind += w.VelocityAt(cw);
+                if (b.Ball && b.Core.TryStepBall(pose, b.V, sample, wind, G, Dt))
+                {
+                    // A fast ball meeting the water, worked through in short steps: it ends the step where they leave
+                    // it (its centre of mass is its centre), as BoundedBuoyancyCannonball places it.
+                    foreach (SurfaceTouch touch in b.Core.Touches)
+                        b.Fire(touch.Entering ? Crossing.Entered : Crossing.Exited, touch.Speed, touch.Point);
+                    b.V = b.Core.VelocityTarget;
+                    b.Com = b.Core.BallCentre;
+                    b.W *= Math.Max(0.0, 1.0 - b.Core.AngularDamp * Dt);
+                    b.Rot = b.Rot.Integrate(b.W, Dt);
+                    continue;
+                }
                 b.Core.Step(pose, b.Com, b.V, sample, wind, G, Dt);
                 if (b.Core.Crossing != Crossing.None)
                     b.Fire(b.Core.Crossing, b.Core.CrossingSpeed, b.Core.CrossingPoint);

@@ -21,6 +21,12 @@ namespace NUnit.Framework
             if (!(arg1 > arg2))
                 Fail("expected greater than " + arg2 + " but was " + arg1, message);
         }
+        public static void Less(double arg1, double arg2, string message)
+        {
+            if (!(arg1 < arg2))
+                Fail(arg1 + " is not < " + arg2, message);
+        }
+
         public static void Less(float arg1, float arg2, string message)
         {
             if (!(arg1 < arg2))

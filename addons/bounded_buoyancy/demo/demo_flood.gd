@@ -12,7 +12,7 @@ extends Node3D
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_compartment.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_cannons.tscn"
 
 const INK := Color(0.12, 0.14, 0.18)
 const HULL := Color(0.42, 0.27, 0.16)

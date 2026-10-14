@@ -295,7 +295,9 @@ namespace BoundedBuoyancy
             PhysicsScene scene = gameObject.scene.GetPhysicsScene();
             WaterSample sample = FindWater(cw, scene);
             V3 wind = BoundedBuoyancyWind.TotalAt(cw, scene);
-            Vector3 v = Bridge.GetVelocity(rb);
+            Vector3 v = StepVelocity(Bridge.GetVelocity(rb));
+            if (TryFastStep(pose, sample, wind, v, dt))
+                return;
             core.Compartments.Clear();
             for (int i = 0; i < compartments.Count; i++)
                 if (compartments[i] != null && compartments[i].isActiveAndEnabled)
@@ -333,6 +335,44 @@ namespace BoundedBuoyancy
             }
             if (core.Crossing != Crossing.None)
                 ReportCrossing();
+        }
+
+        /// <summary>The velocity this step starts from, given the Rigidbody's: a subclass may hand back one of its own (and
+        /// set the Rigidbody to it).</summary>
+        protected virtual Vector3 StepVelocity(Vector3 velocity)
+        {
+            return velocity;
+        }
+
+        /// <summary>For a body that works out some steps its own way (Bounded Buoyancy Cannonball): called each step after
+        /// the core's settings, the body's pose, the water and the wind are found; return true when the step is done.</summary>
+        protected virtual bool TryFastStep(BodyPose pose, WaterSample sample, V3 wind, Vector3 velocity, float dt)
+        {
+            return false;
+        }
+
+        /// <summary>Set the Rigidbody's mass to `m` (the inertial mass, water and air taken along included), with the
+        /// rotational inertia held at the body's own.</summary>
+        protected void ApplyMass(float m)
+        {
+            m = Mathf.Max(m, 1e-7f);
+            if (Mathf.Abs(m - appliedMass) > 1e-6f * m)
+            {
+                rb.mass = m;
+                rb.inertiaTensor = flooded ? floodTensor : tensor;
+                rb.inertiaTensorRotation = flooded ? floodTensorRotation : tensorRotation;
+                appliedMass = m;
+            }
+        }
+
+        /// <summary>Set the Rigidbody's damping of spin, per second.</summary>
+        protected void ApplyAngularDamping(float damp)
+        {
+            if (Mathf.Abs(damp - appliedDamp) > 1e-6f)
+            {
+                Bridge.SetAngularDamping(rb, damp);
+                appliedDamp = damp;
+            }
         }
 
         /// <summary>Compartments under the body register themselves here.</summary>

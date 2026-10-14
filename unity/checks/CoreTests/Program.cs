@@ -129,6 +129,96 @@ namespace BoundedBuoyancy.Checks
             }
         }
 
+        /// <summary>A ball of radius `a` and `density` at `at` flying at `velocity`, as BoundedBuoyancyCannonball: a fast
+        /// ball's air drag in air of density `air`, and its steps that meet the water worked through.</summary>
+        static SimBody Shot(SimWorld w, double a, double density, V3 at, V3 velocity, double air)
+        {
+            var b = Body(w, Sphere(a), density, at, 0.0, true, air);
+            b.Ball = true;
+            b.Core.FastBallDrag = true;
+            b.V = velocity;
+            return b;
+        }
+
+        /// <summary>The flight of a ball `d` across of mass `m` fired at `v0`, `deg` degrees up, from `h` above the water,
+        /// through still air of 1.2 kg/m³, worked through in steps of 0.1 ms (second order) with the cannonball's drag,
+        /// its air buoyancy and the air it takes along, to the moment its bottom touches the water.</summary>
+        static void Flight(double v0, double deg, double h, double d, double m, double g, out double range, out double time)
+        {
+            double rho = 1.2, vol = Math.PI / 6.0 * d * d * d, mi = m + 0.5 * rho * vol, area = Math.PI * 0.25 * d * d, a = 0.5 * d;
+            double px = 0.0, py = h, vx = v0 * Math.Cos(deg * Math.PI / 180.0), vy = v0 * Math.Sin(deg * Math.PI / 180.0);
+            double step = 1e-4, t = 0.0, up = (rho * vol - m) * g / mi;
+            while (true)
+            {
+                double s = Math.Sqrt(vx * vx + vy * vy);
+                double k = 0.5 * SphereDrag.CoefficientAt(s, d, rho) * rho * area * s / mi;
+                double mx = vx - k * vx * 0.5 * step, my = vy + (up - k * vy) * 0.5 * step;
+                double sm = Math.Sqrt(mx * mx + my * my);
+                double km = 0.5 * SphereDrag.CoefficientAt(sm, d, rho) * rho * area * sm / mi;
+                double ox = px, oy = py;
+                px += mx * step;
+                py += my * step;
+                vx -= km * mx * step;
+                vy += (up - km * my) * step;
+                t += step;
+                if (py - a <= 0.0)
+                {
+                    double f = (oy - a) / (oy - py);
+                    range = ox + f * (px - ox);
+                    time = t - step + f * step;
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Whether a ball of relative density `sigma`, 14 cm across, its bottom a tenth of a millimetre above
+        /// still water, meeting it at `speed`, `deg` below level, skips.</summary>
+        static bool Skips(double sigma, double speed, double deg)
+        {
+            var w = new SimWorld();
+            Water(w, new V3(0, 0, 20000), new V3(6000, 300, 6000));
+            double r = deg * Math.PI / 180.0;
+            var ball = Shot(w, 0.07, 1000.0 * sigma, new V3(1500, 0.07 + 1e-4, 20000), new V3(Math.Cos(r), -Math.Sin(r), 0) * speed, 1.2);
+            for (int n = 0; n < 90; n++)
+            {
+                w.Step();
+                if (ball.Core.Skips > 0)
+                    return true;
+                if (ball.Core.SubmergedVolume >= 0.999 * ball.Core.Shape.Volume)
+                    return false;
+            }
+            return false;
+        }
+
+        static double Critical(double sigma, double speed, double guess)
+        {
+            double lo = 0.5 * guess, hi = 1.5 * guess;
+            for (int n = 0; n < 12; n++)
+            {
+                double mid = 0.5 * (lo + hi);
+                if (Skips(sigma, speed, mid))
+                    lo = mid;
+                else
+                    hi = mid;
+            }
+            return 0.5 * (lo + hi);
+        }
+
+        /// <summary>Speed out over speed in, and the angle out (degrees), of a ball of `density` and radius `a` meeting still
+        /// water at `speed`, `deg` below level, in still air.</summary>
+        static void Bounce(double density, double a, double speed, double deg, out double ratio, out double angle)
+        {
+            var w = new SimWorld();
+            Water(w, new V3(0, 0, 20000), new V3(6000, 300, 6000));
+            double r = deg * Math.PI / 180.0;
+            var ball = Shot(w, a, density, new V3(1500, a + 1e-4, 20000), new V3(Math.Cos(r), -Math.Sin(r), 0) * speed, 0.0);
+            for (int n = 0; n < 120 && ball.Core.Skips == 0; n++)
+                w.Step();
+            V3 v = ball.Core.ExitVelocity;
+            ratio = v.Length / speed;
+            angle = Math.Atan2(v.y, v.x) * 180.0 / Math.PI;
+        }
+
         /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `offset`, with how its
         /// water moves in them.</summary>
         sealed class CopiedSurface : ISurfaceHeights, ISurfaceMotion
@@ -777,6 +867,78 @@ namespace BoundedBuoyancy.Checks
                 cask.V = new V3(5, 0, 0);
                 w.Step();
                 Check("let go with water in it: keeps its speed (m/s)", cask.V.x, 5.0, 0.001);
+            }
+
+            Console.WriteLine("B18 Cannons");
+            {
+                const double pound = 0.45359237, inch = 0.0254;
+                double d24 = 5.55 * inch, m24 = 24.0 * pound;
+                double rho24 = m24 / (Math.PI / 6.0 * d24 * d24 * d24);
+                double g = 9.80665;
+                // In a vacuum: 100 m/s at 45 degrees comes back to the muzzle's height v² / g away.
+                {
+                    var w = new SimWorld();
+                    Water(w, new V3(0, 0, 20000), new V3(6000, 300, 6000));
+                    var ball = Shot(w, 0.5 * d24, rho24, new V3(-2500, 30, 20000), new V3(1, 1, 0) * (100.0 / Math.Sqrt(2.0)), 0.0);
+                    double landed = double.NaN;
+                    V3 prev = ball.Com;
+                    Run(w, 20.0, t =>
+                    {
+                        if (double.IsNaN(landed) && prev.y >= 30.0 && ball.Com.y < 30.0)
+                            landed = prev.x + (ball.Com.x - prev.x) * (prev.y - 30.0) / (prev.y - ball.Com.y);
+                        prev = ball.Com;
+                    });
+                    Check("in a vacuum: range at 45 degrees, v² / g (m)", landed + 2500.0, 100.0 * 100.0 / w.G, 2.0);
+                }
+                // A 24-pounder at 5 degrees from 3 m above the sea at 488 m/s first grazes the water where the same drag
+                // law worked through in steps of 0.1 ms puts it, about a mile off.
+                {
+                    var w = new SimWorld();
+                    Water(w, new V3(0, 0, 20000), new V3(6000, 300, 6000));
+                    double el = 5.0 * Math.PI / 180.0;
+                    var ball = Shot(w, 0.5 * d24, rho24, new V3(-2500, 3, 20000), new V3(Math.Cos(el), Math.Sin(el), 0) * 488.0, 1.2);
+                    double graze = double.NaN, when = double.NaN, now = 0.0;
+                    ball.Entered += (sp, at) => { if (double.IsNaN(graze)) { graze = at.x + 2500.0; when = now; } };
+                    Run(w, 15.0, t => { now = t; });
+                    double refRange, refTime;
+                    Flight(488.0, 5.0, 3.0, d24, m24, w.G, out refRange, out refTime);
+                    Check("24-pounder at 5 degrees: first graze (m)", graze, refRange, 0.005 * refRange);
+                    Check("  time of flight (s)", when, refTime, 0.02);
+                    Check("  about a mile, as the range tables give (m)", graze, 1609.0, 240.0);
+                    Check("  its drag coefficient at Mach 0.5, past the drag crisis", SphereDrag.CoefficientAt(0.5 * 343.0, d24, 1.2), 0.2, 0.05);
+                    Check("  and at Mach 1.45", SphereDrag.CoefficientAt(1.45 * 343.0, d24, 1.2), 1.0, 0.05);
+                }
+                // Skipping: a ball meeting the water at a shallow angle skips off it if it comes down at less than 18° / √σ
+                // (Birkhoff and others, 1944: 1 / √(10 σ) radians). The angle found by halving, at 200 m/s.
+                foreach (double sigma in new[] { 7.42, 2.7, 1.2 })
+                {
+                    double birkhoff = 180.0 / Math.PI / Math.Sqrt(10.0 * sigma);
+                    Check(string.Format("skips below 18°/√σ: σ = {0:F2} (deg)", sigma), Critical(sigma, 200.0, birkhoff), birkhoff, 0.05 * birkhoff);
+                }
+                // A steel ball 7 mm across skipping at 57 m/s leaves the water as Lyu, Yun and Wei (2021) measured.
+                foreach (var c in new[] { new[] { 58.58, 1.04, 56.81, 0.94 }, new[] { 58.41, 2.60, 50.86, 2.68 }, new[] { 58.66, 3.69, 47.42, 3.26 }, new[] { 56.69, 4.53, 38.75, 4.32 } })
+                {
+                    double ratio, angle;
+                    Bounce(7778.6, 0.0035, c[0], c[1], out ratio, out angle);
+                    Check(string.Format("steel ball in at {0:F2} deg: speed out / speed in", c[1]), ratio, c[2] / c[0], 0.12);
+                    Check("  and its angle out (deg)", angle, c[3], 0.35);
+                }
+                double slow = Critical(7.42, 200.0, 6.6), fast = Critical(7.42, 400.0, 6.6);
+                Check("  the same at 200 and 400 m/s (deg)", fast, slow, 0.02 * slow);
+                // Ricochet fire: a 24-pounder fired level from 3 m comes down at about 1 degree and skips on across the water,
+                // each skip with a splash.
+                {
+                    var w = new SimWorld();
+                    Water(w, new V3(0, 0, 20000), new V3(6000, 300, 6000));
+                    var ball = Shot(w, 0.5 * d24, rho24, new V3(-2500, 3, 20000), new V3(488.0, 0, 0), 1.2);
+                    int splashes = 0;
+                    double first = double.PositiveInfinity;
+                    ball.Entered += (sp, at) => { splashes++; first = Math.Min(first, at.x + 2500.0); };
+                    Run(w, 25.0);
+                    Check("ricochet fire: fired level, it skips on (at least 5 skips)", Math.Min(ball.Core.Skips, 10), 10.0, 5.0);
+                    Check("  a splash at every touch (splashes - skips)", splashes - ball.Core.Skips, 0.5, 0.5);
+                    Check("  and carries far past its first graze (at least 3 times as far)", Math.Min((ball.Com.x + 2500.0) / first, 5.0), 5.0, 2.0);
+                }
             }
 
             Console.WriteLine("Speed: 300 bodies on waves");

@@ -1395,6 +1395,135 @@ func run() -> void:
 	await physics_frame
 	check("let go with water in it: keeps its speed (m/s)", cask17.linear_velocity.x, 5.0, 0.001)
 	cask17.queue_free()
+	sea17.queue_free()
+
+	# B18: cannons. Round shot in flight, its recoil, striking a plank, and skipping off the water.
+	print("B18 Cannons")
+	var sea18 := BW.new()
+	sea18.size = Vector3(6000, 300, 6000)
+	sea18.position = Vector3(0, 0, 20000)
+	sea18.show_surface = false
+	sea18.splashes = false
+	sea18.ripples = false
+	root.add_child(sea18)
+	var g18 := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	# In a vacuum (air density 0): 100 m/s at 45 degrees comes back to the muzzle's height v² / g away.
+	var vac18 := _gun18(Vector3(-2500, 30, 20000), Vector3(1, 1, 0), 100.0)
+	var vball18: RigidBody3D = vac18.fire()
+	vball18.air_density = 0.0
+	var vrange18 := await _back_to_height(vball18, 30.0, 20.0)
+	check("in a vacuum: range at 45 degrees, v² / g (m)", vrange18 - (-2500.0), 100.0 * 100.0 / g18, 2.0)
+	vball18.queue_free()
+	vac18.queue_free()
+
+	# A 24-pounder at 5 degrees from 3 m above the sea, 488 m/s (1600 ft/s): it first grazes the water
+	# where the same drag law worked through in steps of 0.1 ms puts it, and about a mile off, as the
+	# gunners' range tables give for a long 24- or 32-pounder at 5 degrees.
+	var gun18 := _gun18(Vector3(-2500, 3, 20000), Vector3(cos(deg_to_rad(5.0)), sin(deg_to_rad(5.0)), 0), 488.0)
+	var shot18: RigidBody3D = gun18.fire()
+	var graze18 := [INF, 0.0]
+	shot18.water_entered.connect(func(_s: float, at: Vector3) -> void:
+		if graze18[0] == INF:
+			graze18[0] = at.x + 2500.0
+			graze18[1] = shot18.get("_age"))
+	t = 0.0
+	while graze18[0] == INF and t < 15.0:
+		await physics_frame
+		t += dt
+	var ref18 := _flight18(488.0, 5.0, 3.0, gun18.shot_diameter, gun18.shot_mass, g18)
+	check("24-pounder at 5 degrees: first graze (m)", graze18[0], ref18[0], 0.005 * ref18[0])
+	check("  time of flight (s)", graze18[1], ref18[1], 0.02)
+	check("  about a mile, as the range tables give (m)", graze18[0], 1609.0, 240.0)
+	var cd18 := BALL.drag_coefficient_at(0.5 * 343.0, gun18.shot_diameter, 1.2, 343.0)
+	var cd18b := BALL.drag_coefficient_at(1.45 * 343.0, gun18.shot_diameter, 1.2, 343.0)
+	check("  its drag coefficient at Mach 0.5, past the drag crisis", cd18, 0.2, 0.05)
+	check("  and at Mach 1.45", cd18b, 1.0, 0.05)
+	shot18.queue_free()
+	gun18.queue_free()
+
+	# Recoil: a 24-pounder on the deck of a 7.2 t barge fires to starboard: the barge takes the shot's
+	# momentum and the powder gas's (at half the shot's speed) at the muzzle, so it moves off to port
+	# and rolls away from the shot.
+	var barge18 := make_shape_body(_box(Vector3(2, 1.5, 6)), 400.0, Vector3(-2000, 0.15, 20100), 0.0)
+	barge18.wave_damping = 0.0
+	var deck18: Node3D = CANNON.new()
+	deck18.spread = 0.0
+	deck18.shot_parent = root
+	barge18.add_child(deck18)
+	deck18.position = Vector3(1.1, 0.8, 0)
+	deck18.rotation_degrees = Vector3(0, -90, 0)   # its -Z to +X: starboard
+	await _wait(1.0)
+	barge18.freeze = false
+	await _wait(2.0)
+	var state18 := PhysicsServer3D.body_get_direct_state(barge18.get_rid())
+	var mass18 := barge18.mass
+	var v18 := state18.linear_velocity
+	var w18 := state18.angular_velocity
+	var fired18: RigidBody3D = deck18.fire()
+	var leaves18 := fired18.linear_velocity - v18
+	var push18: float = deck18.recoil_momentum()
+	check("recoil: barge takes the shot's and the gas's momentum (kg m/s)", -(state18.linear_velocity.x - v18.x) * mass18, push18, 0.001 * push18)
+	check("  and its turn, 0.8 m above the centre of mass (kg m²/s)", (state18.angular_velocity.z - w18.z) * barge18.inertia.z, 0.8 * push18, 0.001 * push18)
+	check("  the shot leaves at the muzzle speed (m/s)", leaves18.length(), 488.0, 0.01)
+	await physics_frame
+	check("  the barge moves off to port (m/s)", barge18.linear_velocity.x, -push18 / mass18, 0.01 * push18 / mass18)
+	fired18.queue_free()
+	barge18.queue_free()
+
+	# Continuous collision: at 488 m/s the shot flies 8 m a step, but it strikes a 10 cm plank 30 m off
+	# instead of passing through it.
+	var plank18 := StaticBody3D.new()
+	var pshape18 := CollisionShape3D.new()
+	pshape18.shape = _box(Vector3(0.1, 4, 4))
+	plank18.add_child(pshape18)
+	plank18.position = Vector3(-1470, 20, 20200)
+	root.add_child(plank18)
+	var ccd18 := _gun18(Vector3(-1500, 20, 20200), Vector3(1, 0, 0), 488.0)
+	var struck18 := [null]
+	var ball18: RigidBody3D = ccd18.fire()
+	ball18.air_density = 0.0
+	ball18.hit.connect(func(body: Node, _at: Vector3, _v: Vector3) -> void: struck18[0] = body)
+	await _wait(0.5)
+	check("a shot at 488 m/s strikes a 10 cm plank (1 = struck)", 1.0 if struck18[0] == plank18 else 0.0, 1.0, 0.0)
+	check("  and does not pass through it (1 = this side)", 1.0 if ball18.global_position.x < plank18.position.x else 0.0, 1.0, 0.0)
+	ball18.queue_free()
+	ccd18.queue_free()
+	plank18.queue_free()
+
+	# Skipping: a ball meeting the water at a shallow angle skips off it if it comes down at less than
+	# 18° / √σ, σ its density over the water's (Birkhoff and others, 1944: 1 / √(10 σ) radians). The
+	# angle found by halving: for iron round shot, aluminium and a ball a little denser than water, at 200 m/s.
+	for sigma in [7.42, 2.7, 1.2]:
+		var birkhoff := rad_to_deg(1.0 / sqrt(10.0 * sigma))
+		var found := await _critical18(sigma, 200.0, birkhoff)
+		check("skips below 18°/√σ: σ = %.2f (deg)" % sigma, found, birkhoff, 0.05 * birkhoff)
+	# A steel ball 7 mm across skipping at 57 m/s leaves the water as Lyu, Yun and Wei (2021) measured:
+	# [speed in, angle in, speed out, angle out].
+	for case in [[58.58, 1.04, 56.81, 0.94], [58.41, 2.60, 50.86, 2.68], [58.66, 3.69, 47.42, 3.26], [56.69, 4.53, 38.75, 4.32]]:
+		var out: Array = await _bounce18(7778.6, 0.0035, case[0], case[1])
+		check("steel ball in at %.2f deg: speed out / speed in" % case[1], out[0], case[2] / case[0], 0.12)
+		check("  and its angle out (deg)", out[1], case[3], 0.35)
+	# Gravity aside, the speed does not matter: the push and the turn it gives both go as the speed squared.
+	var slow18 := await _critical18(7.42, 200.0, 6.6)
+	var fast18 := await _critical18(7.42, 400.0, 6.6)
+	check("  the same at 200 and 400 m/s (deg)", fast18, slow18, 0.02 * slow18)
+
+	# Ricochet fire: a 24-pounder fired level from 3 m comes down at about 1 degree, well under iron's
+	# 6.5 degrees, and skips on across the water, each skip with a splash, until it slows and sinks.
+	var level18 := _gun18(Vector3(-2500, 3, 20300), Vector3(1, 0, 0), 488.0)
+	var skipper18: RigidBody3D = level18.fire()
+	var splashes18 := [0, INF]
+	skipper18.water_entered.connect(func(_s: float, at: Vector3) -> void:
+		splashes18[0] += 1
+		splashes18[1] = minf(splashes18[1], at.x + 2500.0))
+	await _wait(25.0)
+	var first18: float = splashes18[1]
+	check("ricochet fire: fired level, it skips on (at least 5 skips)", mini(skipper18.skips, 10), 10.0, 5.0)
+	check("  a splash at every touch (splashes - skips)", splashes18[0] - skipper18.skips, 0.5, 0.5)
+	check("  and carries far past its first graze (at least 3 times as far)", minf((skipper18.global_position.x + 2500.0) / first18, 5.0), 5.0, 2.0)
+	skipper18.queue_free()
+	level18.queue_free()
+	sea18.queue_free()
 
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
@@ -1403,6 +1532,128 @@ func run() -> void:
 const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_compartment.gd")
 const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thruster.gd")
+
+
+const CANNON := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannon.gd")
+const BALL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonball.gd")
+
+
+## A 24-pounder with no scatter at `at`, pointing along `dir`, firing at `speed`; shots last.
+func _gun18(at: Vector3, dir: Vector3, speed: float) -> Node3D:
+	var gun: Node3D = CANNON.new()
+	gun.spread = 0.0
+	gun.muzzle_speed = speed
+	gun.shot_lifetime = 0.0
+	gun.shot_parent = root
+	root.add_child(gun)
+	gun.global_transform = Transform3D(Basis.looking_at(dir.normalized(), Vector3.UP if absf(dir.normalized().y) < 0.99 else Vector3.BACK), at)
+	return gun
+
+
+## Where `ball` comes back down through the height `y` (world X, interpolated between steps).
+func _back_to_height(ball: RigidBody3D, y: float, seconds: float) -> float:
+	var prev := ball.global_position
+	var t := 0.0
+	while t < seconds:
+		await physics_frame
+		t += 1.0 / 60.0
+		var now := ball.global_position
+		if prev.y >= y and now.y < y and now.y < prev.y:
+			return lerpf(prev.x, now.x, (prev.y - y) / (prev.y - now.y))
+		prev = now
+	return NAN
+
+
+## The flight of a ball `d` across of mass `m` fired at `v0` at `deg` degrees from `h` above the water,
+## through still air of 1.2 kg/m³, worked through in steps of 0.1 ms (second order) with the
+## cannonball's drag law, its air buoyancy and the air it takes along: [range, time] to the moment its
+## bottom touches the water.
+func _flight18(v0: float, deg: float, h: float, d: float, m: float, g: float) -> Array:
+	var rho := 1.2
+	var vol := PI / 6.0 * d * d * d
+	var mi := m + 0.5 * rho * vol
+	var area := PI * 0.25 * d * d
+	var a := 0.5 * d
+	var p := Vector2(0.0, h)
+	var v := Vector2(cos(deg_to_rad(deg)), sin(deg_to_rad(deg))) * v0
+	var step := 1e-4
+	var t := 0.0
+	var up := (rho * vol - m) * g / mi
+	while p.y - a > 0.0:
+		var s := v.length()
+		var acc := -0.5 * BALL.drag_coefficient_at(s, d, rho, 343.0) * rho * area * s / mi * v + Vector2(0.0, up)
+		var vm := v + acc * 0.5 * step
+		var sm := vm.length()
+		var accm := -0.5 * BALL.drag_coefficient_at(sm, d, rho, 343.0) * rho * area * sm / mi * vm + Vector2(0.0, up)
+		var prev := p
+		p += vm * step
+		v += accm * step
+		t += step
+		if p.y - a <= 0.0:
+			var f := (prev.y - a) / (prev.y - p.y)
+			return [prev.x + f * (p.x - prev.x), t - step + f * step]
+	return [p.x, t]
+
+
+## The angle (degrees below level) under which a ball of relative density `sigma`, 14 cm across,
+## meeting still water at `speed`, skips; found by halving between half and one and a half of `guess`.
+func _critical18(sigma: float, speed: float, guess: float) -> float:
+	var lo := 0.5 * guess
+	var hi := 1.5 * guess
+	for n in 12:
+		var mid := 0.5 * (lo + hi)
+		if await _skips18(sigma, speed, mid):
+			lo = mid
+		else:
+			hi = mid
+	return 0.5 * (lo + hi)
+
+
+## A ball `a` in radius of `density`, its bottom a tenth of a millimetre above the sea of B18 and
+## coming down to meet it at `speed`, `deg` below level.
+func _ball18(density: float, a: float, speed: float, deg: float) -> RigidBody3D:
+	var ball := BALL.new()
+	var cs := CollisionShape3D.new()
+	cs.shape = _sphere(a)
+	ball.add_child(cs)
+	ball.density = density
+	ball.lifetime = 0.0
+	ball.collision_layer = 0
+	ball.collision_mask = 0
+	var dir := Vector3(cos(deg_to_rad(deg)), -sin(deg_to_rad(deg)), 0.0)
+	ball.position = Vector3(1500, a + 1e-4, 20000)
+	ball.linear_velocity = dir * speed
+	root.add_child(ball)
+	return ball
+
+
+## [speed out / speed in, angle out (deg)] of a ball of `density` and radius `a` meeting the water at
+## `speed`, `deg` below level, in still air.
+func _bounce18(density: float, a: float, speed: float, deg: float) -> Array:
+	var ball := _ball18(density, a, speed, deg)
+	ball.air_density = 0.0
+	for n in 120:
+		await physics_frame
+		if ball.skips > 0:
+			break
+	var v: Vector3 = ball.exit_velocity
+	ball.queue_free()
+	return [v.length() / speed, rad_to_deg(atan2(v.y, v.x))]
+
+
+## Whether a ball of relative density `sigma` meeting the water at `speed`, `deg` below level, skips.
+func _skips18(sigma: float, speed: float, deg: float) -> bool:
+	var ball := _ball18(1000.0 * sigma, 0.07, speed, deg)
+	var skipped := false
+	for n in 90:
+		await physics_frame
+		if ball.skips > 0:
+			skipped = true
+			break
+		if ball.submerged_volume >= 0.999 * ball.volume:
+			break
+	ball.queue_free()
+	return skipped
 
 
 ## Wait `seconds` of physics.

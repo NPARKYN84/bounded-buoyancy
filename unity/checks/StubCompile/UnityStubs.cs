@@ -14,6 +14,7 @@ namespace UnityEngine
         public string name { get; set; }
         public HideFlags hideFlags { get; set; }
         public static void Destroy(Object obj) { }
+        public static T Instantiate<T>(T original, Vector3 position, Quaternion rotation, Transform parent) where T : Object { return original; }
         public static void DontDestroyOnLoad(Object target) { }
         public static bool operator ==(Object x, Object y) { return ReferenceEquals(x, y); }
         public static bool operator !=(Object x, Object y) { return !ReferenceEquals(x, y); }
@@ -66,6 +67,7 @@ namespace UnityEngine
         public Transform parent { get { return null; } set { } }
         public Vector3 forward { get { return default(Vector3); } set { } }
         public Vector3 up { get { return default(Vector3); } set { } }
+        public Vector3 right { get { return default(Vector3); } set { } }
         public int childCount { get { return 0; } }
         public Transform Find(string n) { return null; }
         public Vector3 TransformPoint(Vector3 position) { return position; }
@@ -148,6 +150,7 @@ namespace UnityEngine
         public static Quaternion Euler(float x, float y, float z) { return default(Quaternion); }
         public static Quaternion Inverse(Quaternion rotation) { return rotation; }
         public static Quaternion LookRotation(Vector3 forward, Vector3 upwards) { return default(Quaternion); }
+        public static Quaternion LookRotation(Vector3 forward) { return default(Quaternion); }
         public static Vector3 operator *(Quaternion rotation, Vector3 point) { return point; }
         public static Quaternion operator *(Quaternion lhs, Quaternion rhs) { return lhs; }
         public static Quaternion AngleAxis(float angle, Vector3 axis) { return default(Quaternion); }
@@ -320,6 +323,29 @@ namespace UnityEngine
         public RigidbodyInterpolation interpolation { get; set; }
         public void AddForce(Vector3 force, ForceMode mode) { }
         public void AddTorque(Vector3 torque, ForceMode mode) { }
+        public void AddForceAtPosition(Vector3 force, Vector3 position, ForceMode mode) { }
+        public Vector3 GetPointVelocity(Vector3 worldPoint) { return default(Vector3); }
+        public CollisionDetectionMode collisionDetectionMode { get; set; }
+    }
+
+    public enum CollisionDetectionMode { Discrete = 0, Continuous = 1, ContinuousDynamic = 2, ContinuousSpeculative = 3 }
+
+    public struct ContactPoint
+    {
+        public Vector3 point { get { return default(Vector3); } }
+    }
+
+    public class Collision
+    {
+        public Collider collider { get { return null; } }
+        public int contactCount { get { return 0; } }
+        public Vector3 relativeVelocity { get { return default(Vector3); } }
+        public ContactPoint GetContact(int index) { return default(ContactPoint); }
+    }
+
+    public sealed class Random
+    {
+        public static float value { get { return 0f; } }
     }
 
     public partial class Collider : Component
@@ -339,6 +365,7 @@ namespace UnityEngine
     {
         public static Vector3 gravity { get; set; }
         public static SimulationMode simulationMode { get; set; }
+        public static void IgnoreCollision(Collider collider1, Collider collider2, bool ignore) { }
     }
 
     public partial struct PhysicsScene : IEquatable<PhysicsScene>
@@ -586,7 +613,25 @@ namespace UnityEngine.Events
     [Serializable]
     public abstract class UnityEventBase { }
 
+    public delegate void UnityAction<T0>(T0 arg0);
     public delegate void UnityAction<T0, T1>(T0 arg0, T1 arg1);
+    public delegate void UnityAction<T0, T1, T2>(T0 arg0, T1 arg1, T2 arg2);
+
+    [Serializable]
+    public class UnityEvent<T0> : UnityEventBase
+    {
+        public UnityEvent() { }
+        public void AddListener(UnityAction<T0> call) { }
+        public void Invoke(T0 arg0) { }
+    }
+
+    [Serializable]
+    public class UnityEvent<T0, T1, T2> : UnityEventBase
+    {
+        public UnityEvent() { }
+        public void AddListener(UnityAction<T0, T1, T2> call) { }
+        public void Invoke(T0 arg0, T1 arg1, T2 arg2) { }
+    }
 
     [Serializable]
     public class UnityEvent<T0, T1> : UnityEventBase

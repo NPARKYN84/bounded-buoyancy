@@ -283,6 +283,31 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void FastBallDragRisesThroughTheSoundBarrier()
+        {
+            // A 24-pounder's shot (14.1 cm): past the drag crisis below Mach 0.6, about 1 above Mach 1.4 (Miller and
+            // Bailey, 1979); a slow ball below the crisis, 0.4 to 0.5.
+            double d = 5.55 * 0.0254;
+            Assert.AreEqual(0.2, SphereDrag.CoefficientAt(0.5 * 343.0, d, 1.2), 0.05, "Mach 0.5");
+            Assert.AreEqual(1.0, SphereDrag.CoefficientAt(1.45 * 343.0, d, 1.2), 0.05, "Mach 1.45");
+            Assert.AreEqual(0.45, SphereDrag.Morrison(1e5), 0.05, "a slow ball, below the drag crisis");
+        }
+
+        [Test]
+        public void WaterPushOnABallWhollyUnderIsItsDrag()
+        {
+            // Wholly under and moving level, pressure ½ ρ (u·n)² on the side facing the flow adds up to a drag of
+            // ½ ρ U² π a² / 2 and no lift: the integral is π/2 along the motion and nothing across it.
+            double along, up;
+            WaterImpact.Push(1.0, 0.0, -1.0, out along, out up);
+            Assert.AreEqual(Math.PI / 2.0, along, 0.005, "along");
+            Assert.AreEqual(0.0, up, 1e-12, "across");
+            // Half under, it is pushed up.
+            WaterImpact.Push(1.0, 0.0, 0.0, out along, out up);
+            Assert.Less(up, 0.0, "half under: the push (minus this) is upward");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

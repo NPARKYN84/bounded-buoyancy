@@ -338,7 +338,7 @@ func _physics_process(dt: float) -> void:
 	var through_air := v - wind
 	var c_water := 0.5 * drag_coefficient * _drag_area(through_water, xf.basis) * rho * submerged_volume / volume \
 		* through_water.length() * dt / inertial_mass
-	var c_air := 0.5 * drag_coefficient * _drag_area(through_air, xf.basis) * air_density_here * air_volume / volume \
+	var c_air := 0.5 * _air_drag_coefficient(through_air.length()) * _drag_area(through_air, xf.basis) * air_density_here * air_volume / volume \
 		* through_air.length() * dt / inertial_mass
 	var c_sail := 0.5 * SAIL_DRAG * sail_area * air_density_here * through_air.length() * dt / inertial_mass
 	var v_target := (v + drive / inertial_mass * dt + c_water * flow + (c_air + c_sail) * wind) / (1.0 + c_water + c_air + c_sail)
@@ -682,6 +682,12 @@ func _report_crossing(entering: bool, cw: Vector3, flow: Vector3) -> void:
 	if water and water.has_method(&"splash"):
 		var across := 2.0 * sqrt(maxf(_face_area.y, 1e-6) / PI)
 		water.splash(at, speed if entering else 0.4 * speed, across)
+
+
+## Drag coefficient in the air at `speed` (m/s through the air): drag_coefficient, the same as in the
+## water. BoundedBuoyancyCannonball gives the drag of a fast ball instead.
+func _air_drag_coefficient(_speed: float) -> float:
+	return drag_coefficient
 
 
 ## Area the body shows to a flow along `along` (world frame): the faces of its bounding box, each

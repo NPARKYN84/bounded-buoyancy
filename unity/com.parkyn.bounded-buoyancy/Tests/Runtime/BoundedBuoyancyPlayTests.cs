@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B17). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B18). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -710,6 +710,74 @@ namespace BoundedBuoyancy.Tests
             yield return Steps(1200);
             Assert.AreEqual(0f, Tilt(ship), 0.5f, "patched and pumped dry: upright again (deg)");
             Assert.AreEqual(0f, (ship.Body.inertiaTensor - dry).magnitude / dry.magnitude, 1e-4f, "its inertia back to its own");
+        }
+
+        // B18 ------------------------------------------------------------------------------------------------------
+
+        BoundedBuoyancyCannon Gun(Vector3 at, Vector3 dir, float speed, Transform parent = null)
+        {
+            GameObject go = Make("Gun", at);
+            if (parent != null)
+                go.transform.SetParent(parent, true);
+            go.transform.rotation = Quaternion.LookRotation(dir);
+            var gun = go.AddComponent<BoundedBuoyancyCannon>();
+            gun.spread = 0f;
+            gun.muzzleSpeed = speed;
+            gun.shotLifetime = 0f;
+            return gun;
+        }
+
+        BoundedBuoyancyCannonball Fired(BoundedBuoyancyCannon gun)
+        {
+            BoundedBuoyancyCannonball ball = gun.Fire();
+            made.Add(ball.gameObject);
+            return ball;
+        }
+
+        [UnityTest]
+        public IEnumerator B18_Cannons()
+        {
+            Water(new Vector3(0f, 0f, 900f), new Vector3(400f, 60f, 400f));
+            // Recoil: a 24-pounder on a barge fires to starboard; the barge takes the shot's and the gas's momentum.
+            BoundedBuoyancyBody barge = Box(new Vector3(2f, 1.5f, 6f), 400f, new Vector3(-150f, 0.15f, 900f));
+            BoundedBuoyancyCannon deck = Gun(new Vector3(-148.9f, 0.95f, 900f), Vector3.right, 488f, barge.transform);
+            yield return Steps(120);
+            float mass = barge.Body.mass;
+            Vector3 v0 = barge.Body.Velocity();
+            BoundedBuoyancyCannonball recoiled = Fired(deck);
+            yield return new WaitForFixedUpdate();
+            Assert.AreEqual(deck.RecoilMomentum, -(barge.Body.Velocity().x - v0.x) * mass, 0.02f * deck.RecoilMomentum, "recoil momentum (kg m/s)");
+            Object.Destroy(recoiled.gameObject);
+
+            // Continuous collision: at 488 m/s the shot flies 8 m a step, but it strikes a 10 cm plank 30 m off.
+            GameObject plank = Make("Plank", new Vector3(-100f, 20f, 960f));
+            plank.AddComponent<BoxCollider>().size = new Vector3(0.1f, 4f, 4f);
+            BoundedBuoyancyCannon gun = Gun(new Vector3(-130f, 20f, 960f), Vector3.right, 488f);
+            BoundedBuoyancyCannonball shot = Fired(gun);
+            shot.airDensity = 0f;
+            Collider struck = null;
+            shot.hit.AddListener((c, at, v) => struck = c);
+            yield return Steps(30);
+            Assert.AreEqual(plank.GetComponent<Collider>(), struck, "the shot strikes the plank");
+            Assert.Less(shot.transform.position.x, -100f, "and does not pass through it");
+
+            // Skipping: an iron ball meeting still water at 4 degrees skips (under 18°/√σ = 6.6°); at 9 degrees it plunges.
+            foreach (float deg in new[] { 4f, 9f })
+            {
+                GameObject go = Make("Iron ball", new Vector3(100f, 0.0701f, 800f + 20f * deg));
+                go.AddComponent<SphereCollider>().radius = 0.07f;
+                go.AddComponent<Rigidbody>();
+                var ball = go.AddComponent<BoundedBuoyancyCannonball>();
+                ball.Density = 7420f;
+                ball.lifetime = 0f;
+                float r = deg * Mathf.Deg2Rad;
+                ball.Body.SetVelocity(new Vector3(Mathf.Cos(r), -Mathf.Sin(r), 0f) * 200f);
+                yield return Steps(60);
+                if (deg < 6f)
+                    Assert.Greater(ball.Skips, 0, "skips at 4 degrees");
+                else
+                    Assert.AreEqual(0, ball.Skips, "plunges at 9 degrees");
+            }
         }
 
         [UnityTest]
