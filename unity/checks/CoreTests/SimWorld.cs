@@ -131,6 +131,7 @@ namespace BoundedBuoyancy.Checks
         public readonly List<WaterVolume> Waters = new List<WaterVolume>();
         public readonly List<WindField> Winds = new List<WindField>();
         public readonly List<SimBody> Bodies = new List<SimBody>();
+        public readonly List<SimWall> Walls = new List<SimWall>();
 
         public SimBody Add(SimBody b) { Bodies.Add(b); return b; }
 
@@ -154,6 +155,8 @@ namespace BoundedBuoyancy.Checks
                 V3 wind = V3.Zero;
                 foreach (var w in Winds)
                     wind += w.VelocityAt(cw);
+                if (b.Ball && StrikeWall(b, pose, sample, wind))
+                    continue;
                 if (b.Ball && b.Core.TryStepBall(pose, b.V, sample, wind, G, Dt))
                 {
                     // A fast ball meeting the water, worked through in short steps: it ends the step where they leave
@@ -188,6 +191,48 @@ namespace BoundedBuoyancy.Checks
             }
         }
 
+        /// <summary>A fast ball whose straight path this step reaches planking strikes it, as BoundedBuoyancyCannonball
+        /// strikes a body with a BoundedBuoyancyHull: through the water first, if it meets the water on its way (the core's
+        /// StepBallToWall), and otherwise straight. It stops there, and the wall's Struck is called.</summary>
+        bool StrikeWall(SimBody b, BodyPose pose, WaterSample sample, V3 wind)
+        {
+            double a = b.Core.Shape.Radius, speed = b.V.Length;
+            if (speed < Planking.StrikeSpeed)
+                return false;
+            V3 c = b.Com, end = c + b.V * Dt;
+            foreach (var wall in Walls)
+            {
+                double d0 = (c - wall.Point).Dot(wall.Normal) - a, d1 = (end - wall.Point).Dot(wall.Normal) - a;
+                if (d0 < 0.0 || d1 > 0.0 || -b.V.Dot(wall.Normal) < Planking.Glance * speed)
+                    continue;
+                V3 centre = c + (end - c) * (d0 / (d0 - d1));
+                if (b.Core.MeetsWaterBefore(c, centre, sample))
+                {
+                    b.Core.StepBallToWall(pose, b.V, sample, wind, G, Dt, centre, wall.Normal);
+                    foreach (SurfaceTouch touch in b.Core.Touches)
+                        b.Fire(touch.Entering ? Crossing.Entered : Crossing.Exited, touch.Speed, touch.Point);
+                    if (!b.Core.WallStruck)
+                    {
+                        b.V = b.Core.VelocityTarget;
+                        b.Com = b.Core.BallCentre;
+                        return true;
+                    }
+                    wall.Fire(b, b.Core.BallCentre - wall.Normal * a, b.Core.WallVelocity);
+                    b.Com = b.Core.BallCentre;
+                }
+                else
+                {
+                    wall.Fire(b, centre - wall.Normal * a, b.V);
+                    b.Com = centre;
+                }
+
+                b.V = V3.Zero;
+                b.Frozen = true;
+                return true;
+            }
+            return false;
+        }
+
         WaterSample Find(SimBody b, V3 cw)
         {
             b.Water = null;
@@ -201,6 +246,15 @@ namespace BoundedBuoyancy.Checks
             }
             return Waters.Count == 0 ? WaterSample.Flat(b.WaterLevel, b.WaterDensity) : WaterSample.None(b.WaterLevel, b.WaterDensity);
         }
+    }
+
+    /// <summary>Planking for fast balls to strike: the plane through Point, its face square to Normal (outward).</summary>
+    sealed class SimWall
+    {
+        public V3 Point, Normal;
+        /// <summary>A ball has struck it: where (on its face), and the ball's velocity then.</summary>
+        public event Action<SimBody, V3, V3> Struck;
+        public void Fire(SimBody b, V3 at, V3 v) { if (Struck != null) Struck(b, at, v); }
     }
 
     sealed class SimBody2

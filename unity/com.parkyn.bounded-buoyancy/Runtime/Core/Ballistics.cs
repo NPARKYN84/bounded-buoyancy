@@ -145,4 +145,37 @@ namespace BoundedBuoyancy.Core
             }
         }
     }
+    /// <summary>
+    /// Shot striking wood: the wood resists it with a pressure σ + ρ v² on its cross-section, v its speed through it, σ the
+    /// wood's strength and ρ its density (Poncelet's law of penetration). With oak (ρ 750 kg/m³, σ 15 MPa) a 32-pounder
+    /// shot goes 42 inches into solid oak from 400 yards and 31.5 inches from 1000 yards, as the gunners' handbook gives
+    /// (Elvin, 1805).
+    /// </summary>
+    public static class Planking
+    {
+        /// <summary>Shot below this speed meets a body as an ordinary collision (m/s).</summary>
+        public const double StrikeSpeed = 20.0;
+        /// <summary>Cosine of the most glancing angle at which shot bites into planking.</summary>
+        public const double Glance = 0.2;
+
+        /// <summary>How deep shot of `mass` kg and cross-section `area` m² goes into thick wood of `density` (kg/m³)
+        /// and `strength` (Pa) when it strikes square at `speed`: (m / 2 ρ A) ln(1 + ρ v² / σ).</summary>
+        public static double Depth(double mass, double area, double speed, double density, double strength)
+        {
+            if (area <= 0.0 || density <= 0.0 || strength <= 0.0)
+                return double.PositiveInfinity;
+            return mass / (2.0 * density * area) * Math.Log(1.0 + density * speed * speed / strength);
+        }
+
+        /// <summary>The speed of that shot after going `path` metres through the wood: from m v dv = -A (σ + ρ v²) dx,
+        /// v² + σ/ρ falls as exp(-2 ρ A x / m). 0 if it stops in it.</summary>
+        public static double SpeedAfter(double mass, double area, double speed, double path, double density, double strength)
+        {
+            if (density <= 0.0 || area <= 0.0)
+                return speed;
+            double k = strength / density;
+            double u = (speed * speed + k) * Math.Exp(-2.0 * density * area * path / mass) - k;
+            return u > 0.0 ? Math.Sqrt(u) : 0.0;
+        }
+    }
 }

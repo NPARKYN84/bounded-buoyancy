@@ -131,14 +131,7 @@ func fire() -> RigidBody3D:
 	ball.linear_velocity = carried + forward * muzzle_speed
 	if ship:
 		# Clear of the ship's own hull before it can strike it.
-		ball.add_collision_exception_with(ship)
-		var b := weakref(ball)
-		var s := weakref(ship)
-		get_tree().create_timer(0.25, false, true).timeout.connect(func() -> void:
-			var shot: RigidBody3D = b.get_ref()
-			var hull: RigidBody3D = s.get_ref()
-			if shot and hull:
-				shot.remove_collision_exception_with(hull))
+		ball.pass_through(ship, 0.25)
 		if recoil:
 			ship.apply_impulse(-forward * recoil_momentum(), muzzle - ship.global_position)
 	last_shot = ball

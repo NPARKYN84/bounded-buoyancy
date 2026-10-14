@@ -1,16 +1,23 @@
 extends Node3D
-## CANNONS: a ship fires broadsides at another across the water. Fired low, round shot skips off the
+## CANNONS: a ship fires broadsides at another at close range. Fired low, round shot skips off the
 ## water, as gunners' ricochet fire did, splashing at every touch; fired higher it plunges in. Each gun
-## kicks the ship back as it fires, so a broadside heels it. Shot that reaches the other ship strikes
-## its hull (continuous collision: it flies 8 m a step) and rocks it.
+## kicks the ship back as it fires, so a broadside heels it, and each gun fires as the roll brings it
+## to bear. Shot that reaches the other ship, deep with cargo, goes through its 25 cm oak sides
+## (BoundedBuoyancyHull) and out of the far side, holing the compartments it passes. Shot skips up
+## off the water, so it holes her at and above the waterline, not below it; but water comes in at the
+## lowest holes, she settles, more of them go under, and in the end she lists and sinks. The splinters
+## the shot knocks out float.
 ##   Space   fire a broadside (it fires by itself every few seconds too)
 ##   Up/Down raise or lower the guns
 ##   S       slow motion
+##   F       fast forward, to watch the other ship sink
 ##   R       run again
 ##   Tab     next scene
 ## Everything here is ordinary Bounded Buoyancy bodies, BoundedBuoyancyCannon nodes on the ship, and
 ## the BoundedBuoyancyCannonball shot they fire. The smoke and the tall splashes are for show, and the
-## shot is drawn three times its size so that it can be seen. Run with -- --slow to start slowed down.
+## shot is drawn three times its size so that it can be seen. Both ships are moored fore and aft, so
+## that the recoil and the shot do not push them out of range: their cables are a gentle pull,
+## sideways only, on bow and stern. Run with -- --slow to start slowed down.
 
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
@@ -21,9 +28,13 @@ const INK := Color(0.12, 0.14, 0.18)
 const HULL := Color(0.42, 0.27, 0.16)
 const ENEMY := Color(0.30, 0.22, 0.18)
 const DECK := Color(0.78, 0.66, 0.46)
-const GAP := 90.0           # m between the ships
+const GAP := 40.0           # m between the ships
 const GUNS := 5
+const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_compartment.gd")
+const PLANKING := preload("res://addons/bounded_buoyancy/bounded_buoyancy_hull.gd")
 const EVERY := 6.0          # s between broadsides fired by themselves
+const LADEN := 560.0        # kg/m³: the other ship, deep with cargo
+const MOORING := 20.0       # s: how fast the cables bring a ship back to its place
 
 var _ship: RigidBody3D
 var _enemy: RigidBody3D
@@ -34,10 +45,15 @@ var _next := 0.8
 var _ripple: Array = []     # guns still to fire in this broadside, [gun, time]
 var _shots: Array = []
 var _hits := 0
+var _sunk := false
 var _status: Label
 var _smoke_mesh: SphereMesh
 var _smoke_mat: StandardMaterial3D
 var _spray_mat: StandardMaterial3D
+var _hole_mesh: SphereMesh
+var _hole_mat: StandardMaterial3D
+var _ticks := Engine.physics_ticks_per_second
+var _max_steps := Engine.max_physics_steps_per_frame
 
 
 func _ready() -> void:
@@ -64,13 +80,13 @@ func _ready() -> void:
 	var cam := Camera3D.new()
 	cam.fov = 55.0
 	add_child(cam)
-	cam.look_at_from_position(Vector3(-25, 14, 25), Vector3(GAP * 0.45, 0.0, -4), Vector3.UP)
+	cam.look_at_from_position(Vector3(GAP * 0.2, 7, 34), Vector3(GAP * 0.6, 0.0, -2), Vector3.UP)
 	if "--slow" in OS.get_cmdline_user_args():
-		Engine.time_scale = 0.25
+		_speed(0.25)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
-	title.text = "Broadside: round shot skips off the water at shallow angles, and plunges in at steep ones"
+	title.text = "Broadside: shot skips off the water and holes the other ship; the sea comes in"
 	title.position = Vector2(24, 14)
 	title.add_theme_color_override("font_color", INK)
 	title.add_theme_font_size_override("font_size", 20)
@@ -81,7 +97,7 @@ func _ready() -> void:
 	_status.add_theme_font_size_override("font_size", 16)
 	layer.add_child(_status)
 	var keys := Label.new()
-	keys.text = "Space: fire     Up/Down: raise or lower the guns     S: slow motion     R: run again     Tab: next scene"
+	keys.text = "Space: fire     Up/Down: raise or lower the guns     S: slow motion     F: fast forward     R: run again     Tab: next scene"
 	keys.anchor_top = 1.0
 	keys.anchor_bottom = 1.0
 	keys.offset_left = 24
@@ -102,7 +118,26 @@ func _ready() -> void:
 	_spray_mat = StandardMaterial3D.new()
 	_spray_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_spray_mat.albedo_color = Color(0.96, 0.98, 1.0)
+	_hole_mesh = SphereMesh.new()
+	_hole_mesh.radius = 1.0
+	_hole_mesh.height = 2.0
+	_hole_mesh.radial_segments = 8
+	_hole_mesh.rings = 4
+	_hole_mat = StandardMaterial3D.new()
+	_hole_mat.albedo_color = Color(0.06, 0.05, 0.04)
 	_reset()
+
+
+func _exit_tree() -> void:
+	_speed(1.0)
+
+
+## Run the game `scale` times as fast as real time. The engine's physics steps are scaled too, so
+## there are `scale` times as many of them a second when faster, to keep them as short as usual.
+func _speed(scale: float) -> void:
+	Engine.time_scale = scale
+	Engine.physics_ticks_per_second = maxi(_ticks, roundi(_ticks * scale))
+	Engine.max_physics_steps_per_frame = maxi(_max_steps, roundi(_max_steps * scale))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -113,26 +148,32 @@ func _unhandled_input(event: InputEvent) -> void:
 			_elevation = minf(_elevation + 1.0, 10.0)
 			_aim()
 		elif event.keycode == KEY_DOWN:
-			_elevation = maxf(_elevation - 1.0, -2.0)
+			_elevation = maxf(_elevation - 1.0, -3.0)
 			_aim()
 		elif event.keycode == KEY_S:
-			Engine.time_scale = 0.2 if Engine.time_scale > 0.5 else 1.0
+			_speed(0.2 if Engine.time_scale > 0.5 else 1.0)
+		elif event.keycode == KEY_F:
+			_speed(4.0 if Engine.time_scale < 2.0 else 1.0)
 		elif event.keycode == KEY_R:
 			_reset()
 		elif event.keycode == KEY_TAB:
-			Engine.time_scale = 1.0
+			_speed(1.0)
 			get_tree().change_scene_to_file(NEXT_SCENE)
 
 
 func _physics_process(dt: float) -> void:
 	_t += dt
-	if _t >= _next:
+	if _t >= _next and not _sunk:
 		_next = _t + EVERY
 		_broadside()
+	# Each gun fires in turn as the roll brings it to bear, as gun captains fired, or after a few
+	# seconds whatever the roll.
 	for r in _ripple.duplicate():
-		if _t >= r[1]:
+		if _t >= r[1] and (_bears(r[0]) or _t >= r[1] + 3.0):
 			_ripple.erase(r)
 			r[0].fire()
+			for later in _ripple:
+				later[1] = maxf(later[1], _t + 0.15)
 	var skips := 0
 	var shown := 0
 	for s in _shots.duplicate():
@@ -141,10 +182,24 @@ func _physics_process(dt: float) -> void:
 			continue
 		skips = maxi(skips, s.skips)
 		shown += 1
+	_moor(_ship)
+	_moor(_enemy)
 	var heel := rad_to_deg(asin(clampf(_ship.global_transform.basis.x.normalized().y, -1.0, 1.0)))
 	var heel_enemy := rad_to_deg(asin(clampf(_enemy.global_transform.basis.x.normalized().y, -1.0, 1.0)))
-	_status.text = "Guns at %+.0f°, 12-pounders at 488 m/s.   Most skips by one shot: %d.   Hits: %d.   Heel: this ship %+.1f°, the other %+.1f°" % [
-		_elevation, skips, _hits, heel, heel_enemy]
+	var holes := 0
+	var water := 0.0
+	for c in _enemy.get_children():
+		if c is COMPARTMENT:
+			holes += c.holes.size()
+			water += c.flood_volume
+	var state := "afloat"
+	_sunk = _sunk or (_enemy.global_transform * Vector3(0, 2.2, 0)).y < -1.0
+	if _sunk:
+		state = "sunk"
+	elif water > 1.0:
+		state = "sinking" if water > 25.0 else "taking in water"
+	_status.text = "Guns at %+.0f°, 12-pounders at 488 m/s.   Most skips by one shot: %d.   Heel: this ship %+.1f°.\nThe other ship: %d hits, %d holes, %.1f t of water in, heel %+.1f°, %s." % [
+		_elevation, skips, heel, _hits, holes, water, heel_enemy, state]
 
 
 func _reset() -> void:
@@ -155,19 +210,23 @@ func _reset() -> void:
 		if is_instance_valid(s):
 			s.queue_free()
 	_shots.clear()
+	for n in get_children():
+		if n.name.begins_with("Splinter"):
+			n.queue_free()
 	_ripple.clear()
 	_guns.clear()
 	_hits = 0
+	_sunk = false
 	_t = 0.0
 	_next = 0.8
-	_ship = _make_ship(Vector3(0, 0, 0), HULL, true)
-	_enemy = _make_ship(Vector3(GAP, 0, 0), ENEMY, false)
+	_ship = _make_ship(Vector3(0, 0, 0), HULL, true, 330.0)
+	_enemy = _make_ship(Vector3(GAP, 0, 0), ENEMY, false, LADEN)
 	_aim()
 
 
-## A ship 14 m long and 4 m wide with high sides, along Z, ballasted low; with guns on its
-## starboard (+X) side if armed.
-func _make_ship(at: Vector3, colour: Color, armed: bool) -> RigidBody3D:
+## A ship 14 m long and 4 m wide with high sides, along Z, ballasted low, of `density` (with its
+## cargo); with guns on its starboard (+X) side if armed.
+func _make_ship(at: Vector3, colour: Color, armed: bool, density: float) -> RigidBody3D:
 	var b := BB.new()
 	var hull := ConvexPolygonShape3D.new()
 	hull.points = PackedVector3Array([
@@ -201,11 +260,23 @@ func _make_ship(at: Vector3, colour: Color, armed: bool) -> RigidBody3D:
 	mast.position = Vector3(0, 6.7, -1.0)
 	mast.material_override = hm
 	b.add_child(mast)
-	b.density = 330.0
+	b.density = density
 	b.angular_drag = 1.5
 	b.position = at
+	b.set_meta(&"home", at)
 	add_child(b)
 	b.center_of_mass = Vector3(0, -0.3, 0)   # ballast low in the hold
+	# 25 cm of oak, and six compartments inside it, three down each side.
+	var planking: Node = PLANKING.new()
+	planking.thickness = 0.25
+	b.add_child(planking)
+	planking.holed.connect(_mark_hole.bind(b))
+	for side in [-0.8, 0.8]:
+		for end in [-3.6, 0.0, 3.6]:
+			var room: Node3D = COMPARTMENT.new()
+			room.size = Vector3(1.6, 3.0, 3.6)
+			room.position = Vector3(side, 0.6, end)
+			b.add_child(room)
 	if armed:
 		var barrel := CylinderMesh.new()
 		barrel.top_radius = 0.09
@@ -243,10 +314,41 @@ func _broadside() -> void:
 		_ripple.append([_guns[i], _t + 0.15 * i])
 
 
+## A dark mark where shot has holed `ship`, drawn three times the size of the hole, as the shot is.
+## For show.
+func _mark_hole(at: Vector3, area: float, _room: Node, ship: Node3D) -> void:
+	var mark := MeshInstance3D.new()
+	mark.mesh = _hole_mesh
+	mark.material_override = _hole_mat
+	ship.add_child(mark)
+	mark.global_position = at
+	mark.scale = Vector3.ONE * 3.0 * sqrt(area / PI)
+
+
+## Pull `b` back toward its place by cables at bow and stern: a gentle spring, sideways only.
+func _moor(b: RigidBody3D) -> void:
+	var w := TAU / MOORING
+	var home: Vector3 = b.get_meta(&"home")
+	var com := b.global_transform * b.center_of_mass
+	for end in [-5.0, 5.0]:
+		var p := b.global_transform * Vector3(0, 0, end)
+		var v := b.linear_velocity + b.angular_velocity.cross(p - com)
+		var f := -0.5 * b.mass * (w * w * (p - home - Vector3(0, 0, end)) + w * v)
+		f.y = 0.0
+		b.apply_force(f, p - b.global_position)
+
+
+## Whether the roll has brought `gun` to within half a degree of the elevation it is laid at.
+func _bears(gun: Node3D) -> bool:
+	var up := rad_to_deg(asin(clampf(-gun.global_transform.basis.z.normalized().y, -1.0, 1.0)))
+	return absf(up - _elevation) < 0.5
+
+
 func _on_fired(ball: RigidBody3D, gun: Node3D) -> void:
 	_shots.append(ball)
 	ball.hit.connect(func(body: Node, _at: Vector3, _v: Vector3) -> void:
-		if body == _enemy:
+		if body == _enemy and not ball.has_meta(&"counted"):   # once a shot, though it strikes both sides
+			ball.set_meta(&"counted", true)
 			_hits += 1)
 	ball.water_entered.connect(_plume)
 	for child in ball.get_children():

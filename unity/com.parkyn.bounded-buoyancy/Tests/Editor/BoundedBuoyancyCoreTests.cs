@@ -308,6 +308,19 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void ShotIntoOakAsPonceletsLawGives()
+        {
+            // A 32-pounder's shot (6.10 in, 32 lb) into oak (750 kg/m³, 15 MPa) at the speeds it strikes with from 400 and
+            // 1000 yards (372 and 272 m/s) goes about 42 and 31.5 inches in (Elvin, 1805); over its whole depth it stops.
+            double a = 0.5 * 6.10 * 0.0254, m = 32.0 * 0.45359237, area = Math.PI * a * a;
+            Assert.AreEqual(42.0, Planking.Depth(m, area, 372.0, 750.0, 15e6) / 0.0254, 1.5, "from 400 yards (in)");
+            Assert.AreEqual(31.5, Planking.Depth(m, area, 272.0, 750.0, 15e6) / 0.0254, 1.5, "from 1000 yards (in)");
+            double depth = Planking.Depth(m, area, 400.0, 750.0, 15e6);
+            Assert.AreEqual(0.0, Planking.SpeedAfter(m, area, 400.0, depth, 750.0, 15e6), 1e-6, "over its whole depth");
+            Assert.Less(Planking.SpeedAfter(m, area, 400.0, 0.25, 750.0, 15e6), 400.0, "slower through 25 cm");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

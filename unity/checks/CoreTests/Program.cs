@@ -941,6 +941,74 @@ namespace BoundedBuoyancy.Checks
                 }
             }
 
+            Console.WriteLine("B19 Damage");
+            {
+                const double pound = 0.45359237, inch = 0.0254;
+                // Into solid oak (ρ 750 kg/m³, σ 15 MPa): a 32-pounder fired from 400 and from 1000 yards goes 42 and 31.5
+                // inches in (Elvin, 1805). The shot flies there through the air.
+                double d32 = 6.10 * inch, m32 = 32.0 * pound, a32 = 0.5 * d32;
+                double rho32 = m32 / (Math.PI / 6.0 * d32 * d32 * d32);
+                foreach (var c in new[] { new[] { 400.0, 0.4, 42.0 }, new[] { 1000.0, 1.3, 31.5 } })
+                {
+                    var w = new SimWorld();
+                    double el = c[1] * Math.PI / 180.0;
+                    var wall = new SimWall { Point = new V3(-1000.0 + c[0] * 0.9144, 0, 40000), Normal = new V3(-1, 0, 0) };
+                    w.Walls.Add(wall);
+                    var ball = Shot(w, a32, rho32, new V3(-1000, 10, 40000), new V3(Math.Cos(el), Math.Sin(el), 0) * 488.0, 1.2);
+                    double into = double.NaN;
+                    wall.Struck += (b, at, v) => { into = Planking.Depth(m32, Math.PI * a32 * a32, v.Length, 750.0, 15e6); };
+                    Run(w, 5.0);
+                    Check(string.Format("32-pounder from {0} yards: into solid oak (in)", c[0]), into / inch, c[2], 0.04 * c[2]);
+                }
+                // Through planking: over its whole depth the shot loses all its speed, and the speed it keeps over part of
+                // the way is m v dv = -A (σ + ρ v²) dx worked through in steps of 10 µm.
+                {
+                    double area = Math.PI * a32 * a32, v0 = 400.0;
+                    double depth = Planking.Depth(m32, area, v0, 750.0, 15e6);
+                    Check("over its whole depth it stops (m/s)", Planking.SpeedAfter(m32, area, v0, depth, 750.0, 15e6), 0.0, 1e-6);
+                    double v = v0;
+                    for (int i = 0; i < 25000; i++)
+                    {
+                        double dvdx = -area * (15e6 + 750.0 * v * v) / (m32 * v);
+                        double vm = v + 0.5 * 1e-5 * dvdx;
+                        v += 1e-5 * (-area * (15e6 + 750.0 * vm * vm) / (m32 * vm));
+                    }
+                    Check("through 25 cm of oak at 400 m/s (m/s)", Planking.SpeedAfter(m32, area, v0, 0.25, 750.0, 15e6), v, 0.001 * v);
+                }
+                // Shot that meets the sea on its way to a ship's side. Fired low, at 4°, to land 3 m short of it, it skips,
+                // and strikes the side just above the water, not 14 cm under it where its straight path goes. Fired steeply,
+                // at 20°, to land 1.5 m short, it plunges in and strikes below the waterline, slowed by the water as much as
+                // the drag of a ball wholly under it would over that way.
+                double d24 = 5.55 * inch, m24 = 24.0 * pound, a24 = 0.5 * d24;
+                double rho24 = m24 / (Math.PI / 6.0 * d24 * d24 * d24);
+                foreach (var c in new[] { new[] { 4.0, 3.0 }, new[] { 20.0, 1.5 } })
+                {
+                    var w = new SimWorld();
+                    Water(w, new V3(0, 0, 20000), new V3(600, 300, 600));
+                    var wall = new SimWall { Point = new V3(0, 0, 20000), Normal = new V3(1, 0, 0) };
+                    w.Walls.Add(wall);
+                    double el = c[0] * Math.PI / 180.0, touch = c[1];
+                    var ball = Shot(w, a24, rho24, new V3(touch + 10.0, a24 + 10.0 * Math.Tan(el), 20000), new V3(-Math.Cos(el), -Math.Sin(el), 0) * 400.0, 1.2);
+                    int entered = 0;
+                    double height = double.NaN, speed = double.NaN;
+                    ball.Entered += (sp, at) => entered++;
+                    wall.Struck += (b, at, v) => { height = at.y; speed = v.Length; };
+                    Run(w, 0.3);
+                    if (c[0] < 10.0)
+                    {
+                        Check("shot meeting the sea 3 m short at 4°: it touches the water first", Math.Min(entered, 1), 1.0, 0.0);
+                        Check("  and strikes the side above the water as it skips up (cm)", 100.0 * height, 10.0, 10.0);
+                    }
+                    else
+                    {
+                        double vol = 4.0 / 3.0 * Math.PI * a24 * a24 * a24;
+                        double k = 0.5 * 1000.0 * 0.47 * Math.PI * a24 * a24 / (m24 + 0.5 * 1000.0 * vol);
+                        Check("shot meeting the sea 1.5 m short at 20°: strikes under the water (cm)", 100.0 * height, -100.0 * (touch * Math.Tan(el) - a24), 15.0);
+                        Check("  slowed by the water (m/s)", speed, 400.0 * Math.Exp(-k * touch / Math.Cos(el)), 0.05 * 400.0 * Math.Exp(-k * touch / Math.Cos(el)));
+                    }
+                }
+            }
+
             Console.WriteLine("Speed: 300 bodies on waves");
             {
                 foreach (var kind in new[] { "sphere", "box", "hull", "capsule" })

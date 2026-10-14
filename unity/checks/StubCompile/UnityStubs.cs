@@ -14,6 +14,7 @@ namespace UnityEngine
         public string name { get; set; }
         public HideFlags hideFlags { get; set; }
         public static void Destroy(Object obj) { }
+        public static void Destroy(Object obj, float t) { }
         public static T Instantiate<T>(T original, Vector3 position, Quaternion rotation, Transform parent) where T : Object { return original; }
         public static void DontDestroyOnLoad(Object target) { }
         public static bool operator ==(Object x, Object y) { return ReferenceEquals(x, y); }
@@ -74,6 +75,7 @@ namespace UnityEngine
         public Vector3 TransformDirection(Vector3 direction) { return direction; }
         public Vector3 TransformVector(Vector3 vector) { return vector; }
         public Vector3 InverseTransformDirection(Vector3 direction) { return direction; }
+        public Vector3 InverseTransformPoint(Vector3 position) { return position; }
         public void SetParent(Transform parent, bool worldPositionStays) { }
     }
 
@@ -119,6 +121,7 @@ namespace UnityEngine
         public static Vector3 one { get { return default(Vector3); } }
         public static Vector3 up { get { return default(Vector3); } }
         public static Vector3 right { get { return default(Vector3); } }
+        public static Vector3 left { get { return default(Vector3); } }
         public static Vector3 forward { get { return default(Vector3); } }
         public static Vector3 back { get { return default(Vector3); } }
         public static Vector3 down { get { return default(Vector3); } }
@@ -206,6 +209,7 @@ namespace UnityEngine
         public static float MoveTowards(float current, float target, float maxDelta) { return current; }
         public static float LerpAngle(float a, float b, float t) { return a; }
         public static float Sin(float f) { return 0f; }
+        public static float Tan(float f) { return 0f; }
         public static float Cos(float f) { return 0f; }
         public static float Sqrt(float f) { return 0f; }
         public static float Asin(float f) { return 0f; }
@@ -310,6 +314,7 @@ namespace UnityEngine
         public float mass { get; set; }
         public bool useGravity { get; set; }
         public bool isKinematic { get; set; }
+        public bool detectCollisions { get; set; }
         public bool automaticCenterOfMass { get; set; }
         public Vector3 centerOfMass { get; set; }
         public Vector3 worldCenterOfMass { get { return default(Vector3); } }
@@ -346,13 +351,30 @@ namespace UnityEngine
     public sealed class Random
     {
         public static float value { get { return 0f; } }
+        public static float Range(float minInclusive, float maxInclusive) { return minInclusive; }
     }
+
+    public struct Ray
+    {
+        public Ray(Vector3 origin, Vector3 direction) { }
+    }
+
+    public struct RaycastHit
+    {
+        public Collider collider { get { return null; } }
+        public Vector3 point { get; set; }
+        public Vector3 normal { get; set; }
+        public float distance { get; set; }
+    }
+
+    public enum QueryTriggerInteraction { UseGlobal = 0, Ignore = 1, Collide = 2 }
 
     public partial class Collider : Component
     {
         public bool enabled { get; set; }
         public Rigidbody attachedRigidbody { get { return null; } }
         public bool isTrigger { get; set; }
+        public bool Raycast(Ray ray, out RaycastHit hitInfo, float maxDistance) { hitInfo = default(RaycastHit); return false; }
     }
     public partial class BoxCollider : Collider { public Vector3 center { get; set; } public Vector3 size { get; set; } }
     public class SphereCollider : Collider { public Vector3 center { get; set; } public float radius { get; set; } }
@@ -366,10 +388,12 @@ namespace UnityEngine
         public static Vector3 gravity { get; set; }
         public static SimulationMode simulationMode { get; set; }
         public static void IgnoreCollision(Collider collider1, Collider collider2, bool ignore) { }
+        public static bool GetIgnoreLayerCollision(int layer1, int layer2) { return false; }
     }
 
     public partial struct PhysicsScene : IEquatable<PhysicsScene>
     {
+        public int SphereCast(Vector3 origin, float radius, Vector3 direction, RaycastHit[] results, float maxDistance, int layerMask, QueryTriggerInteraction queryTriggerInteraction) { return 0; }
         public static bool operator ==(PhysicsScene lhs, PhysicsScene rhs) { return true; }
         public static bool operator !=(PhysicsScene lhs, PhysicsScene rhs) { return false; }
         public override bool Equals(object other) { return false; }
@@ -616,6 +640,15 @@ namespace UnityEngine.Events
     public delegate void UnityAction<T0>(T0 arg0);
     public delegate void UnityAction<T0, T1>(T0 arg0, T1 arg1);
     public delegate void UnityAction<T0, T1, T2>(T0 arg0, T1 arg1, T2 arg2);
+    public delegate void UnityAction<T0, T1, T2, T3>(T0 arg0, T1 arg1, T2 arg2, T3 arg3);
+
+    [Serializable]
+    public class UnityEvent<T0, T1, T2, T3> : UnityEventBase
+    {
+        public UnityEvent() { }
+        public void AddListener(UnityAction<T0, T1, T2, T3> call) { }
+        public void Invoke(T0 arg0, T1 arg1, T2 arg2, T3 arg3) { }
+    }
 
     [Serializable]
     public class UnityEvent<T0> : UnityEventBase

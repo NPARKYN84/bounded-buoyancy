@@ -27,9 +27,16 @@ extends BoundedBuoyancyBody
 ##
 ## Hitting things: it flies too far in a step for the engine's usual collision tests, so continuous
 ## collision detection is on and it strikes a hull instead of passing through it; hit is emitted.
-## Under the water and once slow, it is an ordinary BoundedBuoyancyBody: an iron ball sinks.
+## A body with a BoundedBuoyancyHull (its planking) is struck by the ball's own reckoning instead: the
+## ball goes through the planking if it has the speed (the wood resists it with σ + ρ v²), holing the
+## nearest compartment, flies on through the ship and out of the far side if it still has the speed,
+## and otherwise lodges in the wood; splinters fly, and the body takes the momentum it loses, less theirs. A
+## ball that meets the sea on its way to the planking skips off it, or plunges in, first, so shot
+## fired low holes a ship at and above its waterline. Under the water and once slow, it is an ordinary
+## BoundedBuoyancyBody: an iron ball sinks.
 
 ## The ball has struck `body` at the world point `at`, flying at `velocity` (world frame) just before.
+## Through a ship, it strikes it twice: going in, and coming out.
 signal hit(body: Node, at: Vector3, velocity: Vector3)
 
 ## Skip off the water at shallow angles. Off, the water takes the ball as it does any body.
@@ -45,6 +52,8 @@ var mach: float = 0.0
 var skips: int = 0
 ## The ball's velocity as it last left the water (world frame).
 var exit_velocity: Vector3 = Vector3.ZERO
+## How far the ball went into the wood it last lodged in, along its path (m).
+var penetration: float = 0.0
 
 const AIR_VISCOSITY := 1.81e-5      # kg/(m s), air at 15 °C
 const HIT_SPEED := 2.0              # m/s, slowest strike reported by hit
@@ -67,6 +76,15 @@ var _chord := Vector3.ZERO      # velocity the engine was given for the last wor
 var _true_velocity := Vector3.ZERO   # and the ball's real velocity at its end
 var _carry := false
 var _rate := 0.0
+var _inside: CollisionObject3D = null   # the body the ball has gone into, and is flying through
+var _inside_hull: Node = null
+var _exit_local := Vector3.ZERO          # where its path leaves that body, and the far side's normal,
+var _exit_normal := Vector3.ZERO         # in the body's own frame
+var _inside_time := 0.0
+var _passing: Array = []   # bodies it is passing through, as collision exceptions
+var _query: PhysicsShapeQueryParameters3D
+var _query_shape: SphereShape3D
+const _Hull := preload("res://addons/bounded_buoyancy/bounded_buoyancy_hull.gd")
 
 
 func _ready() -> void:
@@ -92,6 +110,8 @@ func _physics_process(dt: float) -> void:
 		if (linear_velocity - _chord).length() <= 1e-4 * maxf(_chord.length(), 1.0):
 			linear_velocity = _true_velocity
 	_flight_velocity = linear_velocity
+	if _set_up and not freeze and _single_sphere and _strike_step(dt):
+		return
 	if ricochet and _set_up and not freeze and model == Model.BOUNDED and _single_sphere and _skip_step(dt):
 		return
 	super(dt)
@@ -250,7 +270,10 @@ func _skip_step(dt: float) -> bool:
 	return true
 
 
-func _through_the_water(dt: float, start: Vector3, v_start: Vector3, flow: Vector3, g: float) -> void:
+## The step worked through in short steps, from `start` at `v_start`. With a `wall` (the planking the
+## ball's straight path strikes this step: target, hull, normal, and centre, where the ball's centre
+## would be as it touches it), the ball strikes it where its path through the water takes it.
+func _through_the_water(dt: float, start: Vector3, v_start: Vector3, flow: Vector3, g: float, wall := {}) -> void:
 	var a := _radius
 	var vol := volume
 	var m := own_mass
@@ -269,9 +292,16 @@ func _through_the_water(dt: float, start: Vector3, v_start: Vector3, flow: Vecto
 	var prev_added := _prev_added_mass   # -1 on a first step: nothing to share then
 	var wet_time := 0.0
 	var n := 0
+	var has_wall := not wall.is_empty()
+	var wall_centre: Vector3 = wall.centre if has_wall else Vector3.ZERO
+	var wall_normal: Vector3 = wall.normal if has_wall else Vector3.UP
+	var struck := false
 	while t < dt - 1e-12 and n < 5000:
 		n += 1
 		var rest := dt - t
+		var x0 := x
+		var v0 := v
+		var t0 := t
 		var level := _surface_at(x)
 		if level - (x.y - a) <= 0.0:
 			if wet:
@@ -290,49 +320,85 @@ func _through_the_water(dt: float, start: Vector3, v_start: Vector3, flow: Vecto
 			x += v * h
 			t += h
 			prev_added = added_mass_coefficient * air * vol
-			continue
-		if not wet:
-			wet = true
-			_cross(true, Vector3(x.x, level, x.z), (v - flow).length())
-		# Depth measured square to the surface, which waves tilt: a ball meets the face of a wave steeply.
-		var normal := _surface_normal(x)
-		var dd := clampf(a - (x.y - level) * normal.y, 0.0, 2.0 * a)
-		var under := PI * dd * dd * (3.0 * a - dd) / 3.0
-		var added := added_mass_coefficient * (rho * under + air * (vol - under))
-		if keep_momentum_on_entry and prev_added >= 0.0 and added > prev_added:
-			# Water taken along starts with the water's own velocity.
-			v = flow + (v - flow) * ((m + prev_added) / (m + added))
-		prev_added = added
-		if dd >= 2.0 * a:
-			# Wholly under, the push across its path is nothing (the ball is round): the rest of the
-			# step as BoundedBuoyancyBody takes it, its drag worked out with the speed at the end.
-			var mi := m + added
-			var u := v - flow
-			var cw := 0.5 * drag_coefficient * _area * rho * u.length() * rest / mi
-			v = (v + Vector3.UP * ((rho * vol - m) * g / mi * rest) + cw * flow) / (1.0 + cw)
-			x += v * rest
-			wet_time += rest
-			t = dt
-			break
-		# A short step, second order (midpoint): short enough that the ball moves into or out of the
-		# water by no more than a fifth of how deep it is, and goes no more than ten radii.
-		var acc := _water_accel(x, v, level, normal, dd, flow, wind, rho, air, g)
-		var speed := (v - flow).length()
-		var ref := maxf(dd, 0.05 * a)
-		var h := minf(rest, 10.0 * a / maxf(speed, 1e-6))
-		h = minf(h, SUB_STEP * ref / maxf(absf((v - flow).dot(normal)), 1e-6))
-		h = minf(h, sqrt(2.0 * SUB_STEP * ref / maxf(absf(acc.dot(normal)), 1e-9)))
-		h = minf(h, 0.5 / maxf(_rate, 1e-9))
-		var xm := x + v * (0.5 * h)
-		var vm := v + acc * (0.5 * h)
-		var lm := _surface_at(xm)
-		var nm := _surface_normal(xm)
-		var ddm := clampf(a - (xm.y - lm) * nm.y, 0.0, 2.0 * a)
-		var accm := _water_accel(xm, vm, lm, nm, ddm, flow, wind, rho, air, g)
-		x += vm * h
-		v += accm * h
-		t += h
-		wet_time += h * under / vol
+		else:
+			if not wet:
+				wet = true
+				_cross(true, Vector3(x.x, level, x.z), (v - flow).length())
+			# Depth measured square to the surface, which waves tilt: a ball meets the face of a wave steeply.
+			var normal := _surface_normal(x)
+			var dd := clampf(a - (x.y - level) * normal.y, 0.0, 2.0 * a)
+			var under := PI * dd * dd * (3.0 * a - dd) / 3.0
+			var added := added_mass_coefficient * (rho * under + air * (vol - under))
+			if keep_momentum_on_entry and prev_added >= 0.0 and added > prev_added:
+				# Water taken along starts with the water's own velocity.
+				v = flow + (v - flow) * ((m + prev_added) / (m + added))
+			prev_added = added
+			if dd >= 2.0 * a:
+				# Wholly under, the push across its path is nothing (the ball is round): the rest of the
+				# step as BoundedBuoyancyBody takes it, its drag worked out with the speed at the end; on
+				# its way to planking, a diameter at a time, so that it gets there at the speed it has then.
+				var mi := m + added
+				var u := v - flow
+				var h := rest if not has_wall else minf(rest, 2.0 * a / maxf(u.length(), 1e-6))
+				var cw := 0.5 * drag_coefficient * _area * rho * u.length() * h / mi
+				v = (v + Vector3.UP * ((rho * vol - m) * g / mi * h) + cw * flow) / (1.0 + cw)
+				x += v * h
+				wet_time += h
+				t += h
+			else:
+				# A short step, second order (midpoint): short enough that the ball moves into or out of
+				# the water by no more than a fifth of how deep it is, and goes no more than ten radii.
+				var acc := _water_accel(x, v, level, normal, dd, flow, wind, rho, air, g)
+				var speed := (v - flow).length()
+				var ref := maxf(dd, 0.05 * a)
+				var h := minf(rest, 10.0 * a / maxf(speed, 1e-6))
+				h = minf(h, SUB_STEP * ref / maxf(absf((v - flow).dot(normal)), 1e-6))
+				h = minf(h, sqrt(2.0 * SUB_STEP * ref / maxf(absf(acc.dot(normal)), 1e-9)))
+				h = minf(h, 0.5 / maxf(_rate, 1e-9))
+				var xm := x + v * (0.5 * h)
+				var vm := v + acc * (0.5 * h)
+				var lm := _surface_at(xm)
+				var nm := _surface_normal(xm)
+				var ddm := clampf(a - (xm.y - lm) * nm.y, 0.0, 2.0 * a)
+				var accm := _water_accel(xm, vm, lm, nm, ddm, flow, wind, rho, air, g)
+				x += vm * h
+				v += accm * h
+				t += h
+				wet_time += h * under / vol
+		if has_wall:
+			# Has it come to the planking? Its face is taken as flat over the little way the water has
+			# turned the ball from its straight path.
+			var d1 := (x - wall_centre).dot(wall_normal)
+			if d1 <= 0.0:
+				var d0 := (x0 - wall_centre).dot(wall_normal)
+				var f := clampf(d0 / (d0 - d1), 0.0, 1.0) if d0 > 0.0 else 0.0
+				var vw := v0.lerp(v, f)
+				var sw := vw.length()
+				if sw >= _Hull.STRIKE_SPEED and -vw.dot(wall_normal) >= _Hull.GLANCE * sw:
+					x = x0.lerp(x, f)
+					v = vw
+					t = t0 + (t - t0) * f
+					struck = true
+					break
+				has_wall = false   # glancing, or slow: the engine meets it as it does any collision
+	if struck:
+		# Into the planking from the water, or from the air after skipping: out of the sea inside it
+		# (unless it comes out of the far side under the water within the step).
+		submerged_volume = 0.0
+		centre_of_buoyancy = x
+		added_mass = added_mass_coefficient * air * vol
+		mass = m + added_mass
+		heave_damping = 0.0
+		wave_acceleration = 0.0
+		_prev_added_mass = added_mass
+		_prev_surface = NAN
+		_was_in_water = false
+		_first_step = false
+		var flown := _strike_at(wall.target, wall.hull, x - wall_normal * a, wall_normal, x, v, dt - t)
+		if flown.is_empty():
+			return   # lodged in it
+		_hand_on(start, flown[0], flown[1], dt)
+		return
 	# Where the step leaves it: a touch, or a skip, in its last moment counts too.
 	var level_end := _surface_at(x)
 	if level_end - (x.y - a) > 0.0 and not wet:
@@ -406,6 +472,329 @@ func _water_accel(x: Vector3, v: Vector3, level: float, normal: Vector3, dd: flo
 	var rate_air := 0.5 * _air_drag_coefficient(air_speed) * _area * air * (vol - under) / vol * air_speed / mi
 	_rate = rate_water + rate_air
 	return acc - u * rate_water - ua * rate_air
+
+
+## A step in which the ball strikes planking (a body with a BoundedBuoyancyHull), or flies on through
+## the body it has gone into. Returns false, leaving the step to the rest, when it strikes nothing
+## of the kind this step.
+func _strike_step(dt: float) -> bool:
+	if _inside:
+		return _inside_step(dt)
+	var v := linear_velocity
+	var speed := v.length()
+	if speed < _Hull.STRIKE_SPEED:
+		return false
+	var a := _radius
+	var c := global_transform * _sphere_centre
+	var space := get_world_3d().direct_space_state
+	if _query == null:
+		_query = PhysicsShapeQueryParameters3D.new()
+		_query_shape = SphereShape3D.new()
+		_query.shape = _query_shape
+	_query_shape.radius = a
+	_query.collision_mask = collision_mask
+	var exclude: Array[RID] = [get_rid()]
+	for b in _passing:
+		if is_instance_valid(b):
+			exclude.append(b.get_rid())
+	# The first planking on its path this step, past anything lighter than the ball (a splinter), which
+	# the engine meets as it meets anything.
+	var target: CollisionObject3D = null
+	var info := {}
+	var t := 1.0
+	for i in 4:
+		_query.exclude = exclude
+		_query.transform = Transform3D(Basis(), c)
+		_query.motion = v * dt
+		var r := space.cast_motion(_query)
+		if r.is_empty() or r[1] >= 1.0:
+			return false
+		t = r[1]
+		_query.transform = Transform3D(Basis(), c + v * dt * t)
+		_query.motion = Vector3.ZERO
+		info = space.get_rest_info(_query)
+		if info.is_empty():
+			return false
+		var other := instance_from_id(info.collider_id) as CollisionObject3D
+		if other and other.has_meta(_Hull.META):
+			target = other
+			break
+		if not (other is RigidBody3D and not other.freeze and other.mass < own_mass):
+			return false   # something solid in the way: the engine meets it as it meets anything
+		exclude.append(info.rid)   # a splinter, or anything lighter than the ball: on past it
+	if target == null:
+		return false
+	var hull: Node = target.get_meta(_Hull.META)
+	var n: Vector3 = info.normal
+	if -(v / speed).dot(n) < _Hull.GLANCE:
+		return false   # glancing: it bounces off, as the engine makes it
+	var centre := c + v * (dt * t)
+	# A ball in the sea on its way skips off it, or plunges in, before it gets to the planking.
+	if ricochet and model == Model.BOUNDED and _water_first(c, centre):
+		var flow: Vector3 = water.current_at(c) if water else Vector3.ZERO
+		_through_the_water(dt, c, v, flow, _gravity(), {target = target, hull = hull, normal = n, centre = centre})
+		return true
+	var flown := _strike_at(target, hull, info.point, n, centre, v, dt * (1.0 - t))
+	if not flown.is_empty():
+		_hand_on(c, flown[0], flown[1], dt)
+	return true
+
+
+## Whether the ball, flying straight from `c` to `centre`, is in the water on the way, or already in
+## it. Sets water.
+func _water_first(c: Vector3, centre: Vector3) -> bool:
+	water = _find_water(c)
+	if water == null and not (water_surface or not _world_has_water):
+		return false
+	var a := _radius
+	for i in 9:
+		var p := c.lerp(centre, i / 8.0)
+		if _surface_at(p) - (p.y - a) > 0.0:
+			return true
+	return false
+
+
+## The ball, its centre at `centre` and flying at `v`, strikes the planking (`hull`) of `target` at the
+## world point `at`, where its face has the outward normal `n`: it goes through, holing it, or lodges in
+## it. Then on through the body for `time_after` seconds. Returns [where it ends, its velocity then], or
+## empty if it lodged. Speeds are taken relative to the body there.
+func _strike_at(target: CollisionObject3D, hull: Node, at: Vector3, n: Vector3, centre: Vector3, v: Vector3, time_after: float) -> Array:
+	var moving := _velocity_at(target, at)
+	var u := v - moving
+	var speed := u.length()
+	var dir := u / speed
+	var cos_in := maxf(-dir.dot(n), 0.0)
+	var a := _radius
+	var m := own_mass
+	var v1: float = hull.speed_through(m, a, speed, cos_in)
+	hit.emit(target, at, v)
+	if v1 <= 0.0:
+		penetration = _Hull.penetration_depth(m, PI * a * a, speed, hull.density, hull.strength * 1e6)
+		_lodge(target, hull, at, v)
+		return []
+	# Through the planking: a hole, and splinters off the face. The body takes the momentum the ball
+	# loses, less what the splinters carry off.
+	hull.make_hole(at, PI * a * a * hull.hole_size)
+	var thrown: Vector3 = hull.throw_splinters(at, (n - dir).normalized(), 0.05 * speed, a, cos_in, moving, get_parent(), self)
+	if target is RigidBody3D:
+		target.apply_impulse(dir * (m * (speed - v1)) - thrown, at - target.global_position)
+	hull.struck.emit(self, at, true, v1)
+	# On through the body: where its path leaves it, the far side.
+	if target is PhysicsBody3D:
+		pass_through(target, 0.0)
+	var far := _far_side(target, at, dir)
+	_inside = target
+	_inside_hull = hull
+	_inside_time = 0.0
+	if far.is_empty():
+		# No far side to be found (a shape open on that side): it stops in the body here.
+		penetration = 0.0
+		_lodge(target, hull, at, moving + dir * v1)
+		return []
+	var xf := target.global_transform
+	_exit_local = xf.affine_inverse() * far[0]
+	_exit_normal = (xf.basis.transposed() * far[1]).normalized()   # a normal, so by the transpose
+	return _through(centre, moving + dir * v1, time_after)
+
+
+## A step of flying through the body the ball has gone into.
+func _inside_step(dt: float) -> bool:
+	if not is_instance_valid(_inside) or not is_instance_valid(_inside_hull):
+		if is_instance_valid(_inside) and _inside is PhysicsBody3D:
+			_stop_passing(_inside)   # its planking is gone: an ordinary body again
+		_inside = null
+		return false
+	_inside_time += dt
+	var c := global_transform * _sphere_centre
+	if _inside_time > 2.0:
+		penetration = 0.0
+		_lodge(_inside, _inside_hull, c, linear_velocity)
+		return true
+	var flown := _through(c, linear_velocity, dt)
+	if not flown.is_empty():
+		_hand_on(c, flown[0], flown[1], dt)
+	return true
+
+
+## The ball flies on inside the body it has gone into, from `p` at `v`, for `time`: out of the far
+## side if it gets there with the speed to go through that planking, and otherwise lodged in it.
+## Inside the hull it is out of the sea and the wind, under gravity alone. Returns [where it ends,
+## its velocity then], or empty if it lodged. Speeds are taken relative to the body.
+func _through(p: Vector3, v: Vector3, time: float) -> Array:
+	var target := _inside
+	var hull := _inside_hull
+	var xf := target.global_transform
+	var exit := xf * _exit_local
+	var normal := (xf.basis.inverse().transposed() * _exit_normal).normalized()
+	var g := _gravity()
+	var moving := _velocity_at(target, p)
+	var u := v - moving
+	var speed := u.length()
+	var dir := u / speed if speed > 1e-6 else Vector3.ZERO
+	var cos_out := dir.dot(normal)
+	if speed < 1e-3 or cos_out < _Hull.GLANCE:
+		penetration = 0.0
+		_lodge(target, hull, p, v)
+		return []
+	var s := (exit - p).dot(normal) / cos_out   # how far on its path, through the body, to the far side
+	if s > speed * time:
+		return [p + v * time + Vector3.DOWN * (0.5 * g * time * time), v + Vector3.DOWN * g * time]
+	var to_far := maxf(s, 0.0) / speed
+	var at := p + v * to_far + Vector3.DOWN * (0.5 * g * to_far * to_far)
+	var m := own_mass
+	var a := _radius
+	var v2: float = hull.speed_through(m, a, speed, cos_out)
+	hit.emit(target, at, v)
+	if v2 <= 0.0:
+		penetration = _Hull.penetration_depth(m, PI * a * a, speed, hull.density, hull.strength * 1e6)
+		_lodge(target, hull, at, v)
+		return []
+	hull.make_hole(at, PI * a * a * hull.hole_size)
+	moving = _velocity_at(target, at)
+	var thrown: Vector3 = hull.throw_splinters(at, dir, 0.3 * v2, a, cos_out, moving, get_parent(), self)
+	if target is RigidBody3D:
+		target.apply_impulse(dir * (m * (speed - v2)) - thrown, at - target.global_position)
+	hull.struck.emit(self, at, true, v2)
+	_inside = null
+	if target is PhysicsBody3D:
+		pass_through(target, 0.3)   # clear of its far side before it can strike it again
+	var rest := time - to_far
+	var v_out := moving + dir * v2
+	if _in_the_sea(at):
+		# Out into the sea: the water's drag slows it from there, as v / (1 + k v t) (net weight aside),
+		# and it is in the water already, so it makes no splash.
+		_was_in_water = true
+		var rho: float = water.density if water else water_density
+		var k := 0.5 * drag_coefficient * _area * rho / (m + added_mass_coefficient * rho * volume)
+		var net := g * (m - rho * volume) / (m + added_mass_coefficient * rho * volume)
+		var gone := log(1.0 + k * v2 * rest) / k if k > 1e-9 else v2 * rest
+		var v_end := moving + dir * (v2 / (1.0 + k * v2 * rest))
+		return [at + moving * rest + dir * gone + Vector3.DOWN * (0.5 * net * rest * rest), v_end + Vector3.DOWN * net * rest]
+	return [at + v_out * rest + Vector3.DOWN * (0.5 * g * rest * rest), v_out + Vector3.DOWN * g * rest]
+
+
+## Whether the ball's centre is under the sea at `p`. Sets water.
+func _in_the_sea(p: Vector3) -> bool:
+	water = _find_water(p)
+	if water == null and not (water_surface or not _world_has_water):
+		return false
+	return _surface_at(p) > p.y
+
+
+## The ball stops in the wood of `target` at `at`: the body takes all its momentum (relative to the
+## body there), and it is gone.
+func _lodge(target: CollisionObject3D, hull: Node, at: Vector3, v: Vector3) -> void:
+	if target is RigidBody3D:
+		target.apply_impulse((v - _velocity_at(target, at)) * own_mass, at - target.global_position)
+	if target is PhysicsBody3D:
+		pass_through(target, 0.0)
+	hull.struck.emit(self, at, false, 0.0)
+	_inside = null
+	linear_velocity = Vector3.ZERO
+	freeze = true
+	queue_free()
+
+
+## Where a path along `dir` from `at`, inside `target`, comes out of it: [point, outward normal], or
+## empty if it cannot be found. The body's shapes are taken as solid, and as one where they touch or
+## overlap (a ship of several convex pieces): points along the path are tested until one lies outside
+## them all, and a ray cast back from there finds the face the path leaves by. A shape with no inside
+## (a ConcavePolygonShape3D) is taken as solid from its first face along the path to its last.
+func _far_side(target: CollisionObject3D, at: Vector3, dir: Vector3) -> Array:
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsPointQueryParameters3D.new()
+	q.collision_mask = target.collision_layer
+	var own: Array[RID] = [get_rid()]
+	q.exclude = own
+	const STEP := 0.1
+	var s := 0.02
+	var last := -1.0   # the furthest point along the path found inside the body
+	while s < 1000.0:
+		q.position = at + dir * s
+		var inside := false
+		for h in space.intersect_point(q, 32):
+			if h.collider == target:
+				inside = true
+				break
+		if inside:
+			last = s
+		elif last >= 0.0 or s > 2.0 * _radius + STEP:
+			break   # out of it again, or never in it (a shape with no inside)
+		s += STEP
+	if last >= 0.0:
+		return _ray_to(target, at + dir * (last + STEP), at + dir * 0.01)
+	return _ray_to(target, at + dir * 1000.0, at + dir * 0.01)
+
+
+## Where a ray from `from` to `to` first meets `target`, past anything else in the way: [point,
+## normal], or empty.
+func _ray_to(target: CollisionObject3D, from: Vector3, to: Vector3) -> Array:
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, to, target.collision_layer)
+	var exclude: Array[RID] = [get_rid()]
+	for n in 32:
+		q.exclude = exclude
+		var r := space.intersect_ray(q)
+		if r.is_empty():
+			return []
+		if r.collider == target:
+			return [r.position, r.normal]
+		exclude.append(r.rid)
+	return []
+
+
+## The engine moves the ball on by the velocity it ends the step with, so it is given the chord of the
+## step's path, from `start` to `end`; the real velocity `v_end` is handed back at the start of the next
+## step.
+func _hand_on(start: Vector3, end: Vector3, v_end: Vector3, dt: float) -> void:
+	var chord := (end - start) / dt
+	apply_central_force(mass * (chord - linear_velocity) / dt)
+	last_acceleration = (v_end - linear_velocity) / dt
+	_chord = chord
+	_true_velocity = v_end
+	_carry = true
+
+
+## Let the ball pass through `body` (its own ship as it is fired, a ship it has gone into) for
+## `seconds`, or until told otherwise if 0.
+func pass_through(body: PhysicsBody3D, seconds: float) -> void:
+	add_collision_exception_with(body)
+	if not _passing.has(body):
+		_passing.append(body)
+		body.tree_exiting.connect(_stop_passing.bind(body), CONNECT_ONE_SHOT)
+	if seconds > 0.0:
+		var wb := weakref(body)
+		get_tree().create_timer(seconds, false, true).timeout.connect(func() -> void:
+			var b: PhysicsBody3D = wb.get_ref()
+			if b and is_instance_valid(self) and _inside != b:
+				_stop_passing(b))
+
+
+func _stop_passing(body: PhysicsBody3D) -> void:
+	if is_instance_valid(body):
+		remove_collision_exception_with(body)
+		var call := _stop_passing.bind(body)
+		if body.tree_exiting.is_connected(call):
+			body.tree_exiting.disconnect(call)
+	_passing.erase(body)
+
+
+## The velocity of `body` at the world point `at` (nothing for a body that does not move).
+func _velocity_at(body: Node, at: Vector3) -> Vector3:
+	if body is RigidBody3D:
+		var state := PhysicsServer3D.body_get_direct_state(body.get_rid())
+		if state:
+			return state.get_velocity_at_local_position(at - body.global_position)
+		return body.linear_velocity
+	return Vector3.ZERO
+
+
+func _gravity() -> float:
+	var frame := Engine.get_physics_frames()
+	if frame != _g_frame:
+		_g = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+		_g_frame = frame
+	return _g
 
 
 ## Height of the water's surface over the world point `p`.

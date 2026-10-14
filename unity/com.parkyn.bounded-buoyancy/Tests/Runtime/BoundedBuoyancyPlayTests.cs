@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B18). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B19). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -777,6 +777,154 @@ namespace BoundedBuoyancy.Tests
                     Assert.Greater(ball.Skips, 0, "skips at 4 degrees");
                 else
                     Assert.AreEqual(0, ball.Skips, "plunges at 9 degrees");
+            }
+        }
+
+        // B19 ------------------------------------------------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator B19_Damage()
+        {
+            // Into solid oak: a 32-pounder fired from 400 and from 1000 yards goes 42 and 31.5 inches in (Elvin, 1805).
+            foreach (var c in new[] { new[] { 400f, 0.4f, 42f }, new[] { 1000f, 1.3f, 31.5f } })
+            {
+                GameObject wall = Make("Oak", new Vector3(-1000f + c[0] * 0.9144f + 2f, 0f, 1500f));
+                wall.AddComponent<BoxCollider>().size = new Vector3(4f, 400f, 400f);
+                var oak = wall.AddComponent<BoundedBuoyancyHull>();
+                oak.thickness = 3f;
+                oak.splinters = 0;
+                float el = c[1] * Mathf.Deg2Rad;
+                BoundedBuoyancyCannon gun = Gun(new Vector3(-1000f, 10f, 1500f), new Vector3(Mathf.Cos(el), Mathf.Sin(el), 0f), 488f);
+                gun.GunSize = BoundedBuoyancyCannon.Gun.Pounder32;
+                float depth = float.NaN;
+                BoundedBuoyancyCannonball shot = Fired(gun);
+                oak.struck.AddListener((ball, at, through, speedOut) => depth = ball.Penetration);
+                yield return Steps(300);
+                Assert.AreEqual(c[2], depth / 0.0254f, 0.04f * c[2], "32-pounder from " + c[0] + " yards: into solid oak (in)");
+            }
+
+            // A ship with two side compartments and 10 cm planking, shot from 8 m off its starboard side, down through it:
+            // in above the waterline, out of the far side below it. Two holes, each as big as the shot, one in each
+            // compartment; the ship takes the momentum the shot loses; out at the speed Poncelet's law gives; the sea
+            // comes in through the hole below the waterline only.
+            Water(new Vector3(0f, 0f, 1300f), new Vector3(200f, 60f, 200f));
+            BoundedBuoyancyBody ship = Box(new Vector3(3f, 1.2f, 8f), 350f, new Vector3(0f, 0.18f, 1300f));
+            var planking = ship.gameObject.AddComponent<BoundedBuoyancyHull>();
+            planking.thickness = 0.1f;
+            planking.splinters = 0;   // the momentum is all the ship's
+            BoundedBuoyancyCompartment port = null, starboard = null;
+            foreach (float side in new[] { -1f, 1f })
+            {
+                var go = new GameObject(side > 0f ? "Starboard" : "Port");
+                go.transform.SetParent(ship.transform, false);
+                go.transform.localPosition = new Vector3(0.75f * side, 0f, 0f);
+                var room = go.AddComponent<BoundedBuoyancyCompartment>();
+                room.size = new Vector3(1.4f, 1.2f, 3f);
+                if (side > 0f)
+                    starboard = room;
+                else
+                    port = room;
+            }
+            yield return Steps(120);
+            var holes = new List<BoundedBuoyancyCompartment>();
+            var areas = new List<float>();
+            planking.holed.AddListener((at, area, room) => { holes.Add(room); areas.Add(area); });
+            Vector3 p0 = ship.transform.position;
+            Vector3 aim = ship.transform.TransformPoint(new Vector3(-1.5f, -0.3f, 0f)) - (p0 + new Vector3(8f, 2.5f, 0f));
+            BoundedBuoyancyCannon fire = Gun(p0 + new Vector3(8f, 2.5f, 0f), aim, 400f);
+            float mass = ship.Body.mass;
+            Vector3 before = ship.Body.Velocity() * mass;
+            BoundedBuoyancyCannonball through = Fired(fire);
+            Vector3 dir = aim.normalized;
+            Vector3 vIn = Vector3.zero;
+            var speeds = new List<float>();
+            through.hit.AddListener((c, at, v) => { if (vIn == Vector3.zero) vIn = v; });
+            planking.struck.AddListener((ball, at, went, speedOut) => { if (went) speeds.Add(speedOut); });
+            yield return Steps(6);
+            float area = Mathf.PI * Mathf.Pow(0.5f * fire.shotDiameter, 2f);
+            Assert.AreEqual(2, holes.Count, "shot through a ship: two holes");
+            Assert.AreEqual(area, areas[0], 1e-6f, "  each as big as the shot (m²)");
+            Assert.IsTrue(holes[0] != null && holes[1] != null && holes[0] != holes[1], "  one in each compartment");
+            float outSpeed = speeds[speeds.Count - 1];
+            float lost = fire.shotMass * (vIn.x - outSpeed * dir.x);
+            float gained = ship.Body.Velocity().x * mass - before.x;
+            Assert.AreEqual(1f, gained / lost, 0.05f, "  the ship takes the momentum the shot loses (share)");
+            float cos = Mathf.Abs(dir.x);
+            double mid = BoundedBuoyancy.Core.Planking.SpeedAfter(fire.shotMass, area, vIn.magnitude, 0.1 / cos, 750.0, 15e6);
+            double far = BoundedBuoyancy.Core.Planking.SpeedAfter(fire.shotMass, area, mid, 0.1 / cos, 750.0, 15e6);
+            Assert.AreEqual((float)far, outSpeed, 0.02f * (float)far, "  out of the far side at the speed Poncelet's law gives (m/s)");
+            yield return Steps(480);
+            Assert.Greater(port.floodVolume, 0.01f, "  the sea comes in below the waterline (m³)");
+            Assert.AreEqual(0f, starboard.floodVolume, 0f, "  and not above it (m³)");
+
+            // A spent shot lodges in the planking: no hole.
+            int holesBefore = holes.Count;
+            BoundedBuoyancyCannon spent = Gun(ship.transform.position + new Vector3(5f, 0.3f, 0f), Vector3.left, 30f);
+            BoundedBuoyancyCannonball slow = Fired(spent);
+            slow.airDensity = 0f;
+            bool lodged = false;
+            planking.struck.AddListener((ball, at, went, speedOut) => lodged = !went);
+            yield return Steps(30);
+            Assert.IsTrue(lodged && slow == null, "a spent shot (30 m/s) lodges");
+            Assert.AreEqual(holesBefore, holes.Count, "  making no hole");
+
+            // A ship of two boxes side by side, touching: shot goes in through one side and out of the other, not stopping
+            // at the face they share.
+            GameObject pair = Make("Two boxes", new Vector3(0f, 0.18f, 1380f));
+            foreach (float side in new[] { -0.75f, 0.75f })
+            {
+                var part = new GameObject("Half");
+                part.transform.SetParent(pair.transform, false);
+                part.transform.localPosition = new Vector3(side, 0f, 0f);
+                part.AddComponent<BoxCollider>().size = new Vector3(1.5f, 1.2f, 8f);
+            }
+            BoundedBuoyancyBody twin = Float(pair, 350f);
+            var twinPlanking = pair.AddComponent<BoundedBuoyancyHull>();
+            twinPlanking.thickness = 0.1f;
+            twinPlanking.splinters = 0;
+            yield return Steps(120);
+            var twinHoles = new List<Vector3>();
+            twinPlanking.holed.AddListener((at, area, room) => twinHoles.Add(at));
+            BoundedBuoyancyCannon level = Gun(twin.transform.position + new Vector3(8f, 0.4f, 0f), Vector3.left, 400f);
+            Fired(level);
+            yield return Steps(6);
+            Assert.AreEqual(2, twinHoles.Count, "a ship of two boxes touching: two holes, through both");
+            Assert.AreEqual(3f, (twinHoles[1] - twinHoles[0]).magnitude, 0.05f, "  the second in its far side (m from the first)");
+
+            // Shot that meets the sea on its way to a ship. Fired low, at 4°, to land 3 m short of its side, it skips and
+            // strikes the side just above the water, not 14 cm under it where its straight path goes; fired steeply, at
+            // 20°, to land 1.5 m short, it plunges in and strikes below the waterline, slowed by the water.
+            BoundedBuoyancyBody target = Box(new Vector3(3f, 3f, 8f), 500f, new Vector3(0f, 0f, 1340f));   // 1.5 m deep
+            var side19 = target.gameObject.AddComponent<BoundedBuoyancyHull>();
+            side19.thickness = 0.1f;
+            side19.splinters = 0;
+            yield return Steps(120);
+            foreach (var c in new[] { new[] { 4f, 3f }, new[] { 20f, 1.5f } })
+            {
+                float el = c[0] * Mathf.Deg2Rad;
+                float touch = target.transform.position.x + 1.5f + c[1];
+                BoundedBuoyancyCannon low = Gun(new Vector3(touch + 10f, 0f, 1340f), new Vector3(-Mathf.Cos(el), -Mathf.Sin(el), 0f), 400f);
+                float a = 0.5f * low.shotDiameter;
+                low.transform.position = new Vector3(touch + 10f, a + 10f * Mathf.Tan(el), 1340f);
+                BoundedBuoyancyCannonball ball = Fired(low);
+                int entered = 0;
+                float height = float.NaN, speed = float.NaN;
+                ball.waterEntered.AddListener((sp, at) => entered++);
+                ball.hit.AddListener((col, at, v) => { if (float.IsNaN(height)) { height = at.y; speed = v.magnitude; } });
+                yield return Steps(18);
+                if (c[0] < 10f)
+                {
+                    Assert.Greater(entered, 0, "shot meeting the sea 3 m short at 4°: it touches the water first");
+                    Assert.AreEqual(0.1f, height, 0.1f, "  and strikes the side above the water as it skips up (m)");
+                }
+                else
+                {
+                    Assert.AreEqual(-(c[1] * Mathf.Tan(el) - a), height, 0.15f, "shot meeting the sea 1.5 m short at 20°: strikes under the water (m)");
+                    float vol = 4f / 3f * Mathf.PI * a * a * a;
+                    float k = 0.5f * 1000f * 0.47f * Mathf.PI * a * a / (low.shotMass + 0.5f * 1000f * vol);
+                    float slowed = 400f * Mathf.Exp(-k * c[1] / Mathf.Cos(el));
+                    Assert.AreEqual(slowed, speed, 0.05f * slowed, "  slowed by the water as a ball wholly under it would be (m/s)");
+                }
             }
         }
 

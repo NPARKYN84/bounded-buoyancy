@@ -31,6 +31,12 @@ namespace BoundedBuoyancy.Core
         public V3 BallCentre;
         /// <summary>The touches and skips of the last step worked through by TryStepBall.</summary>
         public readonly List<SurfaceTouch> Touches = new List<SurfaceTouch>();
+        /// <summary>Whether the ball came to the planking in the last step worked through by StepBallToWall.</summary>
+        public bool WallStruck;
+        /// <summary>How far into that step it came to it (s); BallCentre is where its centre was then.</summary>
+        public double WallTime;
+        /// <summary>The ball's velocity as it came to it (world).</summary>
+        public V3 WallVelocity;
 
         /// <summary>Each short step in the water moves the ball in or out by no more than this share of its depth.</summary>
         public const double SubStep = 0.2;
@@ -84,11 +90,52 @@ namespace BoundedBuoyancy.Core
                     return false;
                 }
             }
-            ThroughTheWater(c, velocity, water, wind, g, dt);
+            ThroughTheWater(c, velocity, water, wind, g, dt, false, V3.Zero, V3.Up);
             return true;
         }
 
-        void ThroughTheWater(V3 start, V3 vStart, WaterSample water, V3 wind, double g, double dt)
+        /// <summary>The ball is in the water already, without having crossed its surface (it has come out of a ship below
+        /// the waterline): the next step reports no entry.</summary>
+        public void InTheWaterAlready()
+        {
+            wasInWater = true;
+            firstStep = false;
+        }
+
+        /// <summary>Whether a ball (one sphere) flying straight from `from` to `to` (its centre) is in the water on the
+        /// way, or already in it: the water then takes it first.</summary>
+        public bool MeetsWaterBefore(V3 from, V3 to, WaterSample water)
+        {
+            if (!Shape.SingleSphere || !water.HasWater)
+                return false;
+            double a = Shape.Radius;
+            WaterSurface surface = water.Surface;
+            for (int i = 0; i <= 8; i++)
+            {
+                V3 p = from + (to - from) * (i / 8.0);
+                if (surface.HeightAt(p) - (p.y - a) > 0.0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A step in which a fast ball (one sphere) meets the water on its way to planking, worked through as TryStepBall
+        /// works it, but stopping where the ball comes to the planking: the plane through `wallCentre` (where its centre
+        /// would be as it touches the planking, flying straight) square to `wallNormal` (the planking's outward normal).
+        /// The planking's face is taken as flat over the little way the water turns the ball from its straight path. If
+        /// it comes to it no slower than Planking.StrikeSpeed and no more glancingly than Planking.Glance, WallStruck is
+        /// set, with WallTime, WallVelocity and BallCentre (where its centre is then), and the results are for a ball out
+        /// of the water, as it goes into the planking; otherwise the step is worked through to its end, as TryStepBall
+        /// does, and the engine meets the planking as it meets anything.
+        /// </summary>
+        public void StepBallToWall(BodyPose pose, V3 velocity, WaterSample water, V3 wind, double g, double dt, V3 wallCentre, V3 wallNormal)
+        {
+            Touches.Clear();
+            ThroughTheWater(pose.Apply(Shape.SphereCentre), velocity, water, wind, g, dt, true, wallCentre, wallNormal);
+        }
+
+        void ThroughTheWater(V3 start, V3 vStart, WaterSample water, V3 wind, double g, double dt, bool hasWall, V3 wallCentre, V3 wallNormal)
         {
             double a = Shape.Radius, vol = Shape.Volume, m = OwnMass, rho = water.Density;
             V3 flow = water.Flow;
@@ -103,9 +150,14 @@ namespace BoundedBuoyancy.Core
             double t = 0.0, wetTime = 0.0;
             bool wet = wasInWater && !firstStep;   // as the last step left it, so each touch is reported once
             double prevAdded = prevAddedMass;       // -1 on a first step: nothing to share then
+            WallStruck = false;
+            WallTime = 0.0;
+            WallVelocity = V3.Zero;
             for (int n = 0; n < 5000 && t < dt - 1e-12; n++)
             {
                 double rest = dt - t;
+                V3 x0 = x, v0 = v;
+                double t0 = t;
                 double level = surface.HeightAt(x);
                 if (level - (x.y - a) <= 0.0)
                 {
@@ -127,50 +179,103 @@ namespace BoundedBuoyancy.Core
                     x += v * h;
                     t += h;
                     prevAdded = AddedMassCoefficient * air * vol;
-                    continue;
                 }
-                if (!wet)
+                else
                 {
-                    wet = true;
-                    Touches.Add(new SurfaceTouch { Entering = true, Point = new V3(x.x, level, x.z), Speed = (v - flow).Length });
+                    if (!wet)
+                    {
+                        wet = true;
+                        Touches.Add(new SurfaceTouch { Entering = true, Point = new V3(x.x, level, x.z), Speed = (v - flow).Length });
+                    }
+                    // Depth measured square to the surface, which waves tilt: a ball meets the face of a wave steeply.
+                    V3 normal = SurfaceNormal(surface, x, a);
+                    double dd = Math.Min(Math.Max(a - (x.y - level) * normal.y, 0.0), 2.0 * a);
+                    double under = Math.PI * dd * dd * (3.0 * a - dd) / 3.0;
+                    double added = AddedMassCoefficient * (rho * under + air * (vol - under));
+                    if (KeepMomentumOnEntry && prevAdded >= 0.0 && added > prevAdded)
+                        v = flow + (v - flow) * ((m + prevAdded) / (m + added));   // water taken along starts with the water's own velocity
+                    prevAdded = added;
+                    if (dd >= 2.0 * a)
+                    {
+                        // Wholly under, the push across its path is nothing (the ball is round): the rest of the step as
+                        // Step takes it, its drag worked out with the speed at the end; on its way to planking, a
+                        // diameter at a time, so that it gets there at the speed it has then.
+                        double mi = m + added;
+                        double us = (v - flow).Length;
+                        double h = hasWall ? Math.Min(rest, 2.0 * a / Math.Max(us, 1e-6)) : rest;
+                        double cw = 0.5 * DragCoefficient * Shape.Area * rho * us * h / mi;
+                        v = (v + V3.Up * ((rho * vol - m) * g / mi * h) + cw * flow) / (1.0 + cw);
+                        x += v * h;
+                        wetTime += h;
+                        t += h;
+                    }
+                    else
+                    {
+                        V3 acc = WaterAccel(x, v, dd, normal, flow, wind, rho, air, g);
+                        double speed = (v - flow).Length;
+                        double reference = Math.Max(dd, 0.05 * a);
+                        double step = Math.Min(rest, 10.0 * a / Math.Max(speed, 1e-6));
+                        step = Math.Min(step, SubStep * reference / Math.Max(Math.Abs((v - flow).Dot(normal)), 1e-6));
+                        step = Math.Min(step, Math.Sqrt(2.0 * SubStep * reference / Math.Max(Math.Abs(acc.Dot(normal)), 1e-9)));
+                        step = Math.Min(step, 0.5 / Math.Max(rate, 1e-9));
+                        V3 xm = x + v * (0.5 * step);
+                        V3 vm = v + acc * (0.5 * step);
+                        double lm = surface.HeightAt(xm);
+                        V3 nm = SurfaceNormal(surface, xm, a);
+                        double ddm = Math.Min(Math.Max(a - (xm.y - lm) * nm.y, 0.0), 2.0 * a);
+                        V3 accm = WaterAccel(xm, vm, ddm, nm, flow, wind, rho, air, g);
+                        x += vm * step;
+                        v += accm * step;
+                        t += step;
+                        wetTime += step * under / vol;
+                    }
                 }
-                // Depth measured square to the surface, which waves tilt: a ball meets the face of a wave steeply.
-                V3 normal = SurfaceNormal(surface, x, a);
-                double dd = Math.Min(Math.Max(a - (x.y - level) * normal.y, 0.0), 2.0 * a);
-                double under = Math.PI * dd * dd * (3.0 * a - dd) / 3.0;
-                double added = AddedMassCoefficient * (rho * under + air * (vol - under));
-                if (KeepMomentumOnEntry && prevAdded >= 0.0 && added > prevAdded)
-                    v = flow + (v - flow) * ((m + prevAdded) / (m + added));   // water taken along starts with the water's own velocity
-                prevAdded = added;
-                if (dd >= 2.0 * a)
+                if (hasWall)
                 {
-                    // Wholly under, the push across its path is nothing (the ball is round): the rest of the step as
-                    // Step takes it, its drag worked out with the speed at the end.
-                    double mi = m + added;
-                    double cw = 0.5 * DragCoefficient * Shape.Area * rho * (v - flow).Length * rest / mi;
-                    v = (v + V3.Up * ((rho * vol - m) * g / mi * rest) + cw * flow) / (1.0 + cw);
-                    x += v * rest;
-                    wetTime += rest;
-                    t = dt;
-                    break;
+                    // Has it come to the planking?
+                    double d1 = (x - wallCentre).Dot(wallNormal);
+                    if (d1 <= 0.0)
+                    {
+                        double d0 = (x0 - wallCentre).Dot(wallNormal);
+                        double f = d0 > 0.0 ? Math.Min(Math.Max(d0 / (d0 - d1), 0.0), 1.0) : 0.0;
+                        V3 vw = v0 + (v - v0) * f;
+                        double sw = vw.Length;
+                        if (sw >= Planking.StrikeSpeed && -vw.Dot(wallNormal) >= Planking.Glance * sw)
+                        {
+                            x = x0 + (x - x0) * f;
+                            v = vw;
+                            t = t0 + (t - t0) * f;
+                            WallStruck = true;
+                            break;
+                        }
+                        hasWall = false;   // glancing, or slow: the engine meets it as it meets anything
+                    }
                 }
-                V3 acc = WaterAccel(x, v, dd, normal, flow, wind, rho, air, g);
-                double speed = (v - flow).Length;
-                double reference = Math.Max(dd, 0.05 * a);
-                double step = Math.Min(rest, 10.0 * a / Math.Max(speed, 1e-6));
-                step = Math.Min(step, SubStep * reference / Math.Max(Math.Abs((v - flow).Dot(normal)), 1e-6));
-                step = Math.Min(step, Math.Sqrt(2.0 * SubStep * reference / Math.Max(Math.Abs(acc.Dot(normal)), 1e-9)));
-                step = Math.Min(step, 0.5 / Math.Max(rate, 1e-9));
-                V3 xm = x + v * (0.5 * step);
-                V3 vm = v + acc * (0.5 * step);
-                double lm = surface.HeightAt(xm);
-                V3 nm = SurfaceNormal(surface, xm, a);
-                double ddm = Math.Min(Math.Max(a - (xm.y - lm) * nm.y, 0.0), 2.0 * a);
-                V3 accm = WaterAccel(xm, vm, ddm, nm, flow, wind, rho, air, g);
-                x += vm * step;
-                v += accm * step;
-                t += step;
-                wetTime += step * under / vol;
+            }
+            if (WallStruck)
+            {
+                // Into the planking, from the water or from the air after skipping: out of the sea inside it.
+                WallTime = t;
+                WallVelocity = v;
+                SubmergedVolume = 0.0;
+                CentreOfBuoyancy = x;
+                AddedMass = AddedMassCoefficient * air * vol;
+                InertialMass = m + AddedMass;
+                FloodMass = 0.0;
+                FloodInertia = new Sym3();
+                VelocityTarget = v;
+                LastAcceleration = (v - vStart) / dt;
+                BallCentre = x;
+                Torque = V3.Zero;
+                HeaveDamping = 0.0;
+                WaveAcceleration = 0.0;
+                Crossing = Crossing.None;
+                prevAddedMass = AddedMass;
+                prevFlood = 0.0;
+                prevSurface = double.NaN;
+                wasInWater = false;
+                firstStep = false;
+                return;
             }
             // Where the step leaves it: a touch, or a skip, in its last moment counts too.
             double levelEnd = surface.HeightAt(x);

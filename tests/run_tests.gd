@@ -1525,6 +1525,218 @@ func run() -> void:
 	level18.queue_free()
 	sea18.queue_free()
 
+	# B19: damage. Shot through planking (BoundedBuoyancyHull): the wood resists it with σ + ρ v²
+	# (Poncelet), oak ρ 750 kg/m³ and σ 15 MPa.
+	print("B19 Damage")
+	# Into solid oak: a 32-pounder fired from 400 and from 1000 yards goes 42 and 31.5 inches in
+	# (Elvin, Handbook of the 32-pounder, 1805). The shot flies there through the air.
+	for case in [[400.0, 0.4, 42.0], [1000.0, 1.3, 31.5]]:
+		var yards: float = case[0] * 0.9144
+		var wall19 := StaticBody3D.new()
+		var ws19 := CollisionShape3D.new()
+		ws19.shape = _box(Vector3(4, 400, 400))
+		wall19.add_child(ws19)
+		var oak19: Node = HULL.new()
+		oak19.thickness = 3.0
+		oak19.splinters = 0
+		wall19.add_child(oak19)
+		wall19.position = Vector3(-1000 + yards + 2.0, 0, 40000)
+		root.add_child(wall19)
+		var gun19 := _gun18(Vector3(-1000, 10, 40000), Vector3(cos(deg_to_rad(case[1])), sin(deg_to_rad(case[1])), 0), 488.0)
+		gun19.gun = CANNON.Gun.POUNDER_32
+		gun19.muzzle_speed = 488.0
+		var depth19 := [NAN, 0.0]
+		var shot19: RigidBody3D = gun19.fire()
+		oak19.struck.connect(func(ball: RigidBody3D, _at: Vector3, through: bool, _out: float) -> void:
+			depth19[0] = ball.penetration
+			depth19[1] = 1.0 if through else 0.0)
+		await _wait(5.0)
+		check("32-pounder from %d yards: into solid oak (in)" % int(case[0]), depth19[0] / 0.0254, case[2], 0.04 * case[2])
+		wall19.queue_free()
+		gun19.queue_free()
+
+	# A ship with two side compartments and 10 cm planking, shot from 8 m off its starboard side, down
+	# through it: in above the waterline, out of the far side below it. Two holes, each as big as the
+	# shot; the ship takes all the momentum the shot loses (no splinters to share it, for this one); the sea comes in
+	# through the hole below the waterline only. Then a second shot, to throw splinters, which float.
+	var sea19 := BW.new()
+	sea19.size = Vector3(400, 200, 400)
+	sea19.position = Vector3(0, 0, 30000)
+	sea19.show_surface = false
+	sea19.splashes = false
+	sea19.ripples = false
+	root.add_child(sea19)
+	var ship19 := make_shape_body(_box(Vector3(3, 1.2, 8)), 350.0, Vector3(0, 0.18, 30000), 0.0)
+	ship19.collision_layer = 1
+	ship19.collision_mask = 1
+	var plank19: Node = HULL.new()
+	plank19.thickness = 0.1
+	plank19.splinters = 0
+	ship19.add_child(plank19)
+	for side in [-1.0, 1.0]:
+		var room: Node3D = COMPARTMENT.new()
+		room.size = Vector3(1.4, 1.2, 3)
+		room.position = Vector3(0.75 * side, 0, 0)
+		room.name = "Starboard" if side > 0.0 else "Port"
+		ship19.add_child(room)
+	await physics_frame
+	ship19.freeze = false
+	await _wait(2.0)
+	var holes19 := []
+	plank19.holed.connect(func(at: Vector3, area: float, room: Node) -> void: holes19.append([at, area, room]))
+	var p0 := ship19.global_position
+	var aim19 := ship19.to_global(Vector3(-1.5, -0.3, 0)) - Vector3(8.0, 2.5, 0) - p0
+	var fire19 := _gun18(p0 + Vector3(8.0, 2.5, 0), aim19, 400.0)
+	var state19 := PhysicsServer3D.body_get_direct_state(ship19.get_rid())
+	var before19 := state19.linear_velocity * ship19.mass
+	var ball19: RigidBody3D = fire19.fire()
+	var dir19 := aim19.normalized()
+	var speeds19 := []
+	var in19 := [Vector3.ZERO]
+	ball19.hit.connect(func(body: Node, _at: Vector3, v: Vector3) -> void:
+		if body == ship19 and in19[0] == Vector3.ZERO:
+			in19[0] = v)
+	plank19.struck.connect(func(_ball: RigidBody3D, _at: Vector3, through: bool, out: float) -> void:
+		if through:
+			speeds19.append(out))
+	await _wait(0.1)
+	var out19: float = speeds19[-1] if speeds19.size() == 2 else NAN
+	# Across: the water does not push the ship back that way within a tenth of a second.
+	var lost19: float = fire19.shot_mass * (in19[0].x - out19 * dir19.x)
+	var gained19: float = (state19.linear_velocity * ship19.mass - before19).x
+	# What Poncelet's law gives for the two sides, 10 cm each, met at the shot's angle off square.
+	var area_shot: float = PI * pow(0.5 * float(fire19.shot_diameter), 2.0)
+	var cos19 := absf(dir19.x)
+	var mid19: float = HULL.speed_after(fire19.shot_mass, area_shot, in19[0].length(), 0.1 / cos19, 750.0, 15e6)
+	var far19: float = HULL.speed_after(fire19.shot_mass, area_shot, mid19, 0.1 / cos19, 750.0, 15e6)
+	check("shot through a ship: two holes", holes19.size(), 2.0, 0.0)
+	var area19: float = holes19[0][1] if holes19.size() > 0 else 0.0
+	var shot_d19: float = fire19.shot_diameter
+	check("  each as big as the shot (cm²)", 1e4 * area19, 1e4 * PI * pow(0.5 * shot_d19, 2.0), 0.01)
+	check("  one in each compartment (1 = yes)", 1.0 if holes19.size() == 2 and holes19[0][2] != holes19[1][2] else 0.0, 1.0, 0.0)
+	check("  the ship takes the momentum the shot loses (%)", 100.0 * gained19 / lost19, 100.0, 3.0)
+	check("  out of the far side at the speed Poncelet's law gives (m/s)", out19, far19, 0.01 * far19)
+	await _wait(8.0)
+	var port19: Node3D = ship19.get_node("Port")
+	var starboard19: Node3D = ship19.get_node("Starboard")
+	check("  the sea comes in below the waterline (m³)", port19.flood_volume, 0.5, 0.49)
+	check("  and not above it (m³)", starboard19.flood_volume, 0.0, 0.0)
+	plank19.splinters = 4
+	var again19: RigidBody3D = fire19.fire()
+	if again19 == null:
+		fire19.reload_time = 0.0
+		await physics_frame
+		again19 = fire19.fire()
+	await _wait(0.1)
+	var through19: Array = []
+	for n in root.get_children():
+		if n.name.begins_with("Splinter"):
+			through19.append(n)
+	await _wait(8.0)
+	var floating19 := 0
+	for sp in through19:
+		if is_instance_valid(sp) and absf(sp.global_position.y - sea19.height_at(sp.global_position)) < 0.1:
+			floating19 += 1
+	check("  splinters thrown off (8: four in, four out)", through19.size(), 8.0, 0.0)
+	check("  at least the four thrown off above the water float (of 8)", mini(floating19, 4), 4.0, 0.0)
+	# A spent shot lodges in the planking: the ship takes all its momentum, and no hole is made.
+	var spent19 := _gun18(ship19.global_position + Vector3(5.0, 0.3, 0), Vector3(-1, 0, 0), 30.0)
+	before19 = state19.linear_velocity * ship19.mass
+	var holes_before19 := holes19.size()
+	var slow19: RigidBody3D = spent19.fire()
+	slow19.air_density = 0.0
+	var lodged19 := [false]
+	plank19.struck.connect(func(_ball: RigidBody3D, _at: Vector3, through: bool, _out: float) -> void: lodged19[0] = not through)
+	await _wait(0.5)
+	check("a spent shot (30 m/s) lodges (1 = yes)", 1.0 if lodged19[0] and not is_instance_valid(slow19) else 0.0, 1.0, 0.0)
+	check("  making no hole", holes19.size() - holes_before19, 0.0, 0.0)
+	# A ship of two boxes side by side, touching (as a convex decomposition is): shot goes in through one
+	# side and out of the other, not stopping at the face they share; the same two holes and speed out
+	# as through one box.
+	var ship19c := BB.new()
+	for side in [-0.75, 0.75]:
+		var part19c := CollisionShape3D.new()
+		part19c.shape = _box(Vector3(1.5, 1.2, 8))
+		part19c.position = Vector3(side, 0, 0)
+		ship19c.add_child(part19c)
+	ship19c.density = 350.0
+	ship19c.air_density = 0.0
+	_place(ship19c, Vector3(0, 0.18, 30120), 0.0)
+	ship19c.collision_layer = 1
+	ship19c.collision_mask = 1
+	var plank19c: Node = HULL.new()
+	plank19c.thickness = 0.1
+	plank19c.splinters = 0
+	ship19c.add_child(plank19c)
+	await physics_frame
+	ship19c.freeze = false
+	await _wait(2.0)
+	var holes19c := []
+	var out19c := []
+	plank19c.holed.connect(func(at: Vector3, _area: float, _room: Node) -> void: holes19c.append(at))
+	plank19c.struck.connect(func(_ball: RigidBody3D, _at: Vector3, through: bool, out: float) -> void: out19c.append(out if through else 0.0))
+	var level19c := _gun18(ship19c.global_position + Vector3(8.0, 0.4, 0), Vector3(-1, 0, 0), 400.0)
+	var in19c := [0.0]
+	var ball19c: RigidBody3D = level19c.fire()
+	ball19c.hit.connect(func(_body: Node, _at: Vector3, v: Vector3) -> void:
+		if in19c[0] == 0.0:
+			in19c[0] = v.length())
+	await _wait(0.1)
+	var two19c: float = HULL.speed_after(level19c.shot_mass, area_shot, HULL.speed_after(level19c.shot_mass, area_shot, in19c[0], 0.1, 750.0, 15e6), 0.1, 750.0, 15e6)
+	check("a ship of two boxes touching: two holes, through both", holes19c.size(), 2.0, 0.0)
+	check("  the second in its far side (m from the first)", (holes19c[1] - holes19c[0]).length() if holes19c.size() == 2 else 0.0, 3.0, 0.05)
+	check("  out at the speed two planks give (m/s)", out19c[-1] if out19c.size() == 2 else 0.0, two19c, 0.01 * two19c)
+	ship19c.queue_free()
+	level19c.queue_free()
+	# Shot that meets the sea on its way to a ship. Fired low, at 4°, to land 3 m short of its side, it
+	# skips, and strikes the side just above the water, not 14 cm under it where its straight path goes. Fired
+	# steeply, at 20°, to land 1.5 m short, it plunges in and strikes below the waterline, slowed by the
+	# water as much as the drag of a ball wholly under it would over that way (it is under for most of it).
+	var ship19b := make_shape_body(_box(Vector3(3, 3, 8)), 500.0, Vector3(0, 0, 30060), 0.0)   # 1.5 m deep
+	ship19b.collision_layer = 1
+	ship19b.collision_mask = 1
+	var plank19b: Node = HULL.new()
+	plank19b.thickness = 0.1
+	plank19b.splinters = 0
+	ship19b.add_child(plank19b)
+	await physics_frame
+	ship19b.freeze = false
+	await _wait(2.0)
+	var wet19 := []
+	for case in [[4.0, 3.0], [20.0, 1.5]]:
+		var deg: float = case[0]
+		var short: float = case[1]
+		var touch: float = ship19b.global_position.x + 1.5 + short   # where the ball's bottom meets the water
+		var dir := Vector3(-cos(deg_to_rad(deg)), -sin(deg_to_rad(deg)), 0)
+		var gun := _gun18(Vector3(touch + 10.0, 5.0, ship19b.global_position.z), dir, 400.0)
+		var a19: float = 0.5 * float(gun.shot_diameter)
+		gun.global_position = Vector3(touch + 10.0, sea19.global_position.y + a19 + 10.0 * tan(deg_to_rad(deg)), ship19b.global_position.z)
+		var got := [NAN, NAN, 0.0]
+		var ball: RigidBody3D = gun.fire()
+		ball.hit.connect(func(body: Node, at: Vector3, v: Vector3) -> void:
+			if body == ship19b and is_nan(got[0]):
+				got[0] = at.y - sea19.global_position.y
+				got[1] = v.length())
+		ball.water_entered.connect(func(_speed: float, _at: Vector3) -> void: got[2] += 1.0)
+		await _wait(0.3)
+		gun.queue_free()
+		var m19: float = ball.own_mass if is_instance_valid(ball) else gun.shot_mass
+		var vol19 := 4.0 / 3.0 * PI * a19 * a19 * a19
+		var k19 := 0.5 * 1000.0 * 0.47 * PI * a19 * a19 / (m19 + 0.5 * 1000.0 * vol19)
+		wet19.append([got[0], got[1], got[2], 400.0 * exp(-k19 * short / cos(deg_to_rad(deg))), a19, short * tan(deg_to_rad(deg)) - a19])
+	check("shot meeting the sea 3 m short at 4°: it touches the water first (1 = yes)", minf(wet19[0][2], 1.0), 1.0, 0.0)
+	check("  and strikes the side above the water as it skips up (cm)", 100.0 * wet19[0][0], 10.0, 10.0)
+	check("shot meeting the sea 1.5 m short at 20°: strikes under the water (cm)", 100.0 * wet19[1][0], -100.0 * wet19[1][5], 15.0)
+	check("  slowed by the water (m/s)", wet19[1][1], wet19[1][3], 0.05 * wet19[1][3])
+	ship19b.queue_free()
+	ship19.queue_free()
+	fire19.queue_free()
+	spent19.queue_free()
+	for sp in through19:
+		if is_instance_valid(sp):
+			sp.queue_free()
+	sea19.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -1536,6 +1748,7 @@ const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thrust
 
 const CANNON := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannon.gd")
 const BALL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonball.gd")
+const HULL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_hull.gd")
 
 
 ## A 24-pounder with no scatter at `at`, pointing along `dir`, firing at `speed`; shots last.
