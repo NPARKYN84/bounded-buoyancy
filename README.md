@@ -70,6 +70,15 @@ Shaders run on the graphics card, where the physics cannot read them, so the oce
 
 ![Bodies riding an ocean drawn by its own shader](docs/ocean.gif)
 
+**With Ocean3D.** Tested with [Ocean3D Lite](https://store.godotengine.org/asset/ocean3d/ocean3d-lite/) 0.1.0 (free, MIT), whose `Ocean` autoload gives the height of its Gerstner sea at any point. Put a BoundedBuoyancyWater at sea level (y = 0), make its **Size** cover your sea, and in any script that runs at the start:
+
+```gdscript
+$BoundedBuoyancyWater.height_function = func(p: Vector3) -> float: return Ocean.get_height(p.x, p.z)
+$BoundedBuoyancyWater.surface_max_wave = 2.0   # at least the highest crest above sea level, in metres
+```
+
+On Ocean3D's calm sea, bodies then float at the heights their densities give: over 25 s, a crate at half water's density, a raft, a log and a light ball sat on average within 2 mm of their exact floating heights above or below the surface under them.
+
 ## Rivers and currents
 
 Give a water node a **Current** and the water flows. Drag acts on each body's speed through the water, so everything is carried along, quickly at first and then at the speed of the stream, and **Current Edge** slows the water near the banks. Turn the node to turn the river; join several to make bends. The surface shows faint streaks moving downstream.
