@@ -51,20 +51,29 @@ var _tilt_rows: Array = []   # [body, label, caption]
 var _sea: Node3D
 var _ocean: Node3D            # OCEAN scene: the other water system (ocean_example.gd)
 
-# SKY scene. The air halves in density every AIR_HALF metres; a foil balloon keeps its volume, so it
-# floats where the air is as light as it is. The hot-air balloon's density is its envelope, basket and
-# load (STRUCTURE, per cubic metre of balloon) plus the air inside, which is the outside air made
-# lighter by heating: outside density x 293 K / inside temperature.
+# SKY scene. For the foil balloons the air halves in density every AIR_HALF metres (real air halves
+# every 6 km, too slowly to see in a scene this size); a foil balloon keeps its volume, so it floats
+# where the air is as dense as it is. The hot-air balloon is in the real air (the standard atmosphere,
+# on a day as warm as the D key sets): its density is its envelope, basket and load (STRUCTURE, per
+# cubic metre of balloon) plus the air inside, which is the air outside made less dense by heating,
+# at the same pressure: outside density x outside temperature / inside temperature. Nothing stops it
+# rising in real air, so its pilot holds it at HOLD, burning as needed; on a hot day the air inside
+# must be hotter.
 const AIR_HALF := 10.0
 const HELIUM := 0.6          # foil balloon with its ribbon, kg/m³
 const STRUCTURE := 0.2       # kg per m³ of balloon, about right for a real hot-air balloon
 const T_AIR := 293.0         # 20 °C
+const HOLD := 6.0            # m, the height the pilot holds the hot-air balloon at
+const DAYS := [[0.0, "a cold morning"], [15.0, "a mild day"], [30.0, "a hot afternoon"]]
 const T_BURNER := 393.0      # 120 °C, near the working limit of a real envelope
 const FRONT := (18.0 - 3.05) / 18.0   # labels on the front of the ground, seen from the camera at z = 18
 var _hot: RigidBody3D
 var _hot_label: Label3D
 var _flame: Node3D
 var _burner := true
+var _pilot := true            # the pilot holds the height; off, the burner is off and it comes down
+var _day := 1
+var _sky_air: Node3D          # the real air the hot-air balloon is in
 var _temp := T_AIR
 var _burner_off_at := -1.0   # for recordings: --burner-off=<seconds after release>
 
@@ -119,7 +128,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_wind.velocity.x = maxf(_wind.velocity.x - 1.0, 0.0)
 		elif event.keycode == KEY_B and scene == Scene.SKY:
-			_burner = not _burner
+			_pilot = not _pilot
+		elif event.keycode == KEY_D and scene == Scene.SKY:
+			_day = (_day + 1) % DAYS.size()
+			_sky_air.temperature = DAYS[_day][0]
 		elif event.keycode == KEY_G and scene == Scene.SKY:
 			# The same push for both balloons: the one carrying its air with it moves off more slowly.
 			for row in _rows:
@@ -228,7 +240,8 @@ func _reset() -> void:
 			_many_body(i % 4, at, Vector3(rng.randf_range(-40, 40), rng.randf_range(0, 360), rng.randf_range(-40, 40)))
 	elif scene == Scene.SKY:
 		_burner = true
-		_temp = T_AIR
+		_pilot = true
+		_temp = DAYS[_day][0] + 273.15
 		var u := _balloon(BB.Model.USUAL, Vector3(-6.8, 1.8, 0))
 		var b := _balloon(BB.Model.BOUNDED, Vector3(-2.2, 1.8, 0))
 		_rows.append(["foil helium balloon", u, b, _label3d("", Vector3(-6.8 * FRONT, -0.85, 3.05), INK, 28),
@@ -418,8 +431,8 @@ func _hot_air_balloon(at: Vector3) -> void:
 	fm.position = Vector3(0, -1.65, 0)
 	b.add_child(fm)
 	_flame = fm
-	b.density = STRUCTURE + 1.2 * pow(0.5, at.y / AIR_HALF)   # cold: heavier than the air around it
-	b.air_half_height = AIR_HALF
+	b.fixed_air = false   # the real air
+	b.density = STRUCTURE + BoundedBuoyancyAir.standard_density(at.y, DAYS[_day][0])   # cold: denser than the air around it
 	b.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	b.center_of_mass = Vector3(0, -1.4, 0)
 	b.freeze = true
@@ -429,19 +442,28 @@ func _hot_air_balloon(at: Vector3) -> void:
 	_hot_label = _label3d("burner off, air inside 20 °C", Vector3(at.x * FRONT, -0.85, 3.05), INK, 28)
 
 
-## Heat or cool the air in the hot-air balloon, and set the balloon's density from it.
+## Heat or cool the air in the hot-air balloon, and set the balloon's density from it and the real air
+## around it. The pilot burns while it is low or sinking toward its height, and lets it cool above.
 func _sky_step(dt: float) -> void:
-	if _burner_off_at >= 0.0 and _burner and _t - 1.0 >= _burner_off_at:
-		_burner = false
+	if _burner_off_at >= 0.0 and _pilot and _t - 1.0 >= _burner_off_at:
+		_pilot = false
 		_burner_off_at = -1.0
+	var p := _hot.global_position
+	var t_out: float = _sky_air.temperature_at(p) + 273.15
+	var outside: float = _sky_air.density_at(p)
+	# The pilot aims for the air inside that just floats it (as dense on the whole as the air outside),
+	# a little hotter while it is low or sinking, a little cooler while high or rising.
+	var floats := t_out * outside / maxf(outside - STRUCTURE, 0.01)
+	var aim := floats + 2.0 * (HOLD - p.y) - 6.0 * _hot.linear_velocity.y
+	_burner = _pilot and _temp < aim
 	if _burner:
 		_temp += (T_BURNER - _temp) * dt / 4.0
-	else:
-		_temp += (T_AIR - _temp) * dt / 8.0
-	var outside := 1.2 * pow(0.5, _hot.global_position.y / AIR_HALF)
-	_hot.density = STRUCTURE + outside * T_AIR / _temp
+	# The envelope loses heat to the air outside.
+	_temp += (t_out - _temp) * dt / 25.0
+	_hot.density = STRUCTURE + outside * t_out / _temp
 	_flame.visible = _burner
-	_hot_label.text = "burner %s, air inside %d °C" % ["ON" if _burner else "off", roundi(_temp - 273.0)]
+	_hot_label.text = "%s: outside %d °C, inside %d °C\nburner %s%s" % [DAYS[_day][1], roundi(t_out - 273.15), roundi(_temp - 273.15),
+		"ON" if _burner else "off", "" if _pilot else " (coming down: B)"]
 
 
 func _tilt_body(caption: String, shape: Shape3D, dens: float, at: Vector3, roll_deg: float, com: Vector3, custom_com: bool) -> void:
@@ -658,6 +680,11 @@ func _build_sky() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--burner-off="):
 			_burner_off_at = float(arg.get_slice("=", 1))
+	# The real air, sea level at the ground, for the hot-air balloon.
+	_sky_air = BoundedBuoyancyAir.new()
+	_sky_air.temperature = DAYS[_day][0]
+	_sky_air.position = Vector3(0, -1.5, 0)
+	add_child(_sky_air)
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
@@ -708,13 +735,13 @@ func _build_sky() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
-	title.text = "The same law in air: helium balloons float where the air is as light as they are (air halves every 10 m here, every 6 km in real air)"
+	title.text = "The same law in air: helium balloons float where the air is as dense as they are (their air halves every 10 m; real air, every 6 km)"
 	title.position = Vector2(24, 14)
 	title.add_theme_color_override("font_color", INK)
 	title.add_theme_font_size_override("font_size", 20)
 	layer.add_child(title)
 	var keys := Label.new()
-	keys.text = "Space: run again     B: burner on or off     G: gust     Tab: next scene"
+	keys.text = "Space: run again     B: pilot holds the hot-air balloon up, or lets it down     D: colder or warmer day     G: gust     Tab: next scene"
 	keys.position = Vector2(24, 44)
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
 	keys.add_theme_font_size_override("font_size", 16)
