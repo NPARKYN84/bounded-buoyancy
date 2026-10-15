@@ -196,21 +196,25 @@ func run() -> void:
 	# B6: water nodes. Once a scene has one, bodies float only inside water nodes.
 	print("B6  Water nodes and waves")
 	var pond := BW.new()
+	pond.density = 1000.0   # fixed, as the checks below are worked out for
 	pond.size = Vector3(4, 2, 4)
 	pond.show_surface = false
 	root.add_child(pond)
 	var pool := BW.new()
+	pool.density = 1000.0   # fixed, as the checks below are worked out for
 	pool.size = Vector3(2, 1, 2)
 	pool.position = Vector3(10, 1.0, 0)
 	pool.show_surface = false
 	root.add_child(pool)
 	var sea := BW.new()
+	sea.density = 1000.0   # fixed, as the checks below are worked out for
 	sea.size = Vector3(4, 2, 4)
 	sea.position = Vector3(20, 0, 0)
 	sea.density = 1025.0
 	sea.show_surface = false
 	root.add_child(sea)
 	var swell := BW.new()
+	swell.density = 1000.0   # fixed, as the checks below are worked out for
 	swell.size = Vector3(20, 3, 20)
 	swell.position = Vector3(50, 0, 0)
 	swell.wave_height = 0.05
@@ -296,6 +300,7 @@ func run() -> void:
 	# B8: fast bodies. Water 60 m deep, so nothing falls out of the bottom.
 	print("B8  Fast bodies")
 	var deep := BW.new()
+	deep.density = 1000.0   # fixed, as the checks below are worked out for
 	deep.size = Vector3(10, 60, 30)   # long enough for the skimmer to slow down in
 	deep.position = Vector3(200, 0, 10)
 	deep.show_surface = false
@@ -337,6 +342,7 @@ func run() -> void:
 	# and the same river turned a quarter turn, so that it flows the other way across the world.
 	print("B9  Flowing water")
 	var river := BW.new()
+	river.density = 1000.0   # fixed, as the checks below are worked out for
 	river.size = Vector3(120, 3, 10)
 	river.position = Vector3(300, 0, 0)
 	river.current = Vector3(1.5, 0, 0)
@@ -344,6 +350,7 @@ func run() -> void:
 	river.show_surface = false
 	root.add_child(river)
 	var turned := BW.new()
+	turned.density = 1000.0   # fixed, as the checks below are worked out for
 	turned.size = Vector3(120, 3, 10)
 	turned.position = Vector3(400, 0, 0)
 	turned.rotation_degrees = Vector3(0, 90, 0)
@@ -375,6 +382,7 @@ func run() -> void:
 	# measured at a fixed point.
 	print("B10 Wind")
 	var lake := BW.new()
+	lake.density = 1000.0   # fixed, as the checks below are worked out for
 	lake.size = Vector3(200, 3, 60)
 	lake.position = Vector3(560, 0, 0)
 	lake.show_surface = false
@@ -432,6 +440,7 @@ func run() -> void:
 	# out of the water from below.
 	print("B11 Splashes and signals")
 	var splash_pond := BW.new()
+	splash_pond.density = 1000.0   # fixed, as the checks below are worked out for
 	splash_pond.size = Vector3(10, 4, 10)
 	splash_pond.position = Vector3(700, 0, 0)
 	root.add_child(splash_pond)
@@ -529,6 +538,7 @@ func run() -> void:
 	var native_was := BB.use_native
 	BB.use_native = false
 	var own := BW.new()
+	own.density = 1000.0   # fixed, as the checks below are worked out for
 	own.size = Vector3(20, 4, 20)
 	own.position = Vector3(0, 0, 500)
 	own.wave_height = 0.08
@@ -547,6 +557,7 @@ func run() -> void:
 	ocean.set("offset", Vector3(40, 0, 0))
 	root.add_child(ocean)
 	var outside_water := BW.new()
+	outside_water.density = 1000.0   # fixed, as the checks below are worked out for
 	outside_water.size = Vector3(20, 4, 20)
 	outside_water.position = Vector3(40, 0, 500)
 	outside_water.surface_source = ocean
@@ -599,6 +610,7 @@ func run() -> void:
 	aloft.queue_free()
 	# A flat surface 0.25 m up, set from code: a cube at 85% of water's density floats on it.
 	var flat := BW.new()
+	flat.density = 1000.0   # fixed, as the checks below are worked out for
 	flat.size = Vector3(10, 4, 10)
 	flat.position = Vector3(80, 0, 500)
 	flat.height_function = func(_p: Vector3) -> float: return 0.25
@@ -606,6 +618,7 @@ func run() -> void:
 	root.add_child(flat)
 	# A source without the method: the water keeps its own (flat) surface.
 	var wrong := BW.new()
+	wrong.density = 1000.0   # fixed, as the checks below are worked out for
 	wrong.size = Vector3(10, 4, 10)
 	wrong.position = Vector3(100, 0, 500)
 	var plain := Node.new()
@@ -639,6 +652,7 @@ func run() -> void:
 		old.queue_free()
 	await physics_frame
 	var sea14 := BW.new()
+	sea14.density = 1000.0   # fixed, as the checks below are worked out for
 	sea14.size = Vector3(600, 8, 600)
 	sea14.position = Vector3(0, 0, 1500)
 	sea14.show_surface = false
@@ -772,6 +786,7 @@ func run() -> void:
 
 	# A boat at anchor in a stream14 (pinned at its bow) swings to lie along the current, bow upstream.
 	var stream14 := BW.new()
+	stream14.density = 1000.0   # fixed, as the checks below are worked out for
 	stream14.size = Vector3(80, 6, 40)
 	stream14.position = Vector3(0, 0, 2000)
 	stream14.current = Vector3(1.0, 0, 0)
@@ -830,6 +845,7 @@ func run() -> void:
 	for e in [[0.5, 0.0270], [1.0, 0.0514], [4.0, 0.1508], [20.0, 0.2894]]:
 		check("side view, beam %s x draft: ratio / exact" % e[0], BB2.wave_damping_ratio(e[0]) / e[1], 1.0, 0.03)
 	var still15 := BW.new()
+	still15.density = 1000.0   # fixed, as the checks below are worked out for
 	still15.size = Vector3(40, 5, 40)
 	still15.position = Vector3(0, 0, 2900)
 	still15.show_surface = false
@@ -901,6 +917,7 @@ func run() -> void:
 
 	# Riding long waves the raft is not held back: the damping acts on its bobbing relative to the surface.
 	var sea15 := BW.new()
+	sea15.density = 1000.0   # fixed, as the checks below are worked out for
 	sea15.size = Vector3(80, 5, 80)
 	sea15.position = Vector3(0, 0, 3100)
 	sea15.wave_height = 0.15
@@ -934,9 +951,11 @@ func run() -> void:
 	# Moved into water 10 cm higher, by a teleport or by gliding across into it, a body is not kicked by
 	# the jump in the surface: it moves as its twin without wave damping, both having been at rest.
 	var low15 := BW.new()
+	low15.density = 1000.0   # fixed, as the checks below are worked out for
 	low15.size = Vector3(20, 5, 20)
 	low15.position = Vector3(-10, 0, 3300)
 	var high15 := BW.new()
+	high15.density = 1000.0   # fixed, as the checks below are worked out for
 	high15.size = Vector3(20, 5, 20)
 	high15.position = Vector3(10, 0.1, 3300)
 	for w15 in [low15, high15]:
@@ -985,6 +1004,7 @@ func run() -> void:
 	# speed (which would hold it about 8 mm deeper). Then the water is lifted 15 cm in one step: the raft gets no
 	# kick from the jump, beyond its twin's.
 	var lock15 := BW.new()
+	lock15.density = 1000.0   # fixed, as the checks below are worked out for
 	lock15.size = Vector3(20, 6, 20)
 	lock15.position = Vector3(0, 0, 3500)
 	lock15.show_surface = false
@@ -1082,6 +1102,7 @@ func run() -> void:
 	# The water's upward acceleration is the second time derivative of the surface's height: for a water
 	# node's own waves, for the 2D water's, and for the ocean example's (the template for linking an ocean).
 	var sea16 := BW.new()
+	sea16.density = 1000.0   # fixed, as the checks below are worked out for
 	sea16.size = Vector3(100, 20, 100)
 	sea16.position = Vector3(3, 0.5, 3998)
 	sea16.rotation_degrees = Vector3(0, 30, 0)
@@ -1224,6 +1245,7 @@ func run() -> void:
 	# weight carried at its own centre, which stays level as the body leans.
 	print("B17 Flooding")
 	var sea17 := BW.new()
+	sea17.density = 1000.0   # fixed, as the checks below are worked out for
 	sea17.size = Vector3(200, 200, 200)
 	sea17.position = Vector3(0, 0, 6000)
 	sea17.show_surface = false
@@ -1400,6 +1422,7 @@ func run() -> void:
 	# B18: cannons. Round shot in flight, its recoil, striking a plank, and skipping off the water.
 	print("B18 Cannons")
 	var sea18 := BW.new()
+	sea18.density = 1000.0   # fixed, as the checks below are worked out for
 	sea18.size = Vector3(6000, 300, 6000)
 	sea18.position = Vector3(0, 0, 20000)
 	sea18.show_surface = false
@@ -1560,6 +1583,7 @@ func run() -> void:
 	# shot; the ship takes all the momentum the shot loses (no splinters to share it, for this one); the sea comes in
 	# through the hole below the waterline only. Then a second shot, to throw splinters, which float.
 	var sea19 := BW.new()
+	sea19.density = 1000.0   # fixed, as the checks below are worked out for
 	sea19.size = Vector3(400, 200, 400)
 	sea19.position = Vector3(0, 0, 30000)
 	sea19.show_surface = false
@@ -1741,6 +1765,7 @@ func run() -> void:
 	# pushes; however stiff it is, it does not shake or fling what is on it.
 	print("B20 Fishing")
 	var sea20 := BW.new()
+	sea20.density = 1000.0   # fixed, as the checks below are worked out for
 	sea20.size = Vector3(200, 50, 200)
 	sea20.position = Vector3(0, 0, -800)
 	sea20.show_surface = false
@@ -1943,6 +1968,161 @@ func run() -> void:
 		n20.queue_free()
 	fish20.queue_free()
 	sea20.queue_free()
+
+	# B21: water whose density changes from place to place. Real water's density from its temperature,
+	# salt and pressure (UNESCO's EOS-80), layers (oil on water, brine, mud), and bodies settling
+	# where their density matches.
+	print("B21 Real water and layers")
+	for c21 in [[0, 5, 0, 999.96675], [0, 5, 1000, 1044.12802], [0, 25, 0, 997.04796], [0, 25, 1000, 1037.90204],
+			[35, 5, 0, 1027.67547], [35, 5, 1000, 1069.48914], [35, 25, 0, 1023.34306], [35, 25, 1000, 1062.53817]]:
+		check("EOS-80 at %d g/kg, %d °C, %d bar (kg/m³)" % [c21[0], c21[1], c21[2]], BW.seawater_density(c21[0], c21[1], c21[2]), c21[3], 0.00001)
+	var lake21 := BW.new()
+	lake21.size = Vector3(40, 30, 40)
+	lake21.position = Vector3(0, 0, -1500)
+	lake21.show_surface = false
+	lake21.splashes = false
+	lake21.ripples = false
+	root.add_child(lake21)
+	check("fresh water at 15 °C, the default (kg/m³)", lake21.density, 999.10, 0.005)
+	lake21.salinity = 35.0
+	check("  sea water, 35 g/kg (kg/m³)", lake21.density, 1025.97, 0.005)
+	lake21.deep_temperature = 15.0
+	check("  20 m down, pressed by the water above (kg/m³)", lake21.density_at(Vector3(0, -20, -1500)), BW.seawater_density(35.0, 15.0, lake21.density * G * 20.0 * 1e-5), 0.001)
+	lake21.queue_free()
+	# A ball neutral 2 m down in water 10 kg/m³ denser for each metre: let go 1 m down, it bobs about
+	# 2 m down, as an internal wave does, with the period 2π √((1 + C) ρ / (g dρ/dz)).
+	var strat21 := BW.new()
+	strat21.density = 1000.0
+	strat21.density_gradient = 10.0
+	strat21.size = Vector3(20, 10, 20)
+	strat21.position = Vector3(30, 0, -1500)
+	strat21.show_surface = false
+	strat21.splashes = false
+	strat21.ripples = false
+	root.add_child(strat21)
+	var bob21 := make_shape_body(_sphere(0.1), 1020.0, Vector3(30, -1.0, -1500), 0.0)
+	bob21.collision_layer = 0
+	bob21.collision_mask = 0
+	bob21.angular_drag = 0.0
+	bob21.freeze = false
+	var ys21: Array = []
+	for i21 in 60 * 120:
+		await physics_frame
+		ys21.append(bob21.global_position.y)
+	var turns21: Array = []
+	for i21 in range(1, ys21.size() - 1):
+		if (ys21[i21] - ys21[i21 - 1]) * (ys21[i21 + 1] - ys21[i21]) < 0.0:
+			turns21.append(i21)
+	# The middle of the bob: its average height over one whole swing, a few swings in.
+	var centre21 := 0.0
+	for i21 in range(turns21[2], turns21[4]):
+		centre21 += ys21[i21] / float(turns21[4] - turns21[2])
+	check("in stratified water: bobs about the depth of its own density (m)", -centre21, 2.0, 0.01)
+	check("  period, as an internal wave's (s)", 2.0 * (turns21[1] - turns21[0]) / 60.0, TAU * sqrt(1.5 * 1020.0 / (G * 10.0)), 0.05 * TAU * sqrt(1.5 * 1020.0 / (G * 10.0)))
+	bob21.queue_free()
+	strat21.queue_free()
+	# Real water with a thermocline, 20 °C over 4 °C at 3 m: a ball as dense as the water 3 m down
+	# settles there.
+	var thermo21 := BW.new()
+	thermo21.temperature = 20.0
+	thermo21.deep_temperature = 4.0
+	thermo21.thermocline_depth = 3.0
+	thermo21.size = Vector3(20, 10, 20)
+	thermo21.position = Vector3(60, 0, -1500)
+	thermo21.show_surface = false
+	thermo21.splashes = false
+	thermo21.ripples = false
+	root.add_child(thermo21)
+	var at3_21: float = thermo21.density_at(Vector3(60, -3.0, -1500))
+	var sub21 := make_shape_body(_sphere(0.1), at3_21, Vector3(60, -2.0, -1500), 0.0)
+	sub21.collision_layer = 0
+	sub21.collision_mask = 0
+	sub21.freeze = false
+	var mean21 := 0.0
+	for i21 in 60 * 120:
+		await physics_frame
+		if i21 >= 60 * 60:
+			mean21 += sub21.global_position.y / (60.0 * 60.0)
+	check("real water, 20 °C over 4 °C: settles where it is as dense (m down)", -mean21, 3.0, 0.05)
+	sub21.queue_free()
+	thermo21.queue_free()
+	# Layers: fresh water over brine (1070) from 1 m down; an egg (1030) rests on the brine, partly in
+	# each, so the water it displaces weighs as much as it does. Oil (900) over water: a block of 850
+	# floats in the oil with 850/900 of it under; one of 950 rests on the water under the oil.
+	var tank21 := BW.new()
+	tank21.size = Vector3(20, 4, 20)
+	tank21.position = Vector3(90, 0, -1500)
+	tank21.show_surface = false
+	tank21.splashes = false
+	tank21.ripples = false
+	var brine21 := BoundedBuoyancyLayer.new()
+	brine21.depth = 1.0
+	brine21.density = 1070.0
+	tank21.layers = [brine21]
+	root.add_child(tank21)
+	var egg21 := make_shape_body(_sphere(0.025), 1030.0, Vector3(90, -0.5, -1500), 0.0)
+	egg21.collision_layer = 0
+	egg21.collision_mask = 0
+	egg21.freeze = false
+	var oil21 := BW.new()
+	oil21.density = 900.0
+	oil21.size = Vector3(20, 4, 20)
+	oil21.position = Vector3(120, 0, -1500)
+	oil21.show_surface = false
+	oil21.splashes = false
+	oil21.ripples = false
+	var under21 := BoundedBuoyancyLayer.new()
+	under21.depth = 0.5
+	under21.density = 1000.0
+	oil21.layers = [under21]
+	root.add_child(oil21)
+	var light21 := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 850.0, Vector3(120, 0.0, -1500), 0.0)
+	var mid21 := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 950.0, Vector3(125, -0.3, -1500), 0.0)
+	for b21 in [light21, mid21]:
+		b21.collision_layer = 0
+		b21.collision_mask = 0
+		b21.freeze = false
+	await _wait(30.0)
+	check("egg (1030) on brine (1070) under fresh water: what it displaces weighs (kg/m³)", egg21.water_density_here, 1030.0, 1.0)
+	check("  its centre from the brine's top (cm), within its radius", absf(egg21.global_position.y + 1.0) * 100.0, 0.0, 2.5)
+	# Nearly as dense as what they float in, they bob slowly: their part under, on average.
+	var under_light21 := 0.0
+	var under_mid21 := 0.0
+	for i21 in 60 * 30:
+		await physics_frame
+		under_light21 += light21.submerged_volume / light21.volume / 1800.0
+		under_mid21 += clampf(0.5 - (mid21.global_position.y + 0.5) / 0.2, 0.0, 1.0) / 1800.0
+	check("block of 850 in oil (900): part under", under_light21, 850.0 / 900.0, 0.005)
+	check("block of 950 under the oil: part of it in the water", under_mid21, (950.0 - 900.0) / (1000.0 - 900.0), 0.01)
+	for n21 in [egg21, light21, mid21, tank21, oil21]:
+		n21.queue_free()
+	# Mud: a layer as dense as water but 100 times as hard to move through. A stone sinks through it
+	# at a tenth of its speed through water (drag goes as the square of the speed).
+	var pit21 := BW.new()
+	pit21.density = 1000.0
+	pit21.size = Vector3(20, 40, 20)
+	pit21.position = Vector3(150, 0, -1500)
+	pit21.show_surface = false
+	pit21.splashes = false
+	pit21.ripples = false
+	var mud21 := BoundedBuoyancyLayer.new()
+	mud21.depth = 10.0
+	mud21.density = 1000.0
+	mud21.drag = 100.0
+	pit21.layers = [mud21]
+	root.add_child(pit21)
+	var stone21 := make_shape_body(_sphere(0.05), 2500.0, Vector3(150, -1.0, -1500), 0.0)
+	stone21.collision_layer = 0
+	stone21.collision_mask = 0
+	stone21.freeze = false
+	var stone_b21 := make_shape_body(_sphere(0.05), 2500.0, Vector3(155, -12.0, -1500), 0.0)
+	stone_b21.collision_layer = 0
+	stone_b21.collision_mask = 0
+	stone_b21.freeze = false
+	await _wait(3.0)
+	check("stone sinking through mud 100 times as draggy: speed / in water", stone_b21.linear_velocity.y / stone21.linear_velocity.y, 0.1, 0.005)
+	for n21 in [stone21, stone_b21, pit21]:
+		n21.queue_free()
 
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)

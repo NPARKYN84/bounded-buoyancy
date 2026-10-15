@@ -23,8 +23,70 @@ extends Node3D
 	set(value):
 		size = value.max(Vector3(0.01, 0.01, 0.01))
 		_update_surface()
-## Density of the water: 1000 kg/m³ for fresh water, about 1025 for sea water.
-@export_range(1.0, 20000.0, 1.0, "or_greater", "suffix:kg/m³") var density: float = 1000.0
+## The water's density, kg/m³. By default it is real water's, worked out from its temperature, its
+## salt and the pressure at each depth (below); setting a density here fixes it at that instead
+## (Fixed Density), as earlier versions did. With layers, it is the top water's, at the surface.
+@export_range(1.0, 20000.0, 1.0, "or_greater", "suffix:kg/m³") var density: float = 1000.0:
+	get:
+		return density if fixed_density else _surface_density
+	set(value):
+		density = value
+		fixed_density = true
+## Use Density as it is set, the same all through (apart from Density Gradient and any layers),
+## instead of real water's.
+@export var fixed_density: bool = false:
+	set(value):
+		fixed_density = value
+		notify_property_list_changed()
+
+@export_group("Real Water")
+## Temperature of the water near the surface, °C. Warmer water is less dense.
+@export_range(-2.0, 40.0, 0.1, "suffix:°C") var temperature: float = 15.0:
+	set(value):
+		temperature = value
+		_update_density()
+## Salt in the water, grams per kilogram: 0 for fresh water, about 35 for the open sea, 38 to 40 for
+## the Mediterranean and the Red Sea, up to about 270 for the Dead Sea (beyond the formula's 42: the
+## density there is less exact).
+@export_range(0.0, 42.0, 0.1, "or_greater", "suffix:g/kg") var salinity: float = 0.0:
+	set(value):
+		salinity = maxf(value, 0.0)
+		_update_density()
+## Temperature of the deep water, °C, below the thermocline: about 4 in deep lakes and the deep sea.
+@export_range(-2.0, 40.0, 0.1, "suffix:°C") var deep_temperature: float = 4.0
+## How much saltier the deep water is than the surface's, g/kg (a halocline): a few tenths in the
+## open sea, more where a river runs out over the sea.
+@export_range(-42.0, 42.0, 0.01, "suffix:g/kg") var deep_salinity_change: float = 0.0
+## Depth of the middle of the thermocline (and halocline), where the water changes from the surface's
+## to the deep's, in metres; the change takes about as many metres again. 20 to 50 in lakes in
+## summer, 100 to 500 in the open sea.
+@export_range(0.1, 5000.0, 0.1, "or_greater", "suffix:m") var thermocline_depth: float = 40.0
+
+@export_group("Layers")
+## Only with Fixed Density: how much denser the water gets for each metre deeper, kg/m³ per metre.
+## Real water's density changes with depth by itself.
+@export_range(-1000.0, 1000.0, 0.001, "or_greater", "or_less", "suffix:kg/m³/m") var density_gradient: float = 0.0
+## How much harder the top water is to move through than water, as a multiple of each body's drag:
+## 1 for water, more for mud.
+@export_range(0.0, 10000.0, 0.1, "or_greater") var drag: float = 1.0
+## Layers under the top water, each from its depth down to the next: water under oil, brine on the
+## bottom, mud (BoundedBuoyancyLayer). Bodies feel the weight of what they displace in each, so they
+## settle where their density matches. The boundaries are level: the waves move only the surface.
+@export var layers: Array[BoundedBuoyancyLayer] = []:
+	set(value):
+		for l in layers:
+			if l and l.changed.is_connected(_update_layers):
+				l.changed.disconnect(_update_layers)
+		layers = value
+		for l in layers:
+			if l and not l.changed.is_connected(_update_layers):
+				l.changed.connect(_update_layers)
+		_update_layers()
+## Draw each layer, tinted with its colour, under the surface.
+@export var show_layers: bool = true:
+	set(value):
+		show_layers = value
+		_update_layers()
 
 @export_group("Waves")
 ## Height of the largest wave above the mean surface, in metres. 0 for still water.
@@ -329,7 +391,140 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
+	_update_density()
 	_update_surface()
+	_update_layers()
+
+
+var _surface_density := seawater_density(0.0, 15.0, 0.0)
+
+
+func _validate_property(property: Dictionary) -> void:
+	# Real water's density is shown but not saved, so that saving a scene does not fix it.
+	if property.name == "density" and not fixed_density:
+		property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY
+	elif property.name == "density_gradient" and not fixed_density:
+		property.usage = PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_STORAGE
+
+
+func _update_density() -> void:
+	_surface_density = seawater_density(salinity, temperature, 0.0)
+
+
+## True when the water's density or drag is not the same all through: real water, layers, a density
+## gradient or a drag other than 1. Bodies then ask it for the density where they are.
+func is_layered() -> bool:
+	return not fixed_density or not layers.is_empty() or density_gradient != 0.0 or drag != 1.0
+
+
+## Temperature (°C) and salinity (g/kg) of the top water at `depth` metres: the surface's above the
+## thermocline, the deep water's below it, changing smoothly across it.
+func water_at(depth: float) -> Vector2:
+	var d := maxf(depth, 0.0)
+	var deep := 0.5 * (1.0 + tanh((d - thermocline_depth) / (0.5 * thermocline_depth)))
+	var start := 0.5 * (1.0 + tanh(-2.0))   # the same at the surface, so the surface has exactly its own
+	var f := clampf((deep - start) / (1.0 - start), 0.0, 1.0)
+	return Vector2(lerpf(temperature, deep_temperature, f), salinity + deep_salinity_change * f)
+
+
+## Density of sea water (or fresh, salinity 0), kg/m³, at `salinity` g/kg, `temperature` °C and
+## `pressure` bar above the air's: the UNESCO equation of state (EOS-80; Millero and Poisson, 1981,
+## with the secant bulk modulus of Millero and others, 1980), valid from -2 to 40 °C, 0 to 42 g/kg
+## and 0 to 1000 bar.
+static func seawater_density(salinity_gkg: float, temperature_c: float, pressure_bar: float) -> float:
+	var t := temperature_c
+	var sv := salinity_gkg
+	var s15 := sv * sqrt(sv)
+	var rw := 999.842594 + t * (6.793952e-2 + t * (-9.095290e-3 + t * (1.001685e-4 + t * (-1.120083e-6 + t * 6.536332e-9))))
+	var r0 := rw + sv * (0.824493 + t * (-4.0899e-3 + t * (7.6438e-5 + t * (-8.2467e-7 + t * 5.3875e-9)))) \
+		+ s15 * (-5.72466e-3 + t * (1.0227e-4 - t * 1.6546e-6)) + 4.8314e-4 * sv * sv
+	if pressure_bar <= 0.0:
+		return r0
+	var kw := 19652.21 + t * (148.4206 + t * (-2.327105 + t * (1.360477e-2 - t * 5.155288e-5)))
+	var k0 := kw + sv * (54.6746 + t * (-0.603459 + t * (1.09987e-2 - t * 6.1670e-5))) + s15 * (7.944e-2 + t * (1.6483e-2 - t * 5.3009e-4))
+	var a := 3.239908 + t * (1.43713e-3 + t * (1.16092e-4 - t * 5.77905e-7)) + sv * (2.2838e-3 + t * (-1.0981e-5 - t * 1.6078e-6)) + 1.91075e-4 * s15
+	var b := 8.50935e-5 + t * (-6.12293e-6 + t * 5.2787e-8) + sv * (-9.9348e-7 + t * (2.0816e-8 + t * 9.1697e-10))
+	var p := pressure_bar
+	return r0 / (1.0 - p / (k0 + a * p + b * p * p))
+
+
+## The water from the top down: for the top water and each layer, an Array [height of its top
+## (world Y), its density there, its density gradient, its drag], in order of depth. Each runs down
+## to the next one's top. The top water's top is the node's height (the mean surface).
+func strata() -> Array:
+	var top := global_position.y
+	var out: Array = [[top, density, density_gradient, drag]]
+	var sorted: Array = []
+	for l in layers:
+		if l:
+			sorted.append(l)
+	sorted.sort_custom(func(a: BoundedBuoyancyLayer, b: BoundedBuoyancyLayer) -> bool: return a.depth < b.depth)
+	for l in sorted:
+		out.append([top - minf(l.depth, size.y), l.density, l.density_gradient, l.drag])
+	return out
+
+
+## Density of the water at the world point `p`, kg/m³: real water's at its temperature, salt and
+## pressure there, or the layer it is in and how far down that layer it is. Above the surface, the
+## top water's at the surface.
+func density_at(p: Vector3) -> float:
+	if not is_layered():
+		return density
+	var top := global_position.y
+	var depth := maxf(top - p.y, 0.0)
+	var s := strata()
+	var here: Array = s[0]
+	for st in s:
+		if p.y <= st[0]:
+			here = st
+	if here != s[0] or fixed_density:
+		return here[1] + here[2] * maxf(here[0] - p.y, 0.0)
+	var ts := water_at(depth)
+	# The pressure of the water above, in bar; its density for that, the surface's, is near enough.
+	var g := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	return seawater_density(ts.y, ts.x, _surface_density * g * depth * 1e-5)
+
+
+var _layer_nodes: Array = []
+
+
+## Draw the layers as tinted slabs, each from its top to the next one's (or the bottom).
+func _update_layers() -> void:
+	if not is_inside_tree():
+		return
+	for n in _layer_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_layer_nodes.clear()
+	if not show_layers or layers.is_empty():
+		return
+	var s := strata()
+	var bottom := global_position.y - size.y
+	var sorted: Array = []
+	for l in layers:
+		if l:
+			sorted.append(l)
+	sorted.sort_custom(func(a: BoundedBuoyancyLayer, b: BoundedBuoyancyLayer) -> bool: return a.depth < b.depth)
+	for i in sorted.size():
+		var top: float = s[i + 1][0]
+		var low: float = s[i + 2][0] if i + 2 < s.size() else bottom
+		if top - low < 1e-4:
+			continue
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(size.x, top - low, size.z)
+		mi.mesh = box
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		m.albedo_color = sorted[i].color
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.position = Vector3(0.0, 0.5 * (top + low) - global_position.y, 0.0)
+		add_child(mi, false, Node.INTERNAL_MODE_BACK)
+		_layer_nodes.append(mi)
 
 
 func _physics_process(dt: float) -> void:

@@ -136,6 +136,11 @@ var heave_damping: float = 0.0
 var wave_acceleration: float = 0.0
 ## Mass of the water inside the body's compartments this step (kg).
 var flood_mass: float = 0.0
+## Mean density of the water the body displaces this step, kg/m³ (the water's own, or, where it
+## changes from place to place, what the body's part in each place weighs).
+var water_density_here: float = 0.0
+## How much harder the water it is in is to move through than water this step (1 for water; mud more).
+var medium_drag: float = 1.0
 
 ## Use the native kernel (addons/bounded_buoyancy_native) when it is installed. The results are the
 ## same either way; the native kernel is many times faster for bodies crossing the surface.
@@ -184,6 +189,7 @@ var _prev_flood := 0.0                        # flood water's mass last step
 var _flooded := false                         # the inertia includes flood water
 var _dry_inertia := Vector3.ZERO              # the inertia without it, when set by hand
 var _wet_inertia := Vector3.ZERO              # the inertia as last set with it
+var _interfaces: Array = []                   # boundaries between layers the body is across: [jump in density, volume below, depth of its centre]
 var _flood_torque := Vector3.ZERO             # the flood water's weight about the centre of mass, this step
 
 
@@ -267,18 +273,23 @@ func _physics_process(dt: float) -> void:
 	var rho := water_density
 	var flow := Vector3.ZERO
 	var surface_here := 0.0   # height of the surface over the centre of the body's volume
+	medium_drag = 1.0
+	_interfaces.clear()
 	water = _find_water(cw)
 	if water:
 		rho = water.density
 		flow = water.current_at(cw)
 		surface_here = water.height_at(cw)
 		_immerse(xf, surface_here, water)
+		if submerged_volume > 0.0 and water.is_layered():
+			rho = _weigh_displaced(xf, water)
 	elif water_surface or not _world_has_water:
 		surface_here = water_surface.global_position.y if water_surface else water_level
 		_immerse(xf, surface_here)
 	else:
 		submerged_volume = 0.0
 		centre_of_buoyancy = cw
+	water_density_here = rho if submerged_volume > 0.0 else 0.0
 	# The rest of the body is in air, thinning with height if air_half_height is set.
 	air_density_here = air_density
 	if air_half_height > 0.0:
@@ -336,7 +347,7 @@ func _physics_process(dt: float) -> void:
 	wind_here = wind
 	var through_water := v - flow
 	var through_air := v - wind
-	var c_water := 0.5 * drag_coefficient * _drag_area(through_water, xf.basis) * rho * submerged_volume / volume \
+	var c_water := 0.5 * drag_coefficient * medium_drag * _drag_area(through_water, xf.basis) * rho * submerged_volume / volume \
 		* through_water.length() * dt / inertial_mass
 	var c_air := 0.5 * _air_drag_coefficient(through_air.length()) * _drag_area(through_air, xf.basis) * air_density_here * air_volume / volume \
 		* through_air.length() * dt / inertial_mass
@@ -381,6 +392,13 @@ func _physics_process(dt: float) -> void:
 			v_target.y -= (1.0 - exp(-heave_damping * time / inertial_mass)) * rel
 	else:
 		_prev_surface = NAN
+	# The same at each boundary between layers the body is across: bobbing there sends out waves
+	# along the boundary (internal waves), which carry its energy away as ripples on the surface do.
+	# The same law, with the jump in density across the boundary in place of the water's against air.
+	if model == Model.BOUNDED and wave_damping > 0.0:
+		for f in _interfaces:
+			var b_int := wave_damping * wave_damping_coefficient(f[0], g, f[1], f[2], inertial_mass)
+			v_target.y -= (1.0 - exp(-b_int * dt / inertial_mass)) * v.y
 
 	# Foils and thrusters, each a bounded impulse at its own point, after the buoyancy and drag.
 	var turn := Vector3.ZERO
@@ -772,6 +790,16 @@ func _immerse(xf: Transform3D, surface: float, wavy_water: Node3D = null) -> voi
 	else:
 		for j in _verts.size():
 			_depth[j] = h - up.dot(_verts[j])
+	var r := _clip(p)
+	var vol: float = r[0]
+	var moment: Vector3 = r[1]
+	submerged_volume = clampf(vol, 0.0, volume)
+	centre_of_buoyancy = xf * (moment / (4.0 * vol)) if vol > 1e-12 else cw
+
+
+## Volume (times one) and first moment (times four) of the part of the body whose vertices have
+## positive _depth, made of tetrahedra with the point `p` on the cut: [volume, moment].
+func _clip(p: Vector3) -> Array:
 	var vol := 0.0
 	var moment := Vector3.ZERO
 	var nt := _idx.size()
@@ -814,8 +842,81 @@ func _immerse(xf: Transform3D, surface: float, wavy_water: Node3D = null) -> voi
 			var t2b := w * (ab - p).dot((c - p).cross(ca - p)) / 6.0
 			vol += t2a + t2b
 			moment += t2a * (p + ab + b + c) + t2b * (p + ab + c + ca)
-	submerged_volume = clampf(vol, 0.0, volume)
-	centre_of_buoyancy = xf * (moment / (4.0 * vol)) if vol > 1e-12 else cw
+	return [vol, moment]
+
+
+## Volume of the body below the level plane at height `y` (world), and its centre (world), with the
+## body at `xf`: [volume, centre].
+func _below_plane(xf: Transform3D, y: float) -> Array:
+	var cw := xf * _centroid
+	if _single_sphere:
+		var c := xf * _sphere_centre
+		var hs := clampf(_radius + y - c.y, 0.0, 2.0 * _radius)
+		var vs := PI * hs * hs * (3.0 * _radius - hs) / 3.0
+		var drop := 0.0 if hs <= 0.0 else 3.0 * pow(2.0 * _radius - hs, 2) / (4.0 * (3.0 * _radius - hs))
+		return [vs, c - Vector3.UP * drop]
+	if cw.y - _bound_radius >= y:
+		return [0.0, cw]
+	if cw.y + _bound_radius <= y:
+		return [volume, cw]
+	var up := Vector3(xf.basis.x.y, xf.basis.y.y, xf.basis.z.y)
+	var h := y - xf.origin.y
+	var p := _centroid + up * ((h - up.dot(_centroid)) / up.length_squared())
+	if _kernel and use_native:
+		var k: Vector4 = _kernel.clip_flat(_verts, _idx, _tri_weight, up, h, p)
+		return [clampf(k.x, 0.0, volume), xf * (Vector3(k.y, k.z, k.w) / (4.0 * k.x)) if k.x > 1e-12 else cw]
+	for j in _verts.size():
+		_depth[j] = h - up.dot(_verts[j])
+	var r := _clip(p)
+	var v: float = r[0]
+	return [clampf(v, 0.0, volume), xf * (r[1] / (4.0 * v)) if v > 1e-12 else cw]
+
+
+## In water whose density changes from place to place: the mean density of the water the body
+## displaces (into `rho`), how much harder to move through it is (medium_drag), and the centre of
+## its weight (centre_of_buoyancy). Without layers, the density at the centre of buoyancy, which is
+## exact while the density changes evenly over the body's height; with layers, the body is cut at
+## each boundary and each part weighed at its own centre.
+func _weigh_displaced(xf: Transform3D, w: Node3D) -> float:
+	_interfaces.clear()
+	if w.layers.is_empty():
+		medium_drag = w.drag
+		return w.density_at(centre_of_buoyancy)
+	var s: Array = w.strata()
+	var cuts: Array = []
+	for i in range(1, s.size()):
+		var cut := _below_plane(xf, s[i][0])
+		cuts.append(cut)
+		# Across this boundary: the jump in density there, the part below it and how deep its centre is.
+		if cut[0] > 1e-12 and cut[0] < submerged_volume - 1e-12:
+			var plane: float = s[i][0]
+			var jump: float = s[i][1] - w.density_at(Vector3(xf.origin.x, plane + 1e-4, xf.origin.z))
+			if jump > 0.0:
+				_interfaces.append([jump, cut[0], plane - cut[1].y])
+	var mass := 0.0
+	var drag_sum := 0.0
+	var weighed := Vector3.ZERO
+	var above_v := submerged_volume
+	var above_m := submerged_volume * centre_of_buoyancy
+	for i in s.size():
+		var below_v: float = cuts[i][0] if i < cuts.size() else 0.0
+		var below_m: Vector3 = cuts[i][0] * cuts[i][1] if i < cuts.size() else Vector3.ZERO
+		below_v = minf(below_v, above_v)
+		var v := above_v - below_v
+		if v > 1e-12:
+			var c := (above_m - below_m) / v
+			var rho_here: float = w.density_at(c)
+			mass += rho_here * v
+			drag_sum += float(s[i][3]) * v
+			weighed += rho_here * v * c
+		above_v = below_v
+		above_m = below_m
+	if mass <= 0.0:
+		medium_drag = w.drag
+		return w.density
+	medium_drag = drag_sum / submerged_volume
+	centre_of_buoyancy = weighed / mass
+	return mass / submerged_volume
 
 
 func _build_shape() -> void:

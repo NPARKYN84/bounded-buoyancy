@@ -146,8 +146,11 @@ func mouth_position() -> Vector3:
 func _physics_process(dt: float) -> void:
 	if Engine.is_editor_hint():
 		return
-	if swim_bladder and water and absf(density - water.density) > 1e-6:
-		density = water.density
+	if swim_bladder and water:
+		# Its swim bladder matches the water where it is, whatever the depth, salt or warmth.
+		var here: float = water.density_at(global_transform * _centroid)
+		if absf(density - here) > 1e-6:
+			density = here
 	super._physics_process(dt)
 	if freeze or dt <= 0.0:
 		return
