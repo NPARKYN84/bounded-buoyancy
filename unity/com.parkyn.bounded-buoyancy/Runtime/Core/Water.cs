@@ -1,5 +1,6 @@
 // Bounded Buoyancy for Unity. Engine-free core. Copyright (c) 2026 Nicholas Parkyn. MIT licence.
 using System;
+using System.Collections.Generic;
 
 namespace BoundedBuoyancy.Core
 {
@@ -217,6 +218,9 @@ namespace BoundedBuoyancy.Core
         public WaterSurface Surface;
         /// <summary>The water this is (its WaterVolume, say), so a body can tell when it has moved into other water.</summary>
         public object Owner;
+        /// <summary>The water volume, when the water is one: a body asks it for the density where it is, when that is not
+        /// the same all through (WaterVolume.IsLayered).</summary>
+        public WaterVolume Volume;
 
         public static WaterSample Flat(double level, double density)
         {
@@ -229,9 +233,35 @@ namespace BoundedBuoyancy.Core
         }
     }
 
+    /// <summary>A layer of a water volume below its top water (oil over water, brine, mud): from Depth metres below the
+    /// water's mean surface down to the next layer's top (or the bottom), level whatever the waves do.</summary>
+    public sealed class WaterLayer
+    {
+        /// <summary>How far below the water's mean surface it starts, m.</summary>
+        public double Depth = 1.0;
+        /// <summary>Its density at its top, kg/m³.</summary>
+        public double Density = 1025.0;
+        /// <summary>How much denser it gets for each metre deeper, kg/m³ per m.</summary>
+        public double DensityGradient;
+        /// <summary>How much harder it is to move through than water, as a multiple of a body's drag.</summary>
+        public double Drag = 1.0;
+    }
+
+    /// <summary>The top water or one layer of a water volume: its top (world height), its density there, how much denser
+    /// it gets for each metre deeper, and its drag (a multiple of a body's drag). It runs down to the next one's top.</summary>
+    public struct Stratum
+    {
+        public double Top, Density, Gradient, Drag;
+    }
+
     /// <summary>
     /// A box of water whose top face is the surface: position and turn, size, density, waves and current.
     /// The Unity component keeps one of these up to date; bodies ask it what they find.
+    /// <para>Its density is Density, the same all through (FixedDensity, the default here), or real water's
+    /// (FixedDensity false): worked out from its Temperature, Salinity and the pressure at each depth by UNESCO's
+    /// equation of state (Seawater), changing to DeepTemperature and Salinity + DeepSalinityChange across a thermocline
+    /// ThermoclineDepth down. With FixedDensity, DensityGradient makes it denser with depth. Layers lie under the top
+    /// water, each with its own density and drag.</para>
     /// </summary>
     public sealed class WaterVolume
     {
@@ -241,7 +271,22 @@ namespace BoundedBuoyancy.Core
         public M3 Rotation = M3.Identity;
         /// <summary>Width (x), depth (y) and length (z), in metres.</summary>
         public V3 Size = new V3(10, 3, 10);
+        /// <summary>Density of the water, kg/m³, with FixedDensity (see SurfaceDensity).</summary>
         public double Density = 1000.0;
+        /// <summary>Use Density (with DensityGradient) instead of real water's density.</summary>
+        public bool FixedDensity = true;
+        /// <summary>Real water: temperature (°C) and salt (g/kg) near the surface, and of the deep water.</summary>
+        public double Temperature = 15.0, Salinity, DeepTemperature = 4.0, DeepSalinityChange;
+        /// <summary>Real water: depth of the middle of the thermocline (and halocline), m.</summary>
+        public double ThermoclineDepth = 40.0;
+        /// <summary>With FixedDensity: how much denser the top water gets for each metre deeper, kg/m³ per m.</summary>
+        public double DensityGradient;
+        /// <summary>How much harder the top water is to move through than water, as a multiple of a body's drag.</summary>
+        public double Drag = 1.0;
+        /// <summary>Gravity for the pressure at depth, m/s².</summary>
+        public double Gravity = 9.80665;
+        /// <summary>Layers under the top water, in any order.</summary>
+        public readonly List<WaterLayer> Layers = new List<WaterLayer>();
         /// <summary>Velocity of the water in its own frame.</summary>
         public V3 Current;
         /// <summary>Width of the slower water along each bank; 0 keeps the current the same to the sides.</summary>
@@ -314,7 +359,84 @@ namespace BoundedBuoyancy.Core
             var flowing = Source as ISurfaceFlow;
             if (flowing == null || !flowing.FlowAt(p, out flow))
                 flow = CurrentAt(p);
-            return new WaterSample { HasWater = true, Density = Density, Flow = flow, Surface = Surface, Owner = this };
+            return new WaterSample { HasWater = true, Density = SurfaceDensity, Flow = flow, Surface = Surface, Owner = this, Volume = this };
+        }
+
+        /// <summary>Density of the top water at its surface, kg/m³: Density, or real water's there.</summary>
+        public double SurfaceDensity
+        {
+            get { return FixedDensity ? Density : Seawater.Density(Salinity, Temperature, 0.0); }
+        }
+
+        /// <summary>True when the density or drag is not the same all through: real water, layers, a density gradient or a
+        /// drag other than 1. Bodies then ask DensityAt for the density where they are.</summary>
+        public bool IsLayered
+        {
+            get { return !FixedDensity || Layers.Count > 0 || DensityGradient != 0.0 || Drag != 1.0; }
+        }
+
+        /// <summary>Temperature (°C) and salinity (g/kg) of the top water `depth` metres down: the surface's above the
+        /// thermocline, the deep water's below it, changing smoothly across it.</summary>
+        public void WaterAt(double depth, out double temperature, out double salinity)
+        {
+            double f = Seawater.DeepShare(depth, ThermoclineDepth);
+            temperature = Temperature + (DeepTemperature - Temperature) * f;
+            salinity = Salinity + DeepSalinityChange * f;
+        }
+
+        Stratum[] strata = new Stratum[1];
+
+        /// <summary>The water from the top down, into `found` (a buffer kept by this volume, valid until the next call):
+        /// the top water and each layer, in order of depth, each running down to the next one's top. Returns how many.
+        /// The top water's top is the mean surface; a layer's is its Depth below it (no deeper than the water).</summary>
+        public int Strata(out Stratum[] found)
+        {
+            int n = 1 + Layers.Count;
+            if (strata.Length < n)
+                strata = new Stratum[n];
+            double top = Position.y;
+            strata[0] = new Stratum { Top = top, Density = SurfaceDensity, Gradient = DensityGradient, Drag = Drag };
+            int k = 1;
+            for (int i = 0; i < Layers.Count; i++)
+            {
+                WaterLayer l = Layers[i];
+                if (l == null)
+                    continue;
+                var st = new Stratum { Top = top - Math.Min(Math.Max(l.Depth, 0.0), Size.y), Density = l.Density, Gradient = l.DensityGradient, Drag = l.Drag };
+                // In order of depth (stable for layers at the same depth).
+                int j = k;
+                while (j > 1 && strata[j - 1].Top < st.Top)
+                {
+                    strata[j] = strata[j - 1];
+                    j--;
+                }
+                strata[j] = st;
+                k++;
+            }
+            found = strata;
+            return k;
+        }
+
+        /// <summary>Density of the water at the world point p, kg/m³: real water's at its temperature, salt and pressure
+        /// there, or the layer it is in and how far down that layer it is. Above the surface, the top water's at the
+        /// surface.</summary>
+        public double DensityAt(V3 p)
+        {
+            if (!IsLayered)
+                return Density;
+            Stratum[] s;
+            int n = Strata(out s);
+            int here = 0;
+            for (int i = 0; i < n; i++)
+                if (p.y <= s[i].Top)
+                    here = i;
+            if (here != 0 || FixedDensity)
+                return s[here].Density + s[here].Gradient * Math.Max(s[here].Top - p.y, 0.0);
+            double depth = Math.Max(Position.y - p.y, 0.0);
+            double t, sal;
+            WaterAt(depth, out t, out sal);
+            // The pressure of the water above, in bar; its density for that, the surface's, is near enough.
+            return Seawater.Density(sal, t, s[0].Density * Gravity * depth * 1e-5);
         }
 
         internal static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }

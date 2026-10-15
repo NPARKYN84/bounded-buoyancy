@@ -19,7 +19,8 @@ namespace BoundedBuoyancy.Core
         /// <summary>Air drag of a fast ball (SphereDrag): changes with the speed through the sound barrier. Off, the
         /// air's drag coefficient is DragCoefficient, as in the water.</summary>
         public bool FastBallDrag;
-        /// <summary>Speed of sound in the air, for FastBallDrag (m/s): 343 at 20 °C.</summary>
+        /// <summary>Speed of sound in the air, for FastBallDrag (m/s): 343 at 20 °C. The engine layer sets it from Air, the
+        /// real air's temperature where the ball is, when Air is set.</summary>
         public double SpeedOfSound = 343.0;
 
         // Results of TryStepBall
@@ -140,9 +141,7 @@ namespace BoundedBuoyancy.Core
             double a = Shape.Radius, vol = Shape.Volume, m = OwnMass, rho = water.Density;
             V3 flow = water.Flow;
             WaterSurface surface = water.Surface;
-            AirDensityHere = AirDensity;
-            if (AirHalfHeight > 0.0)
-                AirDensityHere *= Math.Pow(0.5, Math.Max(start.y / AirHalfHeight, -10.0));
+            AirDensityHere = AirAt(start);
             double air = AirDensityHere;
             WindHere = wind;
             double slope = WaveSlope(surface);

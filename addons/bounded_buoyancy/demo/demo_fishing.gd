@@ -24,7 +24,7 @@ const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const LINE := preload("res://addons/bounded_buoyancy/bounded_buoyancy_line.gd")
 const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
 const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_submarine.tscn"
 
 const DECK := 0.8               # m: the jetty's deck above the water
 const HAND := Vector3(0.45, 1.35, -0.3)   # where the angler holds the rod

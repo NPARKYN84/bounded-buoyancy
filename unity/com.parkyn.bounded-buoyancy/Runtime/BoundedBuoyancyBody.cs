@@ -23,7 +23,7 @@ namespace BoundedBuoyancy
     [AddComponentMenu("Physics/Bounded Buoyancy Body")]
     [RequireComponent(typeof(Rigidbody))]
     [DisallowMultipleComponent]
-    public class BoundedBuoyancyBody : MonoBehaviour
+    public class BoundedBuoyancyBody : MonoBehaviour, ISerializationCallbackReceiver
     {
         public enum Model
         {
@@ -64,11 +64,14 @@ namespace BoundedBuoyancy
         [Range(0f, 3f)] public float waveDamping = 1f;
 
         [Header("Air")]
-        [Tooltip("Density of the air at height 0, kg/m³ (1.2 at room temperature). Balloons rise in it; for wood, stone or metal it changes the weight by under half a percent. 0 leaves air out, as the paper's benchmarks do.")]
-        [Min(0f)] public float airDensity = 1.2f;
+        [Tooltip("Use Air Density and Air Half Height instead of real air. Real air is the standard atmosphere, thinning with height, from the scene's Bounded Buoyancy Air (the day's temperature, pressure and humidity at sea level) or, without one, at 15 °C with sea level at height 0; warmer where a Bounded Buoyancy Thermal warms it. Setting Air Density or Air Half Height from a script sets this.")]
+        public bool fixedAir = false;
 
-        [Tooltip("Height (m) over which the air's density halves, so a balloon rises until it floats where the air is as dense as it is. 0 keeps the air the same at every height.")]
-        [Min(0f)] public float airHalfHeight = 0f;
+        [Tooltip("With Fixed Air: density of the air at height 0, kg/m³ (1.2 at room temperature). Balloons rise in it; for wood, stone or metal it changes the weight by under half a percent. 0 leaves air out, as the paper's benchmarks do.")]
+        [SerializeField, Min(0f)] float airDensity = 1.2f;
+
+        [Tooltip("With Fixed Air: height (m) over which the air's density halves, so a balloon rises until it floats where the air is as dense as it is. 0 keeps the air the same at every height. Real air halves about every 6 km.")]
+        [SerializeField, Min(0f)] float airHalfHeight = 0f;
 
         [Tooltip("Area of a sail or flag for the wind to push on, m². The sail turns to face the wind it feels, like a sail let out to run before the wind.")]
         [Min(0f)] public float sailArea = 0f;
@@ -99,6 +102,10 @@ namespace BoundedBuoyancy
 
         [Tooltip("The body has just come wholly out of the water: speed (m/s) and the point on the surface.")]
         public UnityEvent<float, Vector3> waterExited = new UnityEvent<float, Vector3>();
+
+        // Data written by version 2.5.0 and later says so; data from before has none, and keeps its air fixed.
+        const int DataVersion = 1;
+        [SerializeField, HideInInspector] int dataVersion;
 
         Rigidbody rb;
         readonly BodyCore3D core = new BodyCore3D();
@@ -134,6 +141,56 @@ namespace BoundedBuoyancy
                 ApplyDensity();
             }
         }
+
+        /// <summary>With Fixed Air: density of the air at height 0, kg/m³. Setting it fixes the body's air (Fixed Air).</summary>
+        public float AirDensity
+        {
+            get { return airDensity; }
+            set
+            {
+                airDensity = Mathf.Max(value, 0f);
+                fixedAir = true;
+            }
+        }
+
+        /// <summary>With Fixed Air: height over which the air's density halves, m (0: the same at every height). Setting it
+        /// fixes the body's air (Fixed Air).</summary>
+        public float AirHalfHeight
+        {
+            get { return airHalfHeight; }
+            set
+            {
+                airHalfHeight = Mathf.Max(value, 0f);
+                fixedAir = true;
+            }
+        }
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
+        {
+            dataVersion = DataVersion;
+        }
+
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
+        {
+            // Saved before real air: keep the body's air as it was, at its set density.
+            if (dataVersion < DataVersion)
+            {
+                fixedAir = true;
+                dataVersion = DataVersion;
+            }
+        }
+
+        void Reset()
+        {
+            fixedAir = false;
+            dataVersion = DataVersion;
+        }
+
+        /// <summary>Mean density of the water the body displaces this step, kg/m³ (0 out of the water): the water's own,
+        /// or, where it changes from place to place, what the body's part in each place weighs.</summary>
+        public float WaterDensityHere { get { return (float)core.WaterDensityHere; } }
+        /// <summary>How much harder the water it is in is to move through than water this step (1 for water; mud more).</summary>
+        public float MediumDrag { get { return (float)core.MediumDrag; } }
 
         /// <summary>The Rigidbody this component drives.</summary>
         public Rigidbody Body { get { if (rb == null) rb = GetComponent<Rigidbody>(); return rb; } }
@@ -295,6 +352,7 @@ namespace BoundedBuoyancy
             var pose = new BodyPose(Bridge.V(rb.position), Bridge.M(rb.rotation));
             V3 cw = core.CentroidWorld(pose);
             PhysicsScene scene = gameObject.scene.GetPhysicsScene();
+            core.Air = fixedAir ? null : BoundedBuoyancyAir.In(scene);
             WaterSample sample = FindWater(cw, scene);
             V3 wind = BoundedBuoyancyWind.TotalAt(cw, scene);
             Vector3 v = StepVelocity(Bridge.GetVelocity(rb));

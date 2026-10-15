@@ -350,6 +350,62 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void SeawaterDensityGivesUnescosCheckValues()
+        {
+            // EOS-80's published check values (UNESCO, 1981): salinity g/kg, °C, bar, kg/m³.
+            double[][] values =
+            {
+                new[] { 0.0, 5, 0, 999.96675 }, new[] { 0.0, 5, 1000, 1044.12802 }, new[] { 0.0, 25, 0, 997.04796 },
+                new[] { 0.0, 25, 1000, 1037.90204 }, new[] { 35.0, 5, 0, 1027.67547 }, new[] { 35.0, 5, 1000, 1069.48914 },
+                new[] { 35.0, 25, 0, 1023.34306 }, new[] { 35.0, 25, 1000, 1062.53817 },
+            };
+            foreach (double[] c in values)
+                Assert.AreEqual(c[3], Seawater.Density(c[0], c[1], c[2]), 1e-5, c[0] + " g/kg, " + c[1] + " °C, " + c[2] + " bar");
+            Assert.AreEqual(0.0, Seawater.DeepShare(0.0, 40.0), 1e-12, "at the surface, the surface's own water");
+            Assert.AreEqual(1.0, Seawater.DeepShare(400.0, 40.0), 1e-6, "far below the thermocline, the deep water");
+        }
+
+        [Test]
+        public void WaterLayersAndRealWater()
+        {
+            // Oil (900) over water (1000) from 0.5 m down, and brine (1070, 2 kg/m³ denser each metre) from 2 m down.
+            var w = new WaterVolume { Density = 900.0, Size = new V3(10, 5, 10) };
+            Assert.IsTrue(!w.IsLayered, "one fixed density: not layered");
+            w.Layers.Add(new WaterLayer { Depth = 2.0, Density = 1070.0, DensityGradient = 2.0 });
+            w.Layers.Add(new WaterLayer { Depth = 0.5, Density = 1000.0 });
+            Assert.AreEqual(900.0, w.DensityAt(new V3(0, -0.2, 0)), 1e-12, "in the oil");
+            Assert.AreEqual(1000.0, w.DensityAt(new V3(0, -1.0, 0)), 1e-12, "in the water");
+            Assert.AreEqual(1072.0, w.DensityAt(new V3(0, -3.0, 0)), 1e-12, "1 m into the brine");
+            // Real fresh water at 15 °C, and 1000 m of sea at 15 °C over 4 °C pressed by the water above.
+            var sea = new WaterVolume { FixedDensity = false, Size = new V3(10, 2000, 10) };
+            Assert.AreEqual(999.10, sea.SurfaceDensity, 0.005, "fresh water at 15 °C");
+            sea.Salinity = 35.0;
+            Assert.AreEqual(1025.97, sea.SurfaceDensity, 0.005, "sea water at 15 °C");
+            Assert.AreEqual(Seawater.Density(35.0, 4.0, sea.SurfaceDensity * sea.Gravity * 1000.0 * 1e-5), sea.DensityAt(new V3(0, -1000, 0)), 0.01, "1000 m down");
+        }
+
+        [Test]
+        public void StandardAtmosphereMatchesItsTables()
+        {
+            // US Standard Atmosphere, 1976: density at 0, 1000, 5000, 11 000, 15 000 and 20 000 m (kg/m³).
+            double[][] table = { new[] { 0.0, 1.2250 }, new[] { 1000.0, 1.1117 }, new[] { 5000.0, 0.73643 }, new[] { 11000.0, 0.36480 }, new[] { 15000.0, 0.19476 }, new[] { 20000.0, 0.08891 } };
+            foreach (double[] c in table)
+                Assert.AreEqual(c[1], Atmosphere.Density(c[0]), 1e-4, c[0] + " m");
+            double t, p;
+            Atmosphere.StandardAir(0.0, 15.0, 1013.25, out t, out p);
+            Assert.AreEqual(340.29, Atmosphere.SpeedOfSound(t), 0.01, "speed of sound at sea level");
+            Assert.AreEqual(1.146, Atmosphere.Density(0.0, 30.0, 1013.25, 100.0), 0.002, "damp air, 30 °C, 100%");
+            Assert.AreEqual(1.1644, Atmosphere.Density(0.0, 30.0, 1013.25, 0.0), 0.0002, "dry air, 30 °C");
+            // A thermal 3 °C warm: less dense in its middle by T / (T + 3), rising there at its updraft, none outside.
+            var air = new AirField();
+            air.Thermals.Add(new ThermalField { Position = V3.Zero, Radius = 20.0, Height = 500.0, Warming = 3.0, Updraft = 2.0 });
+            Atmosphere.StandardAir(100.0, 15.0, 1013.25, out t, out p);
+            Assert.AreEqual(t / (t + 3.0), air.DensityAt(new V3(0, 100, 0)) / Atmosphere.Density(100.0), 1e-9, "warm air");
+            Assert.AreEqual(2.0, air.UpdraftAt(new V3(0, 100, 0)).y, 1e-12, "updraft");
+            Assert.AreEqual(0.0, air.UpdraftAt(new V3(25, 100, 0)).y, 0.0, "outside it");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

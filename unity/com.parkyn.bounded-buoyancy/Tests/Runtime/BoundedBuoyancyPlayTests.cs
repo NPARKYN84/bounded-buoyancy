@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B20). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B22). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -72,7 +72,7 @@ namespace BoundedBuoyancy.Tests
             go.AddComponent<Rigidbody>();
             var b = go.AddComponent<BoundedBuoyancyBody>();
             b.Density = density;
-            b.airDensity = air;
+            b.AirDensity = air;
             b.model = model;
             return b;
         }
@@ -118,7 +118,7 @@ namespace BoundedBuoyancy.Tests
             GameObject go = Make("Water", at);
             var w = go.AddComponent<BoundedBuoyancyWater>();
             w.size = size;
-            w.density = density;
+            w.Density = density;   // fixed, as the checks are worked out for
             w.Sync();
             return w;
         }
@@ -336,10 +336,10 @@ namespace BoundedBuoyancy.Tests
         {
             Fast();
             BoundedBuoyancyBody high = Ball(0.1f, 0.6f, new Vector3(106f, 2f, 0f), 1.2f);
-            high.airHalfHeight = 10f;
+            high.AirHalfHeight = 10f;
             BoundedBuoyancyBody hot = Ball(1f, 1f, new Vector3(110f, 10f * Mathf.Log(1.2f) / Mathf.Log(2f), 0f), 1.2f);
             hot.transform.rotation = Quaternion.Euler(0f, 0f, 30f);
-            hot.airHalfHeight = 10f;
+            hot.AirHalfHeight = 10f;
             hot.centreOfMassOffset = new Vector3(0f, -0.6f, 0f);
             yield return Steps(60 * 120);
             Assert.AreEqual(10f, high.Body.position.y, 0.3f, "balloon (0.6) in air halving every 10 m floats at 10 m");
@@ -419,16 +419,16 @@ namespace BoundedBuoyancy.Tests
             breeze.size = new Vector3(200f, 40f, 60f);
             breeze.Sync();
             BoundedBuoyancyBody drifting = Ball(0.1f, 0.6f, new Vector3(470f, 10f, 0f), 1.2f);
-            drifting.airHalfHeight = 10f;
+            drifting.AirHalfHeight = 10f;
             BoundedBuoyancyBody still = Ball(0.1f, 0.6f, new Vector3(300f, 10f, 30f), 1.2f);
-            still.airHalfHeight = 10f;
+            still.AirHalfHeight = 10f;
             BoundedBuoyancyBody crate = Box(new Vector3(0.4f, 0.4f, 0.4f), 500f, new Vector3(470f, 0f, 10f), 0f, 1.2f);
             BoundedBuoyancyBody sailer = Hull(new[] { new Vector3(-0.45f, 0.12f, -0.25f), new Vector3(0.45f, 0.12f, -0.25f), new Vector3(-0.35f, -0.12f, -0.15f), new Vector3(0.35f, -0.12f, -0.15f),
                 new Vector3(-0.45f, 0.12f, 0.25f), new Vector3(0.45f, 0.12f, 0.25f), new Vector3(-0.35f, -0.12f, 0.15f), new Vector3(0.35f, -0.12f, 0.15f) },
                 300f, new Vector3(470f, 0.05f, -10f), 0f, new Vector3(0f, -0.04f, 0f));
             sailer.sailArea = 0.5f;
             sailer.sailCentre = new Vector3(0f, 0.6f, 0f);
-            sailer.airDensity = 1.2f;
+            sailer.AirDensity = 1.2f;
             float heel = 0f;
             for (int step = 1; step <= 1800; step++)
             {
@@ -731,6 +731,7 @@ namespace BoundedBuoyancy.Tests
         {
             BoundedBuoyancyCannonball ball = gun.Fire();
             made.Add(ball.gameObject);
+            ball.AirDensity = 1.2f;   // fixed air (and Speed Of Sound), as the checks are worked out for
             return ball;
         }
 
@@ -754,7 +755,7 @@ namespace BoundedBuoyancy.Tests
             plank.AddComponent<BoxCollider>().size = new Vector3(0.1f, 4f, 4f);
             BoundedBuoyancyCannon gun = Gun(new Vector3(-130f, 20f, 960f), Vector3.right, 488f);
             BoundedBuoyancyCannonball shot = Fired(gun);
-            shot.airDensity = 0f;
+            shot.AirDensity = 0f;
             Collider struck = null;
             shot.hit.AddListener((c, at, v) => struck = c);
             yield return Steps(30);
@@ -769,6 +770,7 @@ namespace BoundedBuoyancy.Tests
                 go.AddComponent<Rigidbody>();
                 var ball = go.AddComponent<BoundedBuoyancyCannonball>();
                 ball.Density = 7420f;
+                ball.AirDensity = 1.2f;   // fixed air, as the checks are worked out for
                 ball.lifetime = 0f;
                 float r = deg * Mathf.Deg2Rad;
                 ball.Body.SetVelocity(new Vector3(Mathf.Cos(r), -Mathf.Sin(r), 0f) * 200f);
@@ -861,7 +863,7 @@ namespace BoundedBuoyancy.Tests
             int holesBefore = holes.Count;
             BoundedBuoyancyCannon spent = Gun(ship.transform.position + new Vector3(5f, 0.3f, 0f), Vector3.left, 30f);
             BoundedBuoyancyCannonball slow = Fired(spent);
-            slow.airDensity = 0f;
+            slow.AirDensity = 0f;
             bool lodged = false;
             planking.struck.AddListener((ball, at, went, speedOut) => lodged = !went);
             yield return Steps(30);
@@ -1161,6 +1163,196 @@ namespace BoundedBuoyancy.Tests
             }
             float within = 0.5f * (fish.slackEscape + 4f);
             Assert.AreEqual(within, slack, within, "  given slack line, it throws the hook within (s)");
+        }
+
+        // B21 ------------------------------------------------------------------------------------------------------
+
+        /// <summary>A water that throws up nothing and draws nothing, real water unless `fixedAt` is given.</summary>
+        BoundedBuoyancyWater StillWater(Vector3 at, Vector3 size, float fixedAt = 0f)
+        {
+            GameObject go = Make("Water", at);
+            var w = go.AddComponent<BoundedBuoyancyWater>();
+            w.size = size;
+            if (fixedAt > 0f)
+                w.Density = fixedAt;
+            w.showSurface = false;
+            w.showLayers = false;
+            w.splashes = false;
+            w.ripples = false;
+            w.Sync();
+            return w;
+        }
+
+        [UnityTest]
+        public IEnumerator B21_RealWaterAndLayers()
+        {
+            Fast();
+            // Real water: its density from its temperature, salt and depth (UNESCO's EOS-80).
+            BoundedBuoyancyWater lake = StillWater(new Vector3(0f, 0f, 0f), new Vector3(40f, 30f, 40f));
+            Assert.IsTrue(!lake.fixedDensity, "a new water is real water");
+            Assert.AreEqual(999.10f, lake.Density, 0.01f, "fresh water at 15 °C, the default (kg/m³)");
+            lake.salinity = 35f;
+            Assert.AreEqual(1025.97f, lake.Density, 0.01f, "  sea water, 35 g/kg (kg/m³)");
+            lake.deepTemperature = 15f;
+            Assert.AreEqual(BoundedBuoyancyWater.SeawaterDensity(35f, 15f, lake.Density * G * 20f * 1e-5f), lake.DensityAt(new Vector3(0f, -20f, 0f)), 0.01f, "  20 m down, pressed by the water above (kg/m³)");
+            lake.Density = 1000f;
+            Assert.IsTrue(lake.fixedDensity, "  setting Density fixes it");
+            Object.Destroy(lake.gameObject);
+
+            // A ball neutral 2 m down in water 10 kg/m³ denser for each metre: let go 1 m down, it bobs about 2 m down, as
+            // an internal wave does, with the period 2π √((1 + C) ρ / (g dρ/dz)).
+            BoundedBuoyancyWater strat = StillWater(new Vector3(30f, 0f, 0f), new Vector3(20f, 10f, 20f), 1000f);
+            strat.densityGradient = 10f;
+            BoundedBuoyancyBody bob = Ball(0.1f, 1020f, new Vector3(30f, -1f, 0f));
+            bob.Body.detectCollisions = false;
+            var ys = new List<float>();
+            for (int i = 0; i < 60 * 120; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                ys.Add(bob.Body.position.y);
+            }
+            var turns = new List<int>();
+            for (int i = 1; i < ys.Count - 1; i++)
+                if ((ys[i] - ys[i - 1]) * (ys[i + 1] - ys[i]) < 0f)
+                    turns.Add(i);
+            Assert.Greater(turns.Count, 4, "it bobs");
+            float centre = 0f;
+            for (int i = turns[2]; i < turns[4]; i++)
+                centre += ys[i] / (turns[4] - turns[2]);
+            float period = 2f * Mathf.PI * Mathf.Sqrt(1.5f * 1020f / (G * 10f));
+            Assert.AreEqual(2f, -centre, 0.01f, "in stratified water: bobs about the depth of its own density (m)");
+            Assert.AreEqual(period, 2f * (turns[1] - turns[0]) * Dt, 0.05f * period, "  period, as an internal wave's (s)");
+            Object.Destroy(bob.gameObject);
+            Object.Destroy(strat.gameObject);
+
+            // Real water with a thermocline, 20 °C over 4 °C at 3 m: a ball as dense as the water 3 m down settles there.
+            BoundedBuoyancyWater thermo = StillWater(new Vector3(60f, 0f, 0f), new Vector3(20f, 10f, 20f));
+            thermo.temperature = 20f;
+            thermo.deepTemperature = 4f;
+            thermo.thermoclineDepth = 3f;
+            BoundedBuoyancyBody sub = Ball(0.1f, thermo.DensityAt(new Vector3(60f, -3f, 0f)), new Vector3(60f, -2f, 0f));
+            sub.Body.detectCollisions = false;
+            float mean = 0f;
+            for (int i = 0; i < 60 * 120; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                if (i >= 60 * 60)
+                    mean += sub.Body.position.y / 3600f;
+            }
+            Assert.AreEqual(3f, -mean, 0.05f, "real water, 20 °C over 4 °C: settles where it is as dense (m down)");
+            Object.Destroy(sub.gameObject);
+            Object.Destroy(thermo.gameObject);
+
+            // Layers: fresh water over brine (1070) from 1 m down; an egg (1030) rests on the brine, partly in each. Oil
+            // (900) over water: a block of 850 floats in the oil with 850/900 of it under; one of 950 rests on the water
+            // under the oil.
+            BoundedBuoyancyWater tank = StillWater(new Vector3(90f, 0f, 0f), new Vector3(20f, 4f, 20f));
+            tank.layers.Add(new BoundedBuoyancyLayer { depth = 1f, density = 1070f });
+            BoundedBuoyancyBody egg = Ball(0.025f, 1030f, new Vector3(90f, -0.5f, 0f));
+            BoundedBuoyancyWater oil = StillWater(new Vector3(120f, 0f, 0f), new Vector3(20f, 4f, 20f), 900f);
+            oil.layers.Add(new BoundedBuoyancyLayer { depth = 0.5f, density = 1000f });
+            BoundedBuoyancyBody light = Box(new Vector3(0.2f, 0.2f, 0.2f), 850f, new Vector3(120f, 0f, 0f));
+            BoundedBuoyancyBody mid = Box(new Vector3(0.2f, 0.2f, 0.2f), 950f, new Vector3(125f, -0.3f, 0f));
+            foreach (BoundedBuoyancyBody b in new[] { egg, light, mid })
+                b.Body.detectCollisions = false;
+            yield return Steps(60 * 30);
+            Assert.AreEqual(1030f, egg.WaterDensityHere, 1f, "egg (1030) on brine (1070) under fresh water: what it displaces weighs (kg/m³)");
+            Assert.AreEqual(0f, Mathf.Abs(egg.Body.position.y + 1f) * 100f, 2.5f, "  its centre from the brine's top (cm), within its radius");
+            float underLight = 0f, underMid = 0f;
+            for (int i = 0; i < 60 * 30; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                underLight += light.SubmergedVolume / light.Volume / 1800f;
+                underMid += Mathf.Clamp01(0.5f - (mid.Body.position.y + 0.5f) / 0.2f) / 1800f;
+            }
+            Assert.AreEqual(850f / 900f, underLight, 0.005f, "block of 850 in oil (900): part under");
+            Assert.AreEqual(0.5f, underMid, 0.01f, "block of 950 under the oil: part of it in the water");
+            foreach (BoundedBuoyancyBody b in new[] { egg, light, mid })
+                Object.Destroy(b.gameObject);
+            Object.Destroy(tank.gameObject);
+            Object.Destroy(oil.gameObject);
+
+            // Mud: a layer as dense as water but 100 times as hard to move through. A stone sinks through it at a tenth of
+            // its speed through water.
+            BoundedBuoyancyWater pit = StillWater(new Vector3(150f, 0f, 0f), new Vector3(20f, 40f, 20f), 1000f);
+            pit.layers.Add(new BoundedBuoyancyLayer { depth = 10f, density = 1000f, drag = 100f });
+            BoundedBuoyancyBody stone = Ball(0.05f, 2500f, new Vector3(150f, -1f, 0f));
+            BoundedBuoyancyBody muddy = Ball(0.05f, 2500f, new Vector3(155f, -12f, 0f));
+            stone.Body.detectCollisions = false;
+            muddy.Body.detectCollisions = false;
+            yield return Steps(180);
+            Assert.AreEqual(0.1f, muddy.Body.Velocity().y / stone.Body.Velocity().y, 0.005f, "stone sinking through mud 100 times as draggy: speed / in water");
+            Assert.AreEqual(100f, muddy.MediumDrag, 1e-3f, "  the mud's drag on it (x water's)");
+        }
+
+        // B22 ------------------------------------------------------------------------------------------------------
+
+        [UnityTest]
+        public IEnumerator B22_RealAir()
+        {
+            Fast();
+            // The standard atmosphere against its tables, the speed of sound and damp air.
+            foreach (var c in new[] { new[] { 0f, 1.2250f }, new[] { 1000f, 1.1117f }, new[] { 5000f, 0.73643f }, new[] { 11000f, 0.36480f }, new[] { 15000f, 0.19476f }, new[] { 20000f, 0.08891f } })
+                Assert.AreEqual(c[1], BoundedBuoyancyAir.StandardDensity(c[0]), 1e-4f, "standard atmosphere at " + c[0] + " m (kg/m³)");
+            Assert.AreEqual(340.29f, Mathf.Sqrt(1.4f * 287.058f * BoundedBuoyancyAir.StandardAir(0f).x), 0.01f, "  speed of sound at sea level (m/s)");
+            Assert.AreEqual(1.146f, BoundedBuoyancyAir.StandardDensity(0f, 30f, 1013.25f, 100f), 0.002f, "damp air, 30 °C, 100% (kg/m³)");
+            Assert.AreEqual(1.1644f, BoundedBuoyancyAir.StandardDensity(0f, 30f, 1013.25f, 0f), 0.0002f, "  dry air, 30 °C (kg/m³)");
+
+            // A body 1000 m up feels the air there; with a Bounded Buoyancy Air, the day's weather.
+            BoundedBuoyancyBody high = Box(new Vector3(1f, 1f, 1f), 500f, new Vector3(0f, 1000f, 0f));
+            high.fixedAir = false;
+            high.Body.detectCollisions = false;
+            yield return Steps(1);
+            float y = high.Body.position.y;
+            yield return Steps(1);
+            Assert.AreEqual(BoundedBuoyancyAir.StandardDensity(y), high.AirDensityHere, 1e-5f, "body 1000 m up, standard air there (kg/m³)");
+            var day = Make("Air", Vector3.zero).AddComponent<BoundedBuoyancyAir>();
+            day.temperature = 30f;
+            day.pressure = 1000f;
+            day.humidity = 60f;
+            y = high.Body.position.y;
+            yield return Steps(1);
+            Assert.AreEqual(BoundedBuoyancyAir.StandardDensity(y, 30f, 1000f, 60f), high.AirDensityHere, 1e-5f, "  on a hot, damp day (30 °C, 1000 hPa, 60%) (kg/m³)");
+            Object.Destroy(day.gameObject);
+            Object.Destroy(high.gameObject);
+            yield return null;
+
+            // A sealed balloon as dense on the whole as the air 1000 m up, let go 900 m up, rises to 1000 m and floats there.
+            BoundedBuoyancyBody balloon = Ball(1f, BoundedBuoyancyAir.StandardDensity(1000f), new Vector3(30f, 900f, 0f));
+            balloon.fixedAir = false;
+            balloon.Body.detectCollisions = false;
+            float mean = 0f;
+            for (int i = 0; i < 60 * 600; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                if (i >= 60 * 400)
+                    mean += balloon.Body.position.y / (60f * 200f);
+            }
+            Assert.AreEqual(1000f, mean, 5f, "sealed balloon: floats where the air is as dense as it is (m)");
+            Object.Destroy(balloon.gameObject);
+
+            // A thermal 3 °C warm: the air in its middle is less dense by T / (T + 3) and rises at its updraft; a balloon as
+            // dense as the air around climbs in it, sinking through the warm air at the speed its extra weight balances the
+            // drag.
+            var thermal = Make("Thermal", new Vector3(60f, 0f, 0f)).AddComponent<BoundedBuoyancyThermal>();
+            thermal.radius = 20f;
+            thermal.height = 500f;
+            thermal.warming = 3f;
+            thermal.updraft = 2f;
+            Vector3 middle = new Vector3(60f, 100f, 0f);
+            PhysicsScene scene = thermal.gameObject.scene.GetPhysicsScene();
+            float t100 = BoundedBuoyancyAir.StandardAir(100f).x;
+            Assert.AreEqual(t100 / (t100 + 3f), BoundedBuoyancyAir.DensityIn(scene, middle) / BoundedBuoyancyAir.StandardDensity(100f), 1e-5f, "thermal 3 °C warm: air in its middle / around (density)");
+            Assert.AreEqual(2f, BoundedBuoyancyWind.TotalAt(middle, scene).y, 1e-5f, "  rising air in its middle (m/s)");
+            Assert.AreEqual(0f, BoundedBuoyancyWind.TotalAt(middle + new Vector3(25f, 0f, 0f), scene).y, 0f, "  none outside it (m/s)");
+            BoundedBuoyancyBody drifter = Ball(0.5f, BoundedBuoyancyAir.StandardDensity(100f), middle);
+            drifter.fixedAir = false;
+            drifter.Body.detectCollisions = false;
+            yield return Steps(60 * 20);
+            float warm = BoundedBuoyancyAir.StandardDensity(100f) * t100 / (t100 + 3f);
+            float extra = (BoundedBuoyancyAir.StandardDensity(100f) - warm) * 4f / 3f * Mathf.PI * 0.125f * G;
+            float sink = Mathf.Sqrt(extra / (0.5f * 0.47f * warm * Mathf.PI * 0.25f));
+            Assert.AreEqual(2f - sink, drifter.Body.Velocity().y, 0.08f, "  a balloon as dense as the air around climbs in it (m/s)");
         }
 
         [UnityTest]

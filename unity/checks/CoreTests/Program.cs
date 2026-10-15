@@ -1100,6 +1100,145 @@ namespace BoundedBuoyancy.Checks
                 Check("  the tow under way (m/s)", one.V.x, 0.4, 0.4);
             }
 
+            Console.WriteLine("B21 Real water and layers");
+            {
+                // UNESCO's eight check values for EOS-80 (salinity g/kg, °C, bar, kg/m³).
+                foreach (var c in new[] { new[] { 0.0, 5, 0, 999.96675 }, new[] { 0.0, 5, 1000, 1044.12802 }, new[] { 0.0, 25, 0, 997.04796 },
+                    new[] { 0.0, 25, 1000, 1037.90204 }, new[] { 35.0, 5, 0, 1027.67547 }, new[] { 35.0, 5, 1000, 1069.48914 },
+                    new[] { 35.0, 25, 0, 1023.34306 }, new[] { 35.0, 25, 1000, 1062.53817 } })
+                    Check(string.Format("EOS-80 at {0} g/kg, {1} °C, {2} bar (kg/m³)", c[0], c[1], c[2]), Seawater.Density(c[0], c[1], c[2]), c[3], 0.00001);
+                var lake = new WaterVolume { FixedDensity = false, Position = new V3(0, 0, 0), Size = new V3(40, 30, 40) };
+                Check("fresh water at 15 °C (kg/m³)", lake.SurfaceDensity, 999.10, 0.005);
+                lake.Salinity = 35.0;
+                Check("  sea water, 35 g/kg (kg/m³)", lake.SurfaceDensity, 1025.97, 0.005);
+                lake.DeepTemperature = 15.0;
+                Check("  20 m down, pressed by the water above (kg/m³)", lake.DensityAt(new V3(0, -20, 0)),
+                    Seawater.Density(35.0, 15.0, lake.SurfaceDensity * lake.Gravity * 20.0 * 1e-5), 0.001);
+            }
+            {
+                // A ball neutral 2 m down in water 10 kg/m³ denser for each metre: let go 1 m down, it bobs about 2 m down,
+                // as an internal wave does, with the period 2π √((1 + C) ρ / (g dρ/dz)).
+                var w = new SimWorld();
+                var strat = Water(w, new V3(30, 0, 0), new V3(20, 10, 20));
+                strat.DensityGradient = 10.0;
+                var bob = Body(w, Sphere(0.1), 1020.0, new V3(30, -1.0, 0));
+                var ys = new List<double>();
+                Run(w, 120.0, t => ys.Add(bob.Position.y));
+                var turns = new List<int>();
+                for (int i = 1; i < ys.Count - 1; i++)
+                    if ((ys[i] - ys[i - 1]) * (ys[i + 1] - ys[i]) < 0.0)
+                        turns.Add(i);
+                double centre = 0.0;
+                for (int i = turns[2]; i < turns[4]; i++)
+                    centre += ys[i] / (turns[4] - turns[2]);
+                double period = 2.0 * Math.PI * Math.Sqrt(1.5 * 1020.0 / (w.G * 10.0));
+                Check("in stratified water: bobs about the depth of its own density (m)", -centre, 2.0, 0.01);
+                Check("  period, as an internal wave's (s)", 2.0 * (turns[1] - turns[0]) * w.Dt, period, 0.05 * period);
+            }
+            {
+                // Real water with a thermocline, 20 °C over 4 °C at 3 m: a ball as dense as the water 3 m down settles there.
+                var w = new SimWorld();
+                var thermo = Water(w, new V3(60, 0, 0), new V3(20, 10, 20));
+                thermo.FixedDensity = false;
+                thermo.Temperature = 20.0;
+                thermo.DeepTemperature = 4.0;
+                thermo.ThermoclineDepth = 3.0;
+                var sub = Body(w, Sphere(0.1), thermo.DensityAt(new V3(60, -3.0, 0)), new V3(60, -2.0, 0));
+                double mean = 0.0;
+                Run(w, 120.0, t => { if (t > 60.0 + 1e-9) mean += sub.Position.y / 3600.0; });
+                Check("real water, 20 °C over 4 °C: settles where it is as dense (m down)", -mean, 3.0, 0.05);
+            }
+            {
+                // Layers: fresh water over brine (1070) from 1 m down; an egg (1030) rests on the brine, partly in each, so
+                // the water it displaces weighs as much as it does. Oil (900) over water: a block of 850 floats in the oil
+                // with 850/900 of it under; one of 950 rests on the water under the oil.
+                var w = new SimWorld();
+                var tank = Water(w, new V3(90, 0, 0), new V3(20, 4, 20));
+                tank.FixedDensity = false;
+                tank.Layers.Add(new WaterLayer { Depth = 1.0, Density = 1070.0 });
+                var egg = Body(w, Sphere(0.025), 1030.0, new V3(90, -0.5, 0));
+                var oil = Water(w, new V3(120, 0, 0), new V3(20, 4, 20), 900.0);
+                oil.Layers.Add(new WaterLayer { Depth = 0.5, Density = 1000.0 });
+                var light = Body(w, Box(0.2, 0.2, 0.2), 850.0, new V3(120, 0.0, 0));
+                var mid = Body(w, Box(0.2, 0.2, 0.2), 950.0, new V3(125, -0.3, 0));
+                Run(w, 30.0);
+                Check("egg (1030) on brine (1070) under fresh water: what it displaces weighs (kg/m³)", egg.Core.WaterDensityHere, 1030.0, 1.0);
+                Check("  its centre from the brine's top (cm), within its radius", Math.Abs(egg.Position.y + 1.0) * 100.0, 0.0, 2.5);
+                double underLight = 0.0, underMid = 0.0;
+                Run(w, 30.0, t =>
+                {
+                    underLight += light.Core.SubmergedVolume / light.Core.Shape.Volume / 1800.0;
+                    underMid += Math.Max(0.0, Math.Min(1.0, 0.5 - (mid.Position.y + 0.5) / 0.2)) / 1800.0;
+                });
+                Check("block of 850 in oil (900): part under", underLight, 850.0 / 900.0, 0.005);
+                Check("block of 950 under the oil: part of it in the water", underMid, (950.0 - 900.0) / (1000.0 - 900.0), 0.01);
+            }
+            {
+                // Mud: a layer as dense as water but 100 times as hard to move through. A stone sinks through it at a tenth
+                // of its speed through water (drag goes as the square of the speed).
+                var w = new SimWorld();
+                var pit = Water(w, new V3(150, 0, 0), new V3(20, 40, 20));
+                pit.Layers.Add(new WaterLayer { Depth = 10.0, Density = 1000.0, Drag = 100.0 });
+                var stone = Body(w, Sphere(0.05), 2500.0, new V3(150, -1.0, 0));
+                var muddy = Body(w, Sphere(0.05), 2500.0, new V3(155, -12.0, 0));
+                Run(w, 3.0);
+                Check("stone sinking through mud 100 times as draggy: speed / in water", muddy.V.y / stone.V.y, 0.1, 0.005);
+                Check("  the mud's drag on it (x water's)", muddy.Core.MediumDrag, 100.0, 1e-9);
+            }
+
+            Console.WriteLine("B22 Real air");
+            {
+                foreach (var c in new[] { new[] { 0.0, 1.2250 }, new[] { 1000.0, 1.1117 }, new[] { 5000.0, 0.73643 }, new[] { 11000.0, 0.36480 },
+                    new[] { 15000.0, 0.19476 }, new[] { 20000.0, 0.08891 } })
+                    Check(string.Format("standard atmosphere at {0} m (kg/m³)", c[0]), Atmosphere.Density(c[0]), c[1], 0.0001);
+                double t0, p0;
+                Atmosphere.StandardAir(0.0, 15.0, 1013.25, out t0, out p0);
+                Check("  speed of sound at sea level, 15 °C (m/s)", Atmosphere.SpeedOfSound(t0), 340.29, 0.01);
+                Check("damp air, 30 °C and 100% humidity, less dense than dry (kg/m³)", Atmosphere.Density(0.0, 30.0, 1013.25, 100.0), 1.146, 0.002);
+                Check("  dry air at 30 °C (kg/m³)", Atmosphere.Density(0.0, 30.0, 1013.25, 0.0), 1.1644, 0.0002);
+                // A body 1000 m up feels the air there; on a hot damp day, the air of that day.
+                var w = new SimWorld { Air = new AirField() };
+                var high = Body(w, Box(1, 1, 1), 500.0, new V3(0, 1000.0, 0));
+                Run(w, 1.0 / 60.0);
+                double y = high.Position.y;
+                Run(w, 1.0 / 60.0);
+                Check("body 1000 m up, standard air there (kg/m³)", high.Core.AirDensityHere, Atmosphere.Density(y), 1e-12);
+                w.Air.Temperature = 30.0;
+                w.Air.Pressure = 1000.0;
+                w.Air.Humidity = 60.0;
+                y = high.Position.y;
+                Run(w, 1.0 / 60.0);
+                Check("  on a hot, damp day (30 °C, 1000 hPa, 60%) (kg/m³)", high.Core.AirDensityHere, Atmosphere.Density(y, 30.0, 1000.0, 60.0), 1e-12);
+            }
+            {
+                // A sealed balloon as dense on the whole as the air 1000 m up, let go 900 m up, rises to 1000 m and floats.
+                var w = new SimWorld { Air = new AirField() };
+                var balloon = Body(w, Sphere(1.0), Atmosphere.Density(1000.0), new V3(30, 900.0, 0));
+                double mean = 0.0;
+                Run(w, 600.0, t => { if (t > 400.0 + 1e-9) mean += balloon.Position.y / (60.0 * 200.0); });
+                Check("sealed balloon: floats where the air is as dense as it is (m)", mean, 1000.0, 5.0);
+            }
+            {
+                // A thermal 3 °C warm: the air in its middle is less dense by 288 / 291, and rises at its updraft; a balloon
+                // as dense as the air around rises in it, sinking through the warm air at the speed its extra weight
+                // balances the drag.
+                var air = new AirField();
+                air.Thermals.Add(new ThermalField { Position = new V3(60, 0, 0), Radius = 20.0, Height = 500.0, Warming = 3.0, Updraft = 2.0 });
+                var midAir = new V3(60, 100, 0);
+                double t100, p100;
+                Atmosphere.StandardAir(100.0, 15.0, 1013.25, out t100, out p100);
+                Check("thermal 3 °C warm: air in its middle / around (density)", air.DensityAt(midAir) / Atmosphere.Density(100.0), t100 / (t100 + 3.0), 1e-6);
+                Check("  rising air in its middle (m/s)", air.UpdraftAt(midAir).y, 2.0, 1e-9);
+                Check("  none outside it (m/s)", air.UpdraftAt(midAir + new V3(25, 0, 0)).y, 0.0, 0.0);
+                var w = new SimWorld { Air = air };
+                var drifter = Body(w, Sphere(0.5), Atmosphere.Density(100.0), new V3(60, 100.0, 0));
+                Run(w, 20.0);
+                double warm = Atmosphere.Density(100.0) * t100 / (t100 + 3.0);
+                double extra = (Atmosphere.Density(100.0) - warm) * 4.0 / 3.0 * Math.PI * 0.125 * w.G;
+                double sink = Math.Sqrt(extra / (0.5 * 0.47 * warm * Math.PI * 0.25));
+                Check("  a balloon as dense as the air around climbs in it (m/s)", drifter.V.y, 2.0 - sink, 0.08);
+            }
+
             Console.WriteLine("Speed: 300 bodies on waves");
             {
                 foreach (var kind in new[] { "sphere", "box", "hull", "capsule" })

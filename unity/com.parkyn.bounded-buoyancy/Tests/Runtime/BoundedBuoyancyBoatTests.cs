@@ -66,6 +66,7 @@ namespace BoundedBuoyancy.Tests
         {
             var w = Make("Water", at).AddComponent<BoundedBuoyancyWater>();
             w.size = size;
+            w.Density = 1000f;   // fixed, as the checks are worked out for
             w.current = current;
             w.showSurface = false;
             w.splashes = false;
@@ -94,7 +95,7 @@ namespace BoundedBuoyancy.Tests
             go.AddComponent<Rigidbody>();
             var b = go.AddComponent<BoundedBuoyancyBody>();
             b.Density = density;
-            b.airDensity = air;
+            b.AirDensity = air;
             b.centreOfMassOffset = comOffset;
             return b;
         }
@@ -150,7 +151,7 @@ namespace BoundedBuoyancy.Tests
             go.AddComponent<Rigidbody>();
             var b = go.AddComponent<BoundedBuoyancyBody>();
             b.Density = 1000f;
-            b.airDensity = 0f;
+            b.AirDensity = 0f;
             b.dragCoefficient = 0f;
             Foil(b, Vector3.zero, 10f, 2f);
             yield return new WaitForFixedUpdate();

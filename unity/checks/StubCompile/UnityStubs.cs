@@ -268,6 +268,12 @@ namespace UnityEngine
         public static void DrawWireSphere(Vector3 center, float radius) { }
     }
 
+    public interface ISerializationCallbackReceiver
+    {
+        void OnBeforeSerialize();
+        void OnAfterDeserialize();
+    }
+
     // Attributes -------------------------------------------------------------------------------------------------
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
     public sealed class AddComponentMenu : Attribute { public AddComponentMenu(string menuName) { } }

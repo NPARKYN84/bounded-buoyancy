@@ -36,7 +36,7 @@ namespace BoundedBuoyancy
         [Tooltip("Skip off the water at shallow angles. Off, the water takes the ball as it does any body.")]
         public bool ricochet = true;
 
-        [Tooltip("Speed of sound in the air, m/s: 343 at 20 °C, 331 at 0 °C.")]
+        [Tooltip("Speed of sound in the air, m/s, with Fixed Air: 343 at 20 °C, 331 at 0 °C. In real air it is the air's own where the ball is, from its temperature (√(1.4 R T); 340.3 at 15 °C).")]
         [Min(1f)] public float speedOfSound = 343f;
 
         [Tooltip("Seconds after which the ball removes itself. 0 keeps it.")]
@@ -76,7 +76,7 @@ namespace BoundedBuoyancy
         /// <summary>How far the ball went into the wood it last lodged in, along its path (m).</summary>
         public float Penetration { get; private set; }
         /// <summary>Mach number of the ball's flight through the air.</summary>
-        public float Mach { get { return (Bridge.GetVelocity(Body) - WindHere).magnitude / Mathf.Max(speedOfSound, 1f); } }
+        public float Mach { get { return (Bridge.GetVelocity(Body) - WindHere).magnitude / Mathf.Max((float)Core.SpeedOfSound, 1f); } }
 
         /// <summary>Let the ball pass through these colliders (its own ship's) for `seconds`.</summary>
         public void IgnoreFor(Collider[] colliders, float seconds)
@@ -144,7 +144,8 @@ namespace BoundedBuoyancy
             }
             flightVelocity = velocity;
             Core.FastBallDrag = true;
-            Core.SpeedOfSound = speedOfSound;
+            // With Fixed Air, Speed Of Sound; in real air, the air's own where the ball is, from its temperature.
+            Core.SpeedOfSound = fixedAir ? speedOfSound : BoundedBuoyancyAir.SoundSpeedIn(gameObject.scene.GetPhysicsScene(), rb.position);
             if (Core.Shape.SingleSphere)
             {
                 if (inside && (insideHull == null || insideFrame == null))

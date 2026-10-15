@@ -16,17 +16,57 @@ namespace BoundedBuoyancy
     /// them. A current makes the water flow, and bodies drift with it. Splashes and rings are for show only.</para>
     /// <para>Other water systems: set Surface Source (Bounded Buoyancy HDRP Water for HDRP's Water System, or your own
     /// BoundedBuoyancySurface) and bodies float on that system's waves, with this water's size, density and current.</para>
+    /// <para>Real water: its density is real water's, from its Temperature, Salinity and the pressure at each depth
+    /// (UNESCO's equation of state, EOS-80; see Core.Seawater), changing to the Deep Temperature (and Deep Salinity Change)
+    /// across a thermocline. Setting Density fixes it instead (Fixed Density). Layers under the top water (oil, brine,
+    /// mud) each have their own density and drag; bodies are weighed layer by layer.</para>
     /// </summary>
     [AddComponentMenu("Physics/Bounded Buoyancy Water")]
     [DefaultExecutionOrder(-100)]   // advance the wave clock before the bodies use it
     [DisallowMultipleComponent]
-    public class BoundedBuoyancyWater : MonoBehaviour
+    public class BoundedBuoyancyWater : MonoBehaviour, ISerializationCallbackReceiver
     {
         [Tooltip("Width (X), depth (Y) and length (Z) of the water, in metres. The top face is the surface.")]
         public Vector3 size = new Vector3(10f, 3f, 10f);
 
-        [Tooltip("Density of the water, kg/m³: 1000 fresh, about 1025 sea.")]
-        [Min(1f)] public float density = 1000f;
+        [Tooltip("With Fixed Density: density of the water, kg/m³ (1000 fresh, about 1025 sea), the same all through (apart from Density Gradient and any layers). Setting Density from a script fixes it.")]
+        [SerializeField, Min(1f)] float density = 1000f;
+
+        [Tooltip("Use Density as set, instead of real water's density from its temperature, salt and depth.")]
+        public bool fixedDensity = false;
+
+        [Header("Real Water")]
+        [Tooltip("Temperature of the water near the surface, °C. Warmer water is less dense.")]
+        [Range(-2f, 40f)] public float temperature = 15f;
+
+        [Tooltip("Salt in the water, g/kg: 0 fresh, about 35 the open sea, 38 to 40 the Mediterranean and the Red Sea (the formula holds to 42).")]
+        [Min(0f)] public float salinity = 0f;
+
+        [Tooltip("Temperature of the deep water, °C, below the thermocline: about 4 in deep lakes and the deep sea.")]
+        [Range(-2f, 40f)] public float deepTemperature = 4f;
+
+        [Tooltip("How much saltier the deep water is than the surface's, g/kg (a halocline).")]
+        [Range(-42f, 42f)] public float deepSalinityChange = 0f;
+
+        [Tooltip("Depth of the middle of the thermocline (and halocline), m, where the water changes from the surface's to the deep's over about as many metres again: 20 to 50 in lakes in summer, 100 to 500 in the open sea.")]
+        [Min(0.1f)] public float thermoclineDepth = 40f;
+
+        [Header("Layers")]
+        [Tooltip("Only with Fixed Density: how much denser the water gets for each metre deeper, kg/m³ per m. Real water's density changes with depth by itself.")]
+        public float densityGradient = 0f;
+
+        [Tooltip("How much harder the top water is to move through than water, as a multiple of each body's drag: 1 for water, more for mud.")]
+        [Min(0f)] public float drag = 1f;
+
+        [Tooltip("Layers under the top water, each from its depth down to the next: water under oil, brine on the bottom, mud. Bodies feel the weight of what they displace in each, so they settle where their density matches. The boundaries are level: the waves move only the surface.")]
+        public List<BoundedBuoyancyLayer> layers = new List<BoundedBuoyancyLayer>();
+
+        [Tooltip("Draw each layer, tinted with its colour, under the surface.")]
+        public bool showLayers = true;
+
+        // Data written by version 2.5.0 and later says so; data from before has none, and keeps its density fixed.
+        const int DataVersion = 1;
+        [SerializeField, HideInInspector] int dataVersion;
 
         [Header("Waves")]
         [Tooltip("Height of the largest wave above the mean surface, in metres. 0 for still water.")]
@@ -119,6 +159,68 @@ namespace BoundedBuoyancy
         /// <summary>The engine-free water volume the bodies ask.</summary>
         public WaterVolume Core { get { return core; } }
 
+        /// <summary>The water's density, kg/m³: with Fixed Density as set; otherwise real water's at the surface (with
+        /// layers, the top water's). Setting it fixes the density at that (Fixed Density).</summary>
+        public float Density
+        {
+            get { return fixedDensity ? density : (float)Seawater.Density(salinity, temperature, 0.0); }
+            set
+            {
+                density = Mathf.Max(value, 1f);
+                fixedDensity = true;
+            }
+        }
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
+        {
+            dataVersion = DataVersion;
+        }
+
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
+        {
+            // Saved before real water: keep the water as it was, at its set density.
+            if (dataVersion < DataVersion)
+            {
+                fixedDensity = true;
+                dataVersion = DataVersion;
+            }
+        }
+
+        void Reset()
+        {
+            fixedDensity = false;
+            dataVersion = DataVersion;
+        }
+
+        /// <summary>Density of the water at the world point p, kg/m³: real water's at its temperature, salt and pressure
+        /// there, or the layer p is in and how far down that layer it is. Above the surface, the top water's at the
+        /// surface.</summary>
+        public float DensityAt(Vector3 p)
+        {
+            SyncDensity();
+            return (float)core.DensityAt(Bridge.V(p));
+        }
+
+        /// <summary>Temperature (x, °C) and salinity (y, g/kg) of the top water `depth` metres down.</summary>
+        public Vector2 WaterAt(float depth)
+        {
+            SyncDensity();
+            double t, s;
+            core.WaterAt(depth, out t, out s);
+            return new Vector2((float)t, (float)s);
+        }
+
+        /// <summary>Density of sea water (or fresh, salinity 0), kg/m³, at `salinity` g/kg, `temperature` °C and
+        /// `pressure` bar above the air's (UNESCO's EOS-80).</summary>
+        public static float SeawaterDensity(float salinity, float temperature, float pressure)
+        {
+            return (float)Seawater.Density(salinity, temperature, pressure);
+        }
+
+        /// <summary>True when the density or drag is not the same all through: real water, layers, a density gradient or
+        /// a drag other than 1.</summary>
+        public bool IsLayered { get { SyncDensity(); return core.IsLayered; } }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics() { active.Clear(); }
 
@@ -171,12 +273,50 @@ namespace BoundedBuoyancy
             core.Position = Bridge.V(transform.position);
             core.Rotation = Bridge.M(transform.rotation);
             core.Size = Bridge.V(size);
-            core.Density = density;
+            SyncDensity();
             core.Current = Bridge.V(current);
             core.CurrentEdge = currentEdge;
             core.SetWaves(waveHeight, waveLength, waveDirection, -Physics.gravity.y);
             link.Target = surfaceSource;
             core.Source = UsesOtherSurface ? link : null;
+        }
+
+        void SyncDensity()
+        {
+            core.Position = Bridge.V(transform.position);
+            core.Size = Bridge.V(size);
+            core.Density = density;
+            core.FixedDensity = fixedDensity;
+            core.Temperature = temperature;
+            core.Salinity = salinity;
+            core.DeepTemperature = deepTemperature;
+            core.DeepSalinityChange = deepSalinityChange;
+            core.ThermoclineDepth = thermoclineDepth;
+            core.DensityGradient = densityGradient;
+            core.Drag = drag;
+            core.Gravity = Mathf.Max(-Physics.gravity.y, 0f);
+            int n = layers != null ? layers.Count : 0;
+            while (core.Layers.Count > n)
+                core.Layers.RemoveAt(core.Layers.Count - 1);
+            for (int i = 0; i < n; i++)
+            {
+                if (i >= core.Layers.Count)
+                    core.Layers.Add(new WaterLayer());
+                BoundedBuoyancyLayer l = layers[i];
+                WaterLayer c = core.Layers[i];
+                if (l == null)
+                {
+                    c.Depth = 0.0;
+                    c.Density = core.SurfaceDensity;
+                    c.DensityGradient = 0.0;
+                    c.Drag = core.Drag;
+                    continue;
+                }
+                c.Depth = Mathf.Max(l.depth, 0f);
+                c.Density = Mathf.Max(l.density, 0.001f);
+                c.DensityGradient = l.densityGradient;
+                c.Drag = Mathf.Max(l.drag, 0f);
+            }
         }
 
         /// <summary>Whether bodies use another water system's surface (Surface Source) instead of this water's own.</summary>
@@ -227,7 +367,81 @@ namespace BoundedBuoyancy
                 Debug.LogWarning("Bounded Buoyancy Water '" + name + "': keep its scale at 1 and set its size instead; the water's size ignores scale.", this);
             }
             DrawSurface();
+            DrawLayers();
             AgeRipples(Time.deltaTime);
+        }
+
+        // Layers -----------------------------------------------------------------------------------------------
+
+        MeshFilter layerFilter;
+        MeshRenderer layerRenderer;
+        Mesh layerMesh;
+        double layerSignature = double.NaN;
+
+        /// <summary>The layers as tinted boxes, each from its top to the next one's (or the bottom).</summary>
+        void DrawLayers()
+        {
+            int n = layers != null ? layers.Count : 0;
+            if (!showLayers || n == 0)
+            {
+                if (layerRenderer != null)
+                    layerRenderer.enabled = false;
+                return;
+            }
+            double sig = size.x + 3.0 * size.y + 7.0 * size.z;
+            for (int i = 0; i < n; i++)
+            {
+                BoundedBuoyancyLayer l = layers[i];
+                if (l != null)
+                    sig += (i + 1) * (l.depth * 11.0 + l.color.r * 13.0 + l.color.g * 17.0 + l.color.b * 19.0 + l.color.a * 23.0) + 29.0 * (i + 1) * (i + 1);
+            }
+            if (layerFilter == null)
+            {
+                GameObject go = Visuals.Child(transform, "Water Layers");
+                layerFilter = go.AddComponent<MeshFilter>();
+                layerRenderer = go.AddComponent<MeshRenderer>();
+                layerRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                layerRenderer.receiveShadows = false;
+                layerMesh = new Mesh { name = "Bounded Buoyancy Layers" };
+                layerFilter.sharedMesh = layerMesh;
+                layerSignature = double.NaN;
+            }
+            layerRenderer.enabled = true;
+            layerRenderer.sharedMaterial = Visuals.Surface;
+            if (sig == layerSignature)
+                return;
+            layerSignature = sig;
+            // The layers in order of depth, each down to the next one's top.
+            var sorted = new List<BoundedBuoyancyLayer>();
+            for (int i = 0; i < n; i++)
+                if (layers[i] != null)
+                    sorted.Add(layers[i]);
+            sorted.Sort((a, b) => a.depth.CompareTo(b.depth));
+            var verts = new List<Vector3>();
+            var colors = new List<Color32>();
+            var tris = new List<int>();
+            float hx = 0.5f * size.x, hz = 0.5f * size.z;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                float top = -Mathf.Min(sorted[i].depth, size.y);
+                float low = i + 1 < sorted.Count ? -Mathf.Min(sorted[i + 1].depth, size.y) : -size.y;
+                if (top - low < 1e-4f)
+                    continue;
+                int b0 = verts.Count;
+                for (int k = 0; k < 8; k++)
+                {
+                    verts.Add(new Vector3((k & 1) != 0 ? hx : -hx, (k & 2) != 0 ? top : low, (k & 4) != 0 ? hz : -hz));
+                    colors.Add(sorted[i].color);
+                }
+                int[] faces = { 0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6, 0, 1, 5, 0, 5, 4, 2, 6, 7, 2, 7, 3, 0, 4, 6, 0, 6, 2, 1, 3, 7, 1, 7, 5 };
+                foreach (int f in faces)
+                    tris.Add(b0 + f);
+            }
+            layerMesh.Clear();
+            layerMesh.vertices = verts.ToArray();
+            layerMesh.colors32 = colors.ToArray();
+            layerMesh.triangles = tris.ToArray();
+            layerMesh.RecalculateBounds();
         }
 
         // Surface ----------------------------------------------------------------------------------------------

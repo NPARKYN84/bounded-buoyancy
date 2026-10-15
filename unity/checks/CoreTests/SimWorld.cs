@@ -137,6 +137,9 @@ namespace BoundedBuoyancy.Checks
         public readonly List<SimBody> Bodies = new List<SimBody>();
         public readonly List<SimWall> Walls = new List<SimWall>();
         public readonly List<SimLine> Lines = new List<SimLine>();
+        /// <summary>Real air for every body, as BoundedBuoyancyAir gives it (null: each body's fixed air); its thermals'
+        /// updrafts are added to the wind, as BoundedBuoyancyWind.TotalAt adds them.</summary>
+        public AirField Air;
 
         public SimBody Add(SimBody b) { Bodies.Add(b); return b; }
 
@@ -161,6 +164,11 @@ namespace BoundedBuoyancy.Checks
                 V3 wind = V3.Zero;
                 foreach (var w in Winds)
                     wind += w.VelocityAt(cw);
+                if (Air != null)
+                {
+                    b.Core.Air = Air;
+                    wind += Air.UpdraftAt(cw);
+                }
                 if (b.Ball && StrikeWall(b, pose, sample, wind))
                     continue;
                 if (b.Ball && b.Core.TryStepBall(pose, b.V, sample, wind, G, Dt))

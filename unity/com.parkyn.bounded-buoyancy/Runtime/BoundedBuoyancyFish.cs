@@ -165,21 +165,22 @@ namespace BoundedBuoyancy
             NewGoal();
         }
 
-        /// <summary>Density of the water round it: its water's, or the body's Water Density.</summary>
-        float WaterDensityHere()
+        /// <summary>Density of the water round it: its water's where it is (whatever the depth, salt or warmth), or the
+        /// body's Water Density.</summary>
+        float BladderDensity()
         {
+            Vector3 p = Body.position + Body.rotation * Bridge.U(Core.Shape.Centroid);
             if (Water != null)
-                return Water.density;
+                return Water.DensityAt(p);
             if (waterSurface != null)
             {
                 var w = waterSurface.GetComponent<BoundedBuoyancyWater>();
-                return w != null ? w.density : waterDensity;
+                return w != null ? w.DensityAt(p) : waterDensity;
             }
-            Vector3 p = Body.position;
             List<BoundedBuoyancyWater> all = BoundedBuoyancyWater.active;
             for (int i = 0; i < all.Count; i++)
                 if (all[i].Contains(p))
-                    return all[i].density;
+                    return all[i].DensityAt(p);
             return waterDensity;
         }
 
@@ -201,7 +202,7 @@ namespace BoundedBuoyancy
                 Begin();
             if (swimBladder)
             {
-                float d = WaterDensityHere();
+                float d = BladderDensity();
                 if (Mathf.Abs(Density - d) > 1e-6f)
                     Density = d;
             }

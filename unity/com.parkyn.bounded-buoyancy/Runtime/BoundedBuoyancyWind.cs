@@ -101,7 +101,8 @@ namespace BoundedBuoyancy
         /// <summary>Velocity of this wind at the world point p (world frame), gusts included.</summary>
         public Vector3 VelocityAt(Vector3 p) { return Bridge.U(core.VelocityAt(Bridge.V(p))); }
 
-        /// <summary>Total wind at the world point p from every enabled wind in the given physics scene.</summary>
+        /// <summary>Total wind at the world point p from every enabled wind in the given physics scene, and the rising air of
+        /// its Bounded Buoyancy Thermals.</summary>
         public static Vector3 TotalAt(Vector3 p, PhysicsScene scene) { return Bridge.U(TotalAt(Bridge.V(p), scene)); }
 
         internal static V3 TotalAt(V3 p, PhysicsScene scene)
@@ -110,6 +111,10 @@ namespace BoundedBuoyancy
             for (int i = 0; i < active.Count; i++)
                 if (active[i].PhysicsScene == scene)
                     w += active[i].core.VelocityAt(p);
+            // The rising air of thermals carries bodies as wind does.
+            List<BoundedBuoyancyThermal> thermals = BoundedBuoyancyThermal.active;
+            for (int i = 0; i < thermals.Count; i++)
+                w += thermals[i].UpdraftIn(scene, p);
             return w;
         }
 

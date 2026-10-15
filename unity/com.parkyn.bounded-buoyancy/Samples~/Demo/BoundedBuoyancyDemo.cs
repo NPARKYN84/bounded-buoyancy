@@ -173,8 +173,8 @@ namespace BoundedBuoyancy.Samples
             {
                 // Helium balloons of slightly different fill: each rises to where the air is as dense as it is.
                 BoundedBuoyancyBody b = Ball(0.3f, 0.35f + 0.12f * i, new Vector3(-4f + 1.4f * i, 0.5f, -2f), colors[i]);
-                b.airDensity = 1.2f;
-                b.airHalfHeight = 8f;
+                b.AirDensity = 1.2f;
+                b.AirHalfHeight = 8f;
             }
             // A hot-air balloon: envelope and basket, centre of mass low in the basket.
             GameObject env = Shape(PrimitiveType.Sphere, new Vector3(0f, 2.2f, 3f), Vector3.one * 3f, new Color(0.95f, 0.55f, 0.2f));
@@ -182,11 +182,11 @@ namespace BoundedBuoyancy.Samples
             DropCollider(basket);
             basket.transform.SetParent(env.transform, true);
             hotAir = Floater(env, 1.3f);
-            hotAir.airDensity = 1.2f;
-            hotAir.airHalfHeight = 8f;
+            hotAir.AirDensity = 1.2f;
+            hotAir.AirHalfHeight = 8f;
             hotAir.angularDrag = 2f;
             hotAir.centreOfMassOffset = new Vector3(0f, -1.6f, 0f);
-            Ball(0.25f, 2600f, new Vector3(-2f, 9f, 2f), new Color(0.45f, 0.45f, 0.48f)).airDensity = 1.2f;
+            Ball(0.25f, 2600f, new Vector3(-2f, 9f, 2f), new Color(0.45f, 0.45f, 0.48f)).AirDensity = 1.2f;
             Frame(new Vector3(0f, 4f, 0f), 18f, 12f, -20f);
         }
 
@@ -246,8 +246,8 @@ namespace BoundedBuoyancy.Samples
             for (int i = 0; i < 4; i++)
             {
                 BoundedBuoyancyBody b = Ball(0.3f, 0.7f, new Vector3(-14f + 3f * i, 4f, 8f), Shade(i + 1));
-                b.airDensity = 1.2f;
-                b.airHalfHeight = 8f;
+                b.AirDensity = 1.2f;
+                b.AirHalfHeight = 8f;
             }
             for (int i = 0; i < 3; i++)
                 Crate(new Vector3(0.6f, 0.6f, 0.6f), 500f, new Vector3(-12f + 4f * i, 0.4f, 3f), Shade(i));
@@ -366,7 +366,7 @@ namespace BoundedBuoyancy.Samples
             b.centreOfMassOffset = new Vector3(0f, -0.45f, 0f);   // a heavy centreboard and the crew sitting out
             b.dragCoefficient = 0.12f;
             b.keepMomentumOnEntry = false;
-            b.airDensity = 1.2f;
+            b.AirDensity = 1.2f;
             Color dark = new Color(0.25f, 0.27f, 0.3f);
             BoatFoil(b, new Vector3(0f, -0.6f, 0.1f), 0.5f, 2f, Core.Medium.Water, 0f, dark, 0.025f);
             dinghyRudder = BoatFoil(b, new Vector3(0f, -0.35f, -1.65f), 0.12f, 2.5f, Core.Medium.Water, 0.06f, dark, 0.025f);
@@ -544,7 +544,7 @@ namespace BoundedBuoyancy.Samples
             mc.convex = true;
             BoundedBuoyancyBody b = Floater(go, 280f);
             b.centreOfMassOffset = new Vector3(0f, -0.15f, 0f);   // ballast
-            b.airDensity = 1.2f;
+            b.AirDensity = 1.2f;
             if (withSail)
             {
                 GameObject mast = Shape(PrimitiveType.Cube, at + new Vector3(0f, 1.2f, 0f), new Vector3(0.06f, 2f, 0.06f), new Color(0.4f, 0.3f, 0.2f));

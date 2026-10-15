@@ -31,8 +31,13 @@ namespace BoundedBuoyancy.Core
         public double DragCoefficient = 0.47;
         public double AngularDrag = 3.0;
         public bool KeepMomentumOnEntry = true;
+        /// <summary>Fixed air (when Air is not set): its density at height 0, kg/m³, and the height over which it halves
+        /// (0: the same at every height).</summary>
         public double AirDensity = 1.2;
         public double AirHalfHeight;
+        /// <summary>Real air (the standard atmosphere, the day's weather, thermals); when set, it is used instead of
+        /// AirDensity and AirHalfHeight.</summary>
+        public AirField Air;
         public double SailArea;
         public V3 SailCentre = new V3(0, 0.5, 0);
         /// <summary>Wave-making damping (Bounded model): a body bobbing at the surface sends out ripples, and they carry
@@ -63,12 +68,24 @@ namespace BoundedBuoyancy.Core
         public V3 CrossingPoint;
         /// <summary>Mass of the water in the compartments this step (kg).</summary>
         public double FloodMass;
+        /// <summary>Mean density of the water the body displaces this step, kg/m³ (0 out of the water): the water's own, or,
+        /// where it changes from place to place, what the body's part in each place weighs.</summary>
+        public double WaterDensityHere;
+        /// <summary>How much harder the water it is in is to move through than water this step (1 for water; mud more).</summary>
+        public double MediumDrag = 1.0;
         /// <summary>The compartments' water as weight at its centres: its inertia about the centre of mass, in the
         /// body's own axes (the water does not turn with the body, so only as weight at its centre).</summary>
         public Sym3 FloodInertia;
 
         /// <summary>Spaces inside the body that can flood (see Compartment3D).</summary>
         public readonly List<Compartment3D> Compartments = new List<Compartment3D>();
+
+        // Boundaries between layers the body is across this step: the jump in density there, the volume below it and the
+        // depth of that volume's centre below it.
+        double[] interfaceJump = new double[2], interfaceVolume = new double[2], interfaceDepth = new double[2];
+        int interfaceCount;
+        double[] cutVolume = new double[2];
+        V3[] cutCentre = new V3[2];
 
         double prevAddedMass = -1.0;
         bool wasInWater;
@@ -156,19 +173,22 @@ namespace BoundedBuoyancy.Core
             double rho = water.Density;
             V3 flow = water.HasWater ? water.Flow : V3.Zero;
             double surfaceHere = 0.0;   // height of the surface over the centre of the body's volume
+            MediumDrag = 1.0;
+            interfaceCount = 0;
             if (water.HasWater)
             {
                 Immersion3D.Immerse(Shape, pose, water.Surface, out SubmergedVolume, out CentreOfBuoyancy, out surfaceHere);
+                if (SubmergedVolume > 0.0 && water.Volume != null && water.Volume.IsLayered)
+                    rho = WeighDisplaced(pose, water.Volume);
             }
             else
             {
                 SubmergedVolume = 0.0;
                 CentreOfBuoyancy = cw;
             }
-            // The rest of the body is in air, thinning with height if AirHalfHeight is set.
-            AirDensityHere = AirDensity;
-            if (AirHalfHeight > 0.0)
-                AirDensityHere *= Math.Pow(0.5, Math.Max(cw.y / AirHalfHeight, -10.0));
+            WaterDensityHere = SubmergedVolume > 0.0 ? rho : 0.0;
+            // The rest of the body is in air: real air, or as set (thinning with height if AirHalfHeight is).
+            AirDensityHere = AirAt(cw);
             double airVolume = volumeAll - SubmergedVolume;
             double displaced = rho * SubmergedVolume + AirDensityHere * airVolume;   // mass of water and air displaced
             AddedMass = AddedMassCoefficient * displaced;
@@ -243,7 +263,7 @@ namespace BoundedBuoyancy.Core
             WindHere = wind;
             V3 throughWater = v - flow;
             V3 throughAir = v - wind;
-            double cWater = 0.5 * DragCoefficient * Shape.DragArea(throughWater, pose.Basis) * rho * SubmergedVolume / volumeAll
+            double cWater = 0.5 * DragCoefficient * MediumDrag * Shape.DragArea(throughWater, pose.Basis) * rho * SubmergedVolume / volumeAll
                 * throughWater.Length * dt / m;
             double cAir = 0.5 * AirDragCoefficient(throughAir.Length) * Shape.DragArea(throughAir, pose.Basis) * AirDensityHere * airVolume / volumeAll
                 * throughAir.Length * dt / m;
@@ -309,6 +329,112 @@ namespace BoundedBuoyancy.Core
             {
                 prevSurface = double.NaN;
             }
+            // The same at each boundary between layers the body is across: bobbing there sends out waves along the
+            // boundary (internal waves), which carry its energy away as ripples on the surface do. The same law, with the
+            // jump in density across the boundary in place of the water's against air.
+            if (Bounded && WaveDamping > 0.0 && interfaceCount > 0)
+            {
+                for (int i = 0; i < interfaceCount; i++)
+                {
+                    double omega;
+                    double b = WaveDamping * WaveDampingCoefficient(interfaceJump[i], g, interfaceVolume[i], interfaceDepth[i], m, out omega);
+                    VelocityTarget = new V3(VelocityTarget.x, VelocityTarget.y - (1.0 - Math.Exp(-b * dt / m)) * v.y, VelocityTarget.z);
+                }
+                LastAcceleration = (VelocityTarget - v) / dt;
+            }
+        }
+
+        /// <summary>Density of the air at p: real air's (Air), or the fixed AirDensity, halving every AirHalfHeight.</summary>
+        public double AirAt(V3 p)
+        {
+            if (Air != null)
+                return Air.DensityAt(p);
+            double air = AirDensity;
+            if (AirHalfHeight > 0.0)
+                air *= Math.Pow(0.5, Math.Max(p.y / AirHalfHeight, -10.0));
+            return air;
+        }
+
+        /// <summary>
+        /// In water whose density changes from place to place: the mean density of the water the body displaces (returned),
+        /// how much harder to move through it is (MediumDrag), and the centre of its weight (CentreOfBuoyancy). Without
+        /// layers, the density at the centre of buoyancy, which is exact while the density changes evenly over the body's
+        /// height; with layers, the body is cut at each boundary and each part weighed at its own centre. Notes each
+        /// boundary the body is across, for the internal-wave damping.
+        /// </summary>
+        double WeighDisplaced(BodyPose pose, WaterVolume w)
+        {
+            interfaceCount = 0;
+            if (w.Layers.Count == 0)
+            {
+                MediumDrag = w.Drag;
+                return w.DensityAt(CentreOfBuoyancy);
+            }
+            Stratum[] s;
+            int n = w.Strata(out s);
+            if (cutVolume.Length < n)
+            {
+                cutVolume = new double[n];
+                cutCentre = new V3[n];
+                interfaceJump = new double[n];
+                interfaceVolume = new double[n];
+                interfaceDepth = new double[n];
+            }
+            // Strata is a buffer the volume reuses: read what is needed before asking it again (DensityAt asks too).
+            for (int i = 1; i < n; i++)
+                cutVolume[i] = s[i].Top;
+            for (int i = 1; i < n; i++)
+            {
+                double plane = cutVolume[i];
+                double cv;
+                V3 cc;
+                Immersion3D.Immerse(Shape, pose, WaterSurface.Flat(plane), out cv, out cc);
+                cutCentre[i] = cc;
+                if (cv > 1e-12 && cv < SubmergedVolume - 1e-12)
+                {
+                    w.Strata(out s);
+                    double below = s[i].Density;
+                    double jump = below - w.DensityAt(new V3(pose.Position.x, plane + 1e-4, pose.Position.z));
+                    if (jump > 0.0)
+                    {
+                        interfaceJump[interfaceCount] = jump;
+                        interfaceVolume[interfaceCount] = cv;
+                        interfaceDepth[interfaceCount] = plane - cc.y;
+                        interfaceCount++;
+                    }
+                }
+                cutVolume[i] = cv;
+            }
+            double mass = 0.0, dragSum = 0.0;
+            V3 weighed = V3.Zero;
+            double aboveV = SubmergedVolume;
+            V3 aboveM = CentreOfBuoyancy * SubmergedVolume;
+            for (int i = 0; i < n; i++)
+            {
+                double belowV = i + 1 < n ? cutVolume[i + 1] : 0.0;
+                V3 belowM = i + 1 < n ? cutCentre[i + 1] * cutVolume[i + 1] : V3.Zero;
+                belowV = Math.Min(belowV, aboveV);
+                double v = aboveV - belowV;
+                if (v > 1e-12)
+                {
+                    V3 c = (aboveM - belowM) / v;
+                    double rhoHere = w.DensityAt(c);
+                    w.Strata(out s);
+                    mass += rhoHere * v;
+                    dragSum += s[i].Drag * v;
+                    weighed += c * (rhoHere * v);
+                }
+                aboveV = belowV;
+                aboveM = belowM;
+            }
+            if (mass <= 0.0)
+            {
+                MediumDrag = w.Drag;
+                return w.SurfaceDensity;
+            }
+            MediumDrag = dragSum / SubmergedVolume;
+            CentreOfBuoyancy = weighed / mass;
+            return mass / SubmergedVolume;
         }
 
         /// <summary>The compartments for one step: moves water through their holes and pumps, and sets FloodMass and
