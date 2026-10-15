@@ -89,14 +89,25 @@ enum Model {
 @export_range(0.0, 3.0, 0.01) var wave_damping: float = 1.0
 
 @export_group("Air")
-## Density of the air around the body at height 0 (1.2 kg/m³ at room temperature). Balloons rise in
-## it; for wood, stone or metal it changes the weight by less than half a percent. 0 leaves air out,
-## as the paper's benchmarks do.
-@export_range(0.0, 20.0, 0.001, "or_greater", "suffix:kg/m³") var air_density: float = 1.2
-## Height over which the air's density halves, so that a balloon rises until it floats where the air
-## is as dense as it is. 0 keeps the air the same at every height. Real air halves about every 6 km;
-## games can use far less.
-@export_range(0.0, 100000.0, 0.1, "or_greater", "suffix:m") var air_half_height: float = 0.0
+## The air is real air by default: the standard atmosphere, thinning with height, from the scene's
+## BoundedBuoyancyAir (the day's temperature, pressure and humidity at sea level) or, without one, at
+## 15 °C with sea level at height 0; warmer where a BoundedBuoyancyThermal warms it. Balloons rise
+## in it; for wood, stone or metal it changes the weight by less than half a percent.
+## Use Air Density and Air Half Height below instead of the real air. Setting either sets this.
+@export var fixed_air: bool = false
+## With Fixed Air: density of the air around the body at height 0 (1.2 kg/m³ at room temperature).
+## 0 leaves air out, as the paper's benchmarks do. Setting it fixes the air (Fixed Air).
+@export_range(0.0, 20.0, 0.001, "or_greater", "suffix:kg/m³") var air_density: float = 1.2:
+	set(value):
+		air_density = value
+		fixed_air = true
+## With Fixed Air: height over which the air's density halves, so that a balloon rises until it
+## floats where the air is as dense as it is. 0 keeps the air the same at every height. Real air
+## halves about every 6 km; games can use far less. Setting it fixes the air (Fixed Air).
+@export_range(0.0, 100000.0, 0.1, "or_greater", "suffix:m") var air_half_height: float = 0.0:
+	set(value):
+		air_half_height = value
+		fixed_air = true
 ## Area of a sail or flag for the wind to push on, in square metres, as well as the body itself.
 ## The sail turns to face the wind it feels, like a sail let out to run before the wind.
 @export_range(0.0, 1000.0, 0.01, "or_greater", "suffix:m²") var sail_area: float = 0.0
@@ -151,6 +162,7 @@ static var _g := 9.8
 static var _g_frame := -1
 const _Water := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const _Wind := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
+const _Air := preload("res://addons/bounded_buoyancy/bounded_buoyancy_air.gd")
 const _Foil := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const SAIL_DRAG := 1.2     # drag coefficient of a flat sail facing the wind
 const TELEPORT_DISTANCE := 0.1   # a body this far from where its velocity would have carried it, or water whose level moves this far in a step, has been moved (m)
@@ -290,10 +302,13 @@ func _physics_process(dt: float) -> void:
 		submerged_volume = 0.0
 		centre_of_buoyancy = cw
 	water_density_here = rho if submerged_volume > 0.0 else 0.0
-	# The rest of the body is in air, thinning with height if air_half_height is set.
-	air_density_here = air_density
-	if air_half_height > 0.0:
-		air_density_here *= pow(0.5, maxf(cw.y / air_half_height, -10.0))
+	# The rest of the body is in air: real air, or as set (thinning with height if air_half_height is).
+	if fixed_air:
+		air_density_here = air_density
+		if air_half_height > 0.0:
+			air_density_here *= pow(0.5, maxf(cw.y / air_half_height, -10.0))
+	else:
+		air_density_here = _Air.density_in(_world, cw)
 	var air_volume := volume - submerged_volume
 	var displaced := rho * submerged_volume + air_density_here * air_volume   # mass of water and air displaced
 	added_mass = added_mass_coefficient * displaced
@@ -343,7 +358,7 @@ func _physics_process(dt: float) -> void:
 		var a: float = water.vertical_acceleration_at(centre_of_buoyancy, across, along)
 		wave_acceleration = clampf(a, -0.5 * g, 0.5 * g)
 		drive += Vector3.UP * (1.0 + added_mass_coefficient) * rho * submerged_volume * wave_acceleration
-	var wind := _Wind.total_at(cw, _world) if not _Wind.instances.is_empty() else Vector3.ZERO
+	var wind := _Wind.total_at(cw, _world) if not (_Wind.instances.is_empty() and BoundedBuoyancyThermal.instances.is_empty()) else Vector3.ZERO
 	wind_here = wind
 	var through_water := v - flow
 	var through_air := v - wind

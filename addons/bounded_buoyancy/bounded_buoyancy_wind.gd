@@ -69,10 +69,14 @@ func velocity_at(p: Vector3) -> Vector3:
 	return base.rotated(Vector3.UP, turn) * (1.0 + gust_strength * g)
 
 
-## Total wind at the world point `p` from every wind node in `in_world` that reaches it.
+## Total wind at the world point `p` from every wind node in `in_world` that reaches it, and the
+## rising air of any thermals (BoundedBuoyancyThermal).
 static func total_at(p: Vector3, in_world: World3D) -> Vector3:
 	var w := Vector3.ZERO
 	for node in instances:
 		if node.world == in_world:
 			w += node.velocity_at(p)
+	for t in BoundedBuoyancyThermal.instances:
+		if t.world == in_world:
+			w += t.updraft_at(p)
 	return w

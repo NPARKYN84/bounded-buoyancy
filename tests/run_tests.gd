@@ -2124,6 +2124,78 @@ func run() -> void:
 	for n21 in [stone21, stone_b21, pit21]:
 		n21.queue_free()
 
+	# B22: real air. The standard atmosphere (US Standard Atmosphere, 1976), damp air, warm places
+	# (BoundedBuoyancyThermal), and bodies in it.
+	print("B22 Real air")
+	for c22 in [[0.0, 1.2250], [1000.0, 1.1117], [5000.0, 0.73643], [11000.0, 0.36480], [15000.0, 0.19476], [20000.0, 0.08891]]:
+		check("standard atmosphere at %d m (kg/m³)" % int(c22[0]), AIR.standard_density(c22[0]), c22[1], 0.0001)
+	check("  speed of sound at sea level, 15 °C (m/s)", sqrt(1.4 * AIR.R_DRY * AIR.standard_air(0.0, 15.0, 1013.25).x), 340.29, 0.01)
+	check("damp air, 30 °C and 100% humidity, less dense than dry (kg/m³)", AIR.standard_density(0.0, 30.0, 1013.25, 100.0), 1.146, 0.002)
+	check("  dry air at 30 °C (kg/m³)", AIR.standard_density(0.0, 30.0, 1013.25, 0.0), 1.1644, 0.0002)
+	# A body 1000 m up feels the air there; with an air node, the day's weather.
+	var high22 := make_shape_body(_box(Vector3(1, 1, 1)), 500.0, Vector3(0, 1000.0, -3000), 0.0)
+	high22.fixed_air = false
+	high22.collision_layer = 0
+	high22.collision_mask = 0
+	high22.freeze = false
+	await physics_frame
+	await physics_frame
+	check("body 1000 m up, standard air there (kg/m³)", high22.air_density_here, AIR.standard_density(1000.0 + high22.global_position.y - 1000.0), 0.00001)
+	var day22: Node3D = AIR.new()
+	day22.temperature = 30.0
+	day22.pressure = 1000.0
+	day22.humidity = 60.0
+	root.add_child(day22)
+	await physics_frame
+	await physics_frame
+	check("  on a hot, damp day (30 °C, 1000 hPa, 60%) (kg/m³)", high22.air_density_here, AIR.standard_density(high22.global_position.y, 30.0, 1000.0, 60.0), 0.00001)
+	day22.queue_free()
+	high22.queue_free()
+	await physics_frame
+	# A sealed balloon as dense on the whole as the air 1000 m up, let go 900 m up, rises to 1000 m
+	# and floats there.
+	var balloon22 := make_shape_body(_sphere(1.0), AIR.standard_density(1000.0), Vector3(30, 900.0, -3000), 0.0)
+	balloon22.fixed_air = false
+	balloon22.collision_layer = 0
+	balloon22.collision_mask = 0
+	balloon22.freeze = false
+	var mean22 := 0.0
+	for i22 in 60 * 600:
+		await physics_frame
+		if i22 >= 60 * 400:
+			mean22 += balloon22.global_position.y / (60.0 * 200.0)
+	check("sealed balloon: floats where the air is as dense as it is (m)", mean22, 1000.0, 5.0)
+	balloon22.queue_free()
+	# A thermal 3 °C warm: the air in its middle is less dense by 288 / 291, and rises at its updraft;
+	# a balloon as dense as the air around rises in it.
+	var thermal22: Node3D = BoundedBuoyancyThermal.new()
+	thermal22.radius = 20.0
+	thermal22.height = 500.0
+	thermal22.warming = 3.0
+	thermal22.updraft = 2.0
+	thermal22.position = Vector3(60, 0, -3000)
+	root.add_child(thermal22)
+	await physics_frame
+	var mid22 := Vector3(60, 100, -3000)
+	var t100_22: float = AIR.standard_air(100.0, 15.0, 1013.25).x
+	check("thermal 3 °C warm: air in its middle / around (density)", AIR.density_in(root.get_world_3d(), mid22) / AIR.standard_density(100.0), t100_22 / (t100_22 + 3.0), 1e-6)
+	check("  rising air in its middle (m/s)", BoundedBuoyancyWind.total_at(mid22, root.get_world_3d()).y, 2.0, 1e-6)
+	check("  none outside it (m/s)", BoundedBuoyancyWind.total_at(mid22 + Vector3(25, 0, 0), root.get_world_3d()).y, 0.0, 0.0)
+	var drifter22 := make_shape_body(_sphere(0.5), AIR.standard_density(100.0), Vector3(60, 100.0, -3000), 0.0)
+	drifter22.fixed_air = false
+	drifter22.collision_layer = 0
+	drifter22.collision_mask = 0
+	drifter22.freeze = false
+	await _wait(20.0)
+	# It is denser than the warm air it is in, so it sinks through the rising air at the speed its
+	# extra weight balances the drag, and climbs that much slower than the air.
+	var warm22: float = AIR.standard_density(100.0) * t100_22 / (t100_22 + 3.0)
+	var extra22: float = (AIR.standard_density(100.0) - warm22) * 4.0 / 3.0 * PI * 0.125 * G
+	var sink22 := sqrt(extra22 / (0.5 * 0.47 * warm22 * PI * 0.25))
+	check("  a balloon as dense as the air around climbs in it, sinking through the warm air (m/s)", drifter22.linear_velocity.y, 2.0 - sink22, 0.08)
+	drifter22.queue_free()
+	thermal22.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -2137,6 +2209,7 @@ const CANNON := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannon.g
 const BALL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonball.gd")
 const HULL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_hull.gd")
 const LINE := preload("res://addons/bounded_buoyancy/bounded_buoyancy_line.gd")
+const AIR := preload("res://addons/bounded_buoyancy/bounded_buoyancy_air.gd")
 const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
 
 
@@ -2222,23 +2295,25 @@ func _back_to_height(ball: RigidBody3D, y: float, seconds: float) -> float:
 ## through still air of 1.2 kg/m³, worked through in steps of 0.1 ms (second order) with the
 ## cannonball's drag law, its air buoyancy and the air it takes along: [range, time] to the moment its
 ## bottom touches the water.
+## The flight of a ball through the real air (the standard atmosphere, sea level at height 0).
 func _flight18(v0: float, deg: float, h: float, d: float, m: float, g: float) -> Array:
-	var rho := 1.2
 	var vol := PI / 6.0 * d * d * d
-	var mi := m + 0.5 * rho * vol
 	var area := PI * 0.25 * d * d
 	var a := 0.5 * d
 	var p := Vector2(0.0, h)
 	var v := Vector2(cos(deg_to_rad(deg)), sin(deg_to_rad(deg))) * v0
 	var step := 1e-4
 	var t := 0.0
-	var up := (rho * vol - m) * g / mi
 	while p.y - a > 0.0:
+		var rho := AIR.standard_density(p.y)
+		var c := sqrt(1.4 * AIR.R_DRY * AIR.standard_air(p.y, 15.0, 1013.25).x)
+		var mi := m + 0.5 * rho * vol
+		var up := (rho * vol - m) * g / mi
 		var s := v.length()
-		var acc := -0.5 * BALL.drag_coefficient_at(s, d, rho, 343.0) * rho * area * s / mi * v + Vector2(0.0, up)
+		var acc := -0.5 * BALL.drag_coefficient_at(s, d, rho, c) * rho * area * s / mi * v + Vector2(0.0, up)
 		var vm := v + acc * 0.5 * step
 		var sm := vm.length()
-		var accm := -0.5 * BALL.drag_coefficient_at(sm, d, rho, 343.0) * rho * area * sm / mi * vm + Vector2(0.0, up)
+		var accm := -0.5 * BALL.drag_coefficient_at(sm, d, rho, c) * rho * area * sm / mi * vm + Vector2(0.0, up)
 		var prev := p
 		p += vm * step
 		v += accm * step

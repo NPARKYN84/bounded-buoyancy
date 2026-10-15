@@ -41,7 +41,8 @@ signal hit(body: Node, at: Vector3, velocity: Vector3)
 
 ## Skip off the water at shallow angles. Off, the water takes the ball as it does any body.
 @export var ricochet: bool = true
-## Speed of sound in the air, m/s: 343 at 20 °C, 331 at 0 °C.
+## Speed of sound in the air, m/s, with Fixed Air: 343 at 20 °C, 331 at 0 °C. In real air it is
+## the air's own where the ball is, from its temperature (√(1.4 R T); 340.3 at 15 °C).
 @export_range(1.0, 2000.0, 0.1, "or_greater", "suffix:m/s") var speed_of_sound: float = 343.0
 ## Seconds after which the ball removes itself. 0 keeps it.
 @export_range(0.0, 3600.0, 0.1, "or_greater", "suffix:s") var lifetime: float = 30.0
@@ -132,8 +133,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 func _air_drag_coefficient(speed: float) -> float:
 	if not _single_sphere:
 		return drag_coefficient   # a fast ball's drag is for a ball
-	mach = speed / maxf(speed_of_sound, 1.0)
-	return drag_coefficient_at(speed, 2.0 * _radius, air_density_here, speed_of_sound)
+	var sound := speed_of_sound if fixed_air else _Air.sound_speed_in(get_world_3d(), global_position)
+	mach = speed / maxf(sound, 1.0)
+	return drag_coefficient_at(speed, 2.0 * _radius, air_density_here, sound)
 
 
 ## Drag coefficient in air of density `air_density` of a ball `diameter` metres across flying at
