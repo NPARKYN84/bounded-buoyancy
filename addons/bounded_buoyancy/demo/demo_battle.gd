@@ -375,7 +375,7 @@ func _physics_process(dt: float) -> void:
 				_strike(b)
 				var won := "The pirates have won." if b == _navy else "The navy has won."
 				_message.text = "%s %s   R: again" % [
-					("The navy brig" if b == _navy else "Your ship") + (" is sinking." if _sunk(b) else " is holed and low in the water: she strikes her colours."), won]
+					("The navy brig" if b == _navy else "Your ship") + (" sinks." if _sunk(b) else " strikes her colours."), won]
 				break
 
 

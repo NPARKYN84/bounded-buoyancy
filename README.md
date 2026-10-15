@@ -189,6 +189,8 @@ The hull emits `struck(ball, at, through, speed_out)` and `holed(at, area, compa
 
 ![Close action: broadsides hole the other ship at the waterline; she settles, lists and sinks (ten times faster after the first broadside)](docs/damage.gif)
 
+![A pirate brig and a navy brig under sail exchange broadsides; both are holed at the waterline and take in water until the navy brig, 35 t of water in her, strikes her colours (twelve times faster)](docs/battle.gif)
+
 | Hull setting | Meaning | Default |
 | --- | --- | --- |
 | Thickness | Of the planking, m: a frigate's side was about 0.4 m of oak at the waterline, a ship of the line's 0.6 m | 0.2 |
