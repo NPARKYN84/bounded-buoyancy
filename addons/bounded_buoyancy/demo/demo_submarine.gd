@@ -22,7 +22,7 @@ const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
 const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thruster.gd")
 const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_battle.tscn"
 
 const LONG := 22.0              # m, the submarine's length
 const RADIUS := 1.6             # m, its hull's

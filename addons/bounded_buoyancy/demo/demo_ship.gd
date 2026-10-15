@@ -501,6 +501,7 @@ static func _rig(b: Node3D, colours: Dictionary) -> void:
 	flag.material_override = fmat
 	flag.position = tops[1][1] + Vector3(0, -0.35, 0.85)
 	flag.rotation_degrees = Vector3(0, 90, 0)
+	flag.name = "Flag"
 	b.add_child(flag)
 
 
