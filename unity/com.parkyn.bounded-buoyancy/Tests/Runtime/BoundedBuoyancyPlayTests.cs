@@ -1,5 +1,5 @@
 // Play-mode checks of Bounded Buoyancy in the real Unity physics engine: the same benchmarks the Godot plugin
-// and the engine-free core pass (B1-B19). Run them from Window > General > Test Runner > PlayMode.
+// and the engine-free core pass (B1-B20). Run them from Window > General > Test Runner > PlayMode.
 // (In your project's Packages/manifest.json, add "testables": ["com.parkyn.bounded-buoyancy"] to list them.)
 using System.Collections;
 using System.Collections.Generic;
@@ -926,6 +926,241 @@ namespace BoundedBuoyancy.Tests
                     Assert.AreEqual(slowed, speed, 0.05f * slowed, "  slowed by the water as a ball wholly under it would be (m/s)");
                 }
             }
+        }
+
+        // B20 ------------------------------------------------------------------------------------------------------
+
+        /// <summary>A Rigidbody of `mass` with a sphere collider of `radius` that collides with nothing.</summary>
+        Rigidbody Weight(string name, float radius, float mass, Vector3 at, bool gravity)
+        {
+            GameObject go = Make(name, at);
+            go.AddComponent<SphereCollider>().radius = radius;
+            var rb = go.AddComponent<Rigidbody>();
+            rb.mass = mass;
+            rb.useGravity = gravity;
+            rb.detectCollisions = false;
+            return rb;
+        }
+
+        /// <summary>A line made fast at `on` to `body`, `length` m long.</summary>
+        BoundedBuoyancyLine Line(GameObject on, Rigidbody body, float length, float damping = 0.2f)
+        {
+            var l = on.AddComponent<BoundedBuoyancyLine>();
+            l.body = body;
+            l.length = length;
+            l.damping = damping;
+            return l;
+        }
+
+        /// <summary>A fish 36 cm long (1.6 kg) at `at`, keen on bait as `appetite`, choosing as seed 5 makes it.</summary>
+        BoundedBuoyancyFish Fish(Vector3 at, float appetite)
+        {
+            GameObject go = Make("Fish", at);
+            var cap = go.AddComponent<CapsuleCollider>();
+            cap.radius = 0.04f;
+            cap.height = 0.36f;
+            cap.direction = 2;   // along Z, its head toward +Z
+            var rb = go.AddComponent<Rigidbody>();
+            rb.detectCollisions = false;
+            var f = go.AddComponent<BoundedBuoyancyFish>();
+            f.appetite = appetite;
+            f.cruiseSpeed = appetite == 0f ? 0f : 0.4f;
+            f.randomSeed = 5;
+            f.mouth = new Vector3(0f, 0f, 0.18f);
+            f.homeRange = 3f;
+            return f;
+        }
+
+        /// <summary>A float rig at `at` (on the surface): a stick float 12 cm long and 8 mm across (a 16-sided prism) of
+        /// 250 kg/m³; a shot hook 0.5 m under it on 0.2 mm line, its lead leaving 2 cm of the tip out; a rod tip 5 m off and
+        /// 2 m up with 6 m of line. Returns the float, the hook, the main line.</summary>
+        void Rig(Vector3 at, out BoundedBuoyancyBody stick, out BoundedBuoyancyBody hook, out BoundedBuoyancyLine main)
+        {
+            const int sides = 16;
+            const float r = 0.004f;
+            var pts = new Vector3[2 * sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float a = 2f * Mathf.PI * i / sides;
+                pts[i] = new Vector3(r * Mathf.Cos(a), -0.06f, r * Mathf.Sin(a));
+                pts[sides + i] = new Vector3(r * Mathf.Cos(a), 0.06f, r * Mathf.Sin(a));
+            }
+            stick = Hull(pts, 250f, at, 0f, Vector3.zero);
+            stick.Body.detectCollisions = false;
+            // Shot to leave 2 cm of the tip out: the float's 10 cm under holds up its own weight and the shot's.
+            float area = 0.5f * sides * r * r * Mathf.Sin(2f * Mathf.PI / sides);
+            float spare = 1000f * area * 0.10f - 250f * area * 0.12f;
+            float lead = spare / (11340f - 1000f);
+            hook = Ball(Mathf.Pow(lead * 3f / (4f * Mathf.PI), 1f / 3f), 11340f, at + new Vector3(0f, -0.6f, 0f));
+            hook.Body.detectCollisions = false;
+            hook.gameObject.AddComponent<BoundedBuoyancyBait>();
+            var eye = new GameObject("Hook line");
+            eye.transform.SetParent(stick.transform, false);
+            eye.transform.localPosition = new Vector3(0f, -0.06f, 0f);
+            BoundedBuoyancyLine hl = Line(eye, hook.Body, 0.5f);
+            hl.diameter = 0.0002f;
+            GameObject tip = Make("Rod tip", at + new Vector3(-5f, 2f, 0f));
+            main = Line(tip, stick.Body, 6f);
+            main.endOffset = new Vector3(0f, 0.06f, 0f);
+        }
+
+        [UnityTest]
+        public IEnumerator B20_Fishing()
+        {
+            // A line (Bounded Buoyancy Line) pulls as Hooke's law gives, T = E A x / L, and never pushes; however stiff it
+            // is, it does not shake or fling what is on it.
+            Water(new Vector3(0f, 0f, 50f), new Vector3(200f, 50f, 200f));
+            // 100 g of steel on 2 m of 0.3 mm nylon (E 2.5 GPa) in the air: stretched m g / k = 11.1 mm.
+            Rigidbody weight = Weight("Weight", 0.0145f, 0.1f, new Vector3(0f, 8f, 50f), true);
+            BoundedBuoyancyLine line = Line(Make("Post", new Vector3(0f, 10f, 50f)), weight, 2f, 1f);
+            float k = 2.5e9f * Mathf.PI * 0.0003f * 0.0003f / 4f / 2f;
+            Assert.AreEqual(k, line.SpringConstant(), 1e-4f * k, "spring constant (N/m)");
+            yield return Steps(180);
+            Assert.AreEqual(0.1f * G / k * 1000f, line.Stretch * 1000f, 0.05f, "100 g hanging on 2 m of nylon: stretch (mm)");
+            Assert.AreEqual(0.1f * G, line.Tension, 0.002f, "  pull (N)");
+            // Lead under the water pulls with its weight less its buoyancy (lead 11340 kg/m³).
+            BoundedBuoyancyBody lead = Ball(0.01f, 11340f, new Vector3(3f, -1f, 50f));
+            lead.Body.detectCollisions = false;
+            BoundedBuoyancyLine leadLine = Line(Make("Float", new Vector3(3f, 0.5f, 50f)), lead.Body, 1.5f, 1f);
+            yield return Steps(240);
+            float leadPull = (11340f - 1000f) * 4f / 3f * Mathf.PI * 1e-6f * G;
+            Assert.AreEqual(leadPull, leadLine.Tension, 0.002f * leadPull, "lead under water: pull (N)");
+            // Never pushes: a slack line, and a weight thrown up at the post, which the line lets go.
+            leadLine.length = 3f;
+            yield return Steps(12);
+            Assert.AreEqual(0f, leadLine.Tension, 0f, "slack line: pull (N)");
+            weight.SetVelocity(new Vector3(0f, 4f, 0f));
+            yield return Steps(20);
+            Assert.AreEqual(4f - G * 20f / 60f, weight.Velocity().y, 0.02f, "  thrown up toward the post: rises as if free (m/s)");
+            // Steel wire (200 GPa) on a 5 g float, let go stretched with no damping: it springs back no faster than the
+            // stretch stored, and comes to rest.
+            Rigidbody bob = Weight("Bob", 0.01f, 0.005f, new Vector3(6f, 7.99f, 50f), false);
+            BoundedBuoyancyLine wire = Line(Make("Post", new Vector3(6f, 10f, 50f)), bob, 1.98f, 0f);
+            wire.stiffness = 200f;
+            float kw = wire.SpringConstant(), fastest = 0f;
+            for (int i = 0; i < 120; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                fastest = Mathf.Max(fastest, bob.Velocity().magnitude);
+            }
+            float stored = 0.5f * Mathf.Sqrt(kw / 0.005f) * 0.01f;
+            Assert.AreEqual(stored, fastest, stored, "stiff wire on a 5 g float: fastest (m/s) within what is stored");
+            Assert.AreEqual(0f, Mathf.Max(wire.Span - wire.length, 0f) * 100f, 0.05f, "  at rest after 2 s, no further than its length (cm)");
+            // Between two free bodies the line pulls both, so their momentum is kept; snatched taut at 2 m/s, it stretches
+            // no further than its energy can, v √(μ / k), μ the two masses' reduced mass.
+            Rigidbody one = Weight("One", 0.05f, 2f, new Vector3(10f, 5f, 50f), false);
+            Rigidbody two = Weight("Two", 0.05f, 0.5f, new Vector3(13f, 5f, 50f), false);
+            BoundedBuoyancyLine tow = Line(one.gameObject, two, 3f, 1f);
+            two.SetVelocity(new Vector3(2f, 0f, 0f));
+            float longest = 0f;
+            for (int i = 0; i < 120; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                longest = Mathf.Max(longest, tow.Stretch);
+            }
+            Assert.AreEqual(1f, one.Velocity().x * 2f + two.Velocity().x * 0.5f, 0.001f, "towing: momentum kept (kg m/s)");
+            float reach = 2f * Mathf.Sqrt(0.4f / tow.SpringConstant());
+            Assert.AreEqual(0.5f * reach * 100f, longest * 100f, 0.5f * reach * 100f, "  stretched (cm) within");
+            Assert.AreEqual(0.4f, one.Velocity().x, 0.4f, "  the tow under way (m/s)");
+            // A line with a slip (a reel's drag) pulls no harder than it, and runs out: 100 g on a line that slips at 0.5 N
+            // falls with (m g - 0.5) / m.
+            yield return Steps(240);
+            line.slipTension = 0.5f;
+            float before = line.length;
+            yield return Steps(6);
+            float v0 = weight.Velocity().y;
+            yield return Steps(30);
+            Assert.AreEqual(0.5f, line.Tension, 0.001f, "line slipping at 0.5 N: pull (N)");
+            Assert.AreEqual(G - 5f, (v0 - weight.Velocity().y) / 0.5f, 0.02f, "  the weight falls at (m/s²)");
+            Assert.AreEqual(0.5f * (G - 5f) * 0.36f, line.length - before, 0.03f, "  line run out in 0.6 s (m)");
+            line.slipTension = 0f;
+            // A line breaks when pulled harder than its breaking strength.
+            float snappedAt = 0f;
+            line.breakingStrength = 2f;
+            line.snapped.AddListener(t => snappedAt = t);
+            weight.mass = 0.3f;
+            yield return Steps(60);
+            Assert.IsTrue(line.Broken, "300 g on a line that breaks at 2 N: broken");
+            Assert.Greater(snappedAt, 2f, "  snapped, pulled harder than 2 N");
+            foreach (Rigidbody rb in new[] { weight, bob, one, two })
+                Object.Destroy(rb.gameObject);
+            Object.Destroy(lead.gameObject);
+
+            // A fish (Bounded Buoyancy Fish), 36 cm long. Its swim bladder makes it as dense as the water, so resting it
+            // neither sinks nor rises; swimming, it goes no faster than it means to.
+            Fast();
+            BoundedBuoyancyFish still = Fish(new Vector3(30f, -2f, 80f), 0f);
+            yield return Steps(300);
+            Assert.AreEqual(1000f, still.Density, 0f, "fish: as dense as the water (kg/m³)");
+            Assert.AreEqual(0f, (still.transform.position.y + 2f) * 100f, 1f, "  resting, drifted up or down (cm) in 5 s");
+            still.cruiseSpeed = 0.4f;
+            float top = 0f;
+            for (int i = 0; i < 600; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                top = Mathf.Max(top, still.Body.Velocity().magnitude);
+            }
+            Assert.AreEqual(0.3f, top, 0.1f, "  cruising (m/s), no more than its 0.4");
+            Object.Destroy(still.gameObject);
+
+            // Float fishing: a 4 g stick float shotted down to its tip, a hook 0.5 m under it on 0.2 mm line, 6 m of
+            // 0.3 mm line from a rod tip. A fish comes to the hook, nibbles (each nibble dips the float), takes it, and
+            // drops it again if not struck.
+            BoundedBuoyancyBody stick, hook;
+            BoundedBuoyancyLine main;
+            Rig(new Vector3(-20f, 0f, 50f), out stick, out hook, out main);
+            yield return Steps(240);
+            float rest = stick.transform.TransformPoint(new Vector3(0f, 0.06f, 0f)).y;
+            Assert.AreEqual(0.02f, rest, 0.005f, "float cocked: tip showing (m)");
+            Assert.AreEqual(0f, Tilt(stick), 10f, "  upright (degrees)");
+            BoundedBuoyancyFish fish = Fish(new Vector3(-18f, -1.2f, 51f), 3f);
+            fish.waryTime = 3f;
+            int step = 0, took = -1, dropped = -1;
+            fish.tookBait.AddListener(b => { if (took < 0) took = step; });
+            fish.droppedBait.AddListener(b => { if (dropped < 0) dropped = step; });
+            float dip = 0f, droppedAfter = -1f;
+            for (int i = 0; i < 60 * 400; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                step++;
+                if (fish.State == BoundedBuoyancyFish.FishState.Nibble)
+                    dip = Mathf.Max(dip, rest - stick.transform.TransformPoint(new Vector3(0f, 0.06f, 0f)).y);
+                if (dropped >= 0 && droppedAfter < 0f)
+                    droppedAfter = (dropped - took) / 60f;
+                // The second time it takes the bait, strike: sweep the rod back, taking in a metre of line.
+                if (dropped >= 0 && fish.State == BoundedBuoyancyFish.FishState.Take)
+                {
+                    main.length -= 1f;
+                    for (int s = 0; s < 18; s++)
+                    {
+                        yield return new WaitForFixedUpdate();
+                        step++;
+                    }
+                }
+                if (fish.State == BoundedBuoyancyFish.FishState.Hooked)
+                    break;
+            }
+            Assert.AreEqual(0.155f, dip, 0.145f, "  a nibble dips the float (m), 0.01 to 0.3");
+            Assert.AreEqual(fish.takeTime, droppedAfter, 0.05f, "  not struck, it drops the bait (s)");
+            Assert.AreEqual(BoundedBuoyancyFish.FishState.Hooked, fish.State, "  struck, it is hooked");
+            // Hooked, it fights; held on a line that gives no more, it tires.
+            float fought = 0f;
+            while (fish.State == BoundedBuoyancyFish.FishState.Hooked && fought < 90f)
+            {
+                yield return new WaitForFixedUpdate();
+                fought += Dt;
+            }
+            Assert.AreEqual(45f, fought, 40f, "  played on a held line, it tires (s)");
+            // A slack line and it throws the hook.
+            main.length += 30f;
+            float slack = 0f;
+            while (fish.State != BoundedBuoyancyFish.FishState.Free && slack < 20f)
+            {
+                yield return new WaitForFixedUpdate();
+                slack += Dt;
+            }
+            float within = 0.5f * (fish.slackEscape + 4f);
+            Assert.AreEqual(within, slack, within, "  given slack line, it throws the hook within (s)");
         }
 
         [UnityTest]

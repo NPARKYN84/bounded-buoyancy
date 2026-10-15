@@ -1009,6 +1009,97 @@ namespace BoundedBuoyancy.Checks
                 }
             }
 
+            Console.WriteLine("B20 Fishing");
+            {
+                // A line (BoundedBuoyancyLine) pulls as Hooke's law gives, T = E A x / L, and never pushes; however stiff
+                // it is, it does not shake or fling what is on it. 100 g of steel on 2 m of 0.3 mm nylon (E 2.5 GPa) in the
+                // air: stretched m g / k = 11.1 mm.
+                var w = new SimWorld();
+                double rw = 0.0145, vw = 4.0 / 3.0 * Math.PI * rw * rw * rw;
+                var weight = Body(w, Sphere(rw), 0.1 / vw, new V3(0, 8.0, 0));
+                var line = new SimLine { Anchor = new V3(0, 10, 0), Body = weight, Length = 2.0, Damping = 1.0 };
+                w.Lines.Add(line);
+                double k = 2.5e9 * Math.PI * 0.0003 * 0.0003 / 4.0 / 2.0;
+                Check("spring constant of 2 m of 0.3 mm nylon (N/m)", line.SpringConstant, k, 1e-9 * k);
+                Run(w, 3.0);
+                Check("100 g hanging on 2 m of nylon: stretch (mm)", line.Stretch * 1000.0, 0.1 * w.G / k * 1000.0, 1e-6);
+                Check("  pull (N)", line.Tension, 0.1 * w.G, 1e-9);
+                // Never pushes: thrown up toward the post, the weight rises as if free.
+                weight.V = new V3(0, 4.0, 0);
+                double most = 0.0;
+                Run(w, 20.0 / 60.0, t => most = Math.Max(most, line.Tension));
+                Check("  thrown up toward the post: rises as if free (m/s)", weight.V.y, 4.0 - w.G * 20.0 / 60.0, 1e-9);
+                Check("  the line pulling meanwhile (N)", most, 0.0, 0.0);
+                double paidNone;
+                double none = Tether.Pull(-0.05, -1.0, 10.0, k, 0.2, w.Dt, 0.0, out paidNone);
+                Check("  a line pushed together: no pull (N s)", none, 0.0, 0.0);
+                // A line with a slip (a reel's drag) pulls no harder than it, and runs out: 100 g on a line that slips at
+                // 0.5 N falls with (m g - 0.5) / m.
+                Run(w, 4.0);
+                line.SlipTension = 0.5;
+                double before = line.Length;
+                Run(w, 0.1);
+                double v0 = weight.V.y;
+                Run(w, 0.5);
+                Check("line slipping at 0.5 N: pull (N)", line.Tension, 0.5, 1e-9);
+                Check("  the weight falls at (m/s²)", (v0 - weight.V.y) / 0.5, w.G - 5.0, 1e-6);
+                Check("  line run out in 0.6 s (m)", line.Length - before, 0.5 * (w.G - 5.0) * 0.36, 0.03);
+                double paidSlip;
+                double slip = Tether.Pull(0.5, 0.0, 10.0, k, 0.0, w.Dt, 0.5, out paidSlip);
+                Check("  the core's pull held to the slip (N)", slip / w.Dt, 0.5, 1e-12);
+                Check("  paying out the stretch beyond 0.5 / k (m)", paidSlip, 0.5 - 0.5 / k - slip * 10.0 * w.Dt, 1e-12);
+                // A line breaks when pulled harder than its breaking strength.
+                line.SlipTension = 0.0;
+                line.BreakingStrength = 2.0;
+                weight.Core.Density *= 3.0;   // 300 g
+                Run(w, 1.0);
+                Check("300 g on a line that breaks at 2 N: broken", line.Broken ? 1.0 : 0.0, 1.0, 0.0);
+            }
+            {
+                // Lead under the water pulls with its weight less its buoyancy (lead 11340 kg/m³); slack, nothing.
+                var w = new SimWorld();
+                Water(w, V3.Zero, new V3(200, 50, 200));
+                var lead = Body(w, Sphere(0.01), 11340.0, new V3(3, -1.0, 0));
+                var line = new SimLine { Anchor = new V3(3, 0.5, 0), Body = lead, Length = 1.5, Damping = 1.0 };
+                w.Lines.Add(line);
+                Run(w, 4.0);
+                double pull = (11340.0 - 1000.0) * 4.0 / 3.0 * Math.PI * 1e-6 * w.G;
+                Check("lead under water: pull (N)", line.Tension, pull, 1e-6 * pull);
+                line.Length = 3.0;
+                Run(w, 0.2);
+                Check("slack line: pull (N)", line.Tension, 0.0, 0.0);
+            }
+            {
+                // Steel wire (200 GPa) on a 5 g float, let go stretched with no damping: it springs back no faster than the
+                // stretch stored, and comes to rest.
+                var w = new SimWorld { G = 0.0 };
+                double vb = 4.0 / 3.0 * Math.PI * 1e-6;
+                var bob = Body(w, Sphere(0.01), 0.005 / vb, new V3(6, 7.99, 0));
+                var wire = new SimLine { Anchor = new V3(6, 10, 0), Body = bob, Length = 1.98, Stiffness = 200.0, Damping = 0.0 };
+                w.Lines.Add(wire);
+                double kw = wire.SpringConstant, fastest = 0.0;
+                Run(w, 2.0, t => fastest = Math.Max(fastest, bob.V.Length));
+                Check("stiff wire on a 5 g float: fastest (m/s) within stored", fastest, 0.5 * Math.Sqrt(kw / 0.005) * 0.01, 0.5 * Math.Sqrt(kw / 0.005) * 0.01);
+                Check("  at rest after 2 s, no further than its length (cm)", Math.Max(wire.Span - wire.Length, 0.0) * 100.0, 0.0, 0.05);
+            }
+            {
+                // Between two free bodies the line pulls both, so their momentum is kept; snatched taut at 2 m/s, it
+                // stretches no further than its energy can, v √(μ / k), μ the two masses' reduced mass.
+                var w = new SimWorld { G = 0.0 };
+                double vs = 4.0 / 3.0 * Math.PI * 0.05 * 0.05 * 0.05;
+                var one = Body(w, Sphere(0.05), 2.0 / vs, new V3(10, 5, 0));
+                var two = Body(w, Sphere(0.05), 0.5 / vs, new V3(13, 5, 0));
+                var tow = new SimLine { Holder = one, Body = two, Length = 3.0, Damping = 1.0 };
+                w.Lines.Add(tow);
+                two.V = new V3(2.0, 0, 0);
+                double longest = 0.0;
+                Run(w, 2.0, t => longest = Math.Max(longest, tow.Stretch));
+                Check("towing: momentum kept (kg m/s)", one.V.x * 2.0 + two.V.x * 0.5, 1.0, 1e-9);
+                double reach = 2.0 * Math.Sqrt(0.4 / tow.SpringConstant);
+                Check("  stretched (cm) within", longest * 100.0, 0.5 * reach * 100.0, 0.5 * reach * 100.0);
+                Check("  the tow under way (m/s)", one.V.x, 0.4, 0.4);
+            }
+
             Console.WriteLine("Speed: 300 bodies on waves");
             {
                 foreach (var kind in new[] { "sphere", "box", "hull", "capsule" })

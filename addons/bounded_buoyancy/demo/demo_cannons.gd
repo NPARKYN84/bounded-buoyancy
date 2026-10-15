@@ -25,7 +25,7 @@ const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
 const SHIP := preload("res://addons/bounded_buoyancy/demo/demo_ship.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const CANNON := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannon.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_fishing.tscn"
 
 const GAP := 40.0           # m between the ships
 const GUNS := 5

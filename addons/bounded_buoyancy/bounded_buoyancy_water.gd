@@ -212,7 +212,13 @@ void fragment() {
 	vec2 g = dh(pxz) + detail * exp(-far / 70.0) * ripples(pxz);
 	vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
 	NORMAL = normalize((VIEW_MATRIX * (MODEL_MATRIX * vec4(n, 0.0))).xyz);
+	// Seen from under the water, light from above comes through only within Snell's window, 48.6°
+	// of straight up (water's refractive index 1.33); further over, the surface is a mirror of the
+	// dim water below.
+	float window = 1.0;
 	if (!FRONT_FACING) {
+		float c = clamp(dot(-VIEW, NORMAL), 0.0, 1.0);
+		window = 0.9 * smoothstep(0.77, 0.72, sqrt(1.0 - c * c));
 		NORMAL = -NORMAL;
 	}
 	// The water between the surface and what lies behind it: light from there comes through, less the
@@ -224,7 +230,7 @@ void fragment() {
 		uv = SCREEN_UV;   // something in front of the water: no bending
 	}
 	float murk = -log(max(1.0 - color.a, 0.01));
-	float through = FRONT_FACING ? exp(-murk * thick) : 0.5;
+	float through = FRONT_FACING ? exp(-murk * thick) : window;
 	vec3 below = textureLod(screen_tex, uv, 0.0).rgb;
 	// Foam where the water meets something, and on the crests of steep waves.
 	float pattern = 0.6 * noise(pxz * 2.7 + vec2(t * 0.25, 0.0)) + 0.4 * noise(pxz * 6.3 - vec2(0.0, t * 0.2));

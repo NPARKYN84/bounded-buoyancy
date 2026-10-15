@@ -47,6 +47,10 @@ namespace BoundedBuoyancy.Checks
         public V3 Moments;
         public M3 Axes = M3.Identity;
         public bool Frozen;
+        /// <summary>Its velocity at the start of the step, before the core's step (what a line reads).</summary>
+        public V3 V0;
+        /// <summary>Stepped by the core this step, its position still to move.</summary>
+        public bool Moving;
         /// <summary>A fast ball (BoundedBuoyancyCannonball): steps that meet the water are worked through by TryStepBall.</summary>
         public bool Ball;
         public double WaterLevel;
@@ -132,6 +136,7 @@ namespace BoundedBuoyancy.Checks
         public readonly List<WindField> Winds = new List<WindField>();
         public readonly List<SimBody> Bodies = new List<SimBody>();
         public readonly List<SimWall> Walls = new List<SimWall>();
+        public readonly List<SimLine> Lines = new List<SimLine>();
 
         public SimBody Add(SimBody b) { Bodies.Add(b); return b; }
 
@@ -144,6 +149,7 @@ namespace BoundedBuoyancy.Checks
                 w.Time += Dt;
             foreach (var b in Bodies)
             {
+                b.V0 = b.V;
                 if (b.Frozen)
                 {
                     b.Core.Frozen();
@@ -186,6 +192,17 @@ namespace BoundedBuoyancy.Checks
                 V3 al = new V3(tl.x / moments.x, tl.y / moments.y, tl.z / moments.z);
                 b.W += r.Mul(axes.Mul(al)) * Dt;
                 b.W *= Math.Max(0.0, 1.0 - b.Core.AngularDamp * Dt);
+                b.Moving = true;
+            }
+            // Lines after the bodies (BoundedBuoyancyLine runs after them, DefaultExecutionOrder(100)), their pull added to
+            // the velocity the bodies landed on, as the engine adds a force to a velocity change; then the bodies move.
+            foreach (var l in Lines)
+                l.Step(Dt);
+            foreach (var b in Bodies)
+            {
+                if (!b.Moving)
+                    continue;
+                b.Moving = false;
                 b.Com += b.V * Dt;
                 b.Rot = b.Rot.Integrate(b.W, Dt);
             }
@@ -255,6 +272,63 @@ namespace BoundedBuoyancy.Checks
         /// <summary>A ball has struck it: where (on its face), and the ball's velocity then.</summary>
         public event Action<SimBody, V3, V3> Struck;
         public void Fire(SimBody b, V3 at, V3 v) { if (Struck != null) Struck(b, at, v); }
+    }
+
+    /// <summary>A line, as BoundedBuoyancyLine: from Holder's centre of mass (or Anchor, held fast, when there is no
+    /// Holder) to Body's, both made fast at their centres of mass, so it does not turn them.</summary>
+    sealed class SimLine
+    {
+        public SimBody Holder;
+        public V3 Anchor;
+        public SimBody Body;
+        public double Length = 2.0, Diameter = 0.0003, Stiffness = 2.5, Damping = 0.2, SlipTension, BreakingStrength;
+        public double Tension, Stretch, Span;
+        public bool Broken;
+
+        public double SpringConstant { get { return Tether.SpringConstant(Stiffness, Diameter, Length); } }
+
+        public void Step(double dt)
+        {
+            Tension = 0.0;
+            if (Broken || Body == null)
+                return;
+            V3 a = Holder != null ? Holder.Com : Anchor, b = Body.Com, d = b - a;
+            Span = d.Length;
+            Stretch = Span - Length;
+            if (Span < 1e-6)
+                return;
+            V3 n = d / Span;
+            bool aMoves = Holder != null && !Holder.Frozen, bMoves = !Body.Frozen;
+            double u = 0.0, w = 0.0;
+            if (bMoves)
+            {
+                u += (Body.V0 + Body.Core.LastAcceleration * dt).Dot(n);
+                w += Tether.InverseMassAt(Body.Core.InertialMass, V3.Zero, n, Body.Moments, Body.Axes);
+            }
+            if (aMoves)
+            {
+                u -= (Holder.V0 + Holder.Core.LastAcceleration * dt).Dot(n);
+                w += Tether.InverseMassAt(Holder.Core.InertialMass, V3.Zero, n, Holder.Moments, Holder.Axes);
+            }
+            if (w <= 0.0)
+                return;
+            double paid;
+            double j = Tether.Pull(Stretch, u, w, SpringConstant, Damping, dt, SlipTension, out paid);
+            if (j <= 0.0)
+                return;
+            Length += paid;
+            Tension = j / dt;
+            if (BreakingStrength > 0.0 && Tension > BreakingStrength)
+            {
+                Broken = true;
+                Tension = 0.0;
+                return;
+            }
+            if (bMoves)
+                Body.V -= n * (j / Body.Core.InertialMass);
+            if (aMoves)
+                Holder.V += n * (j / Holder.Core.InertialMass);
+        }
     }
 
     sealed class SimBody2

@@ -24,7 +24,7 @@ namespace BoundedBuoyancy
             s_Driver = null;
         }
 
-        /// <summary>One step of dt seconds for every 3D water, wind and body: clocks first, then bodies.</summary>
+        /// <summary>One step of dt seconds for every 3D water, wind, body and line: clocks first, then bodies, then lines.</summary>
         public static void Step(float dt)
         {
             for (int i = 0; i < BoundedBuoyancyWater.active.Count; i++)
@@ -33,6 +33,8 @@ namespace BoundedBuoyancy
                 BoundedBuoyancyWind.active[i].Advance(dt);
             for (int i = 0; i < bodies.Count; i++)
                 bodies[i].Step(dt);
+            for (int i = 0; i < BoundedBuoyancyLine.active.Count; i++)
+                BoundedBuoyancyLine.active[i].Step(dt);
         }
 
         /// <summary>One step of dt seconds for every 2D water, wind and body.</summary>

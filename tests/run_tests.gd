@@ -1737,6 +1737,213 @@ func run() -> void:
 			sp.queue_free()
 	sea19.queue_free()
 
+	# B20: fishing. A line (BoundedBuoyancyLine) pulls as Hooke's law gives, T = E A x / L, and never
+	# pushes; however stiff it is, it does not shake or fling what is on it.
+	print("B20 Fishing")
+	var sea20 := BW.new()
+	sea20.size = Vector3(200, 50, 200)
+	sea20.position = Vector3(0, 0, -800)
+	sea20.show_surface = false
+	sea20.splashes = false
+	sea20.ripples = false
+	root.add_child(sea20)
+	# 100 g of steel on 2 m of 0.3 mm nylon (E 2.5 GPa) in the air: stretched m g / k = 11.1 mm.
+	var post20 := Node3D.new()
+	post20.position = Vector3(0, 10, -800)
+	root.add_child(post20)
+	var weight20 := RigidBody3D.new()
+	var wcs20 := CollisionShape3D.new()
+	wcs20.shape = _sphere(0.0145)
+	weight20.add_child(wcs20)
+	weight20.mass = 0.1
+	weight20.collision_layer = 0
+	weight20.collision_mask = 0
+	weight20.linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	weight20.position = Vector3(0, 8.0, -800)
+	root.add_child(weight20)
+	var line20: Node3D = LINE.new()
+	line20.body = weight20
+	line20.length = 2.0
+	line20.damping = 1.0
+	post20.add_child(line20)
+	var k20: float = 2.5e9 * PI * 0.0003 * 0.0003 / 4.0 / 2.0
+	await _wait(3.0)
+	check("100 g hanging on 2 m of nylon: stretch (mm)", line20.stretch * 1000.0, 0.1 * G / k20 * 1000.0, 0.05)
+	check("  pull (N)", line20.tension, 0.1 * G, 0.002)
+	# Lead under the water pulls with its weight less its buoyancy (lead 11340 kg/m³).
+	var lead20 := make_shape_body(_sphere(0.01), 11340.0, Vector3(3, -1.0, -800), 0.0)
+	lead20.collision_layer = 0
+	lead20.collision_mask = 0
+	var float20 := Node3D.new()
+	float20.position = Vector3(3, 0.5, -800)
+	root.add_child(float20)
+	var leadline20: Node3D = LINE.new()
+	leadline20.body = lead20
+	leadline20.length = 1.5
+	leadline20.damping = 1.0
+	float20.add_child(leadline20)
+	lead20.freeze = false
+	await _wait(4.0)
+	var lead_v20: float = 4.0 / 3.0 * PI * pow(0.01, 3)
+	check("lead under water: pull (N)", leadline20.tension, (11340.0 - 1000.0) * lead_v20 * G, 0.002 * (11340.0 - 1000.0) * lead_v20 * G)
+	# Never pushes: a slack line, and a weight thrown up at the post, which the line lets go.
+	leadline20.length = 3.0
+	await _wait(0.2)
+	check("slack line: pull (N)", leadline20.tension, 0.0, 0.0)
+	weight20.linear_velocity = Vector3(0, 4.0, 0)
+	var most20 := 0.0
+	for i20 in 20:
+		await physics_frame
+		most20 = maxf(most20, line20.tension)
+	check("  thrown up toward the post: rises as if free (m/s)", weight20.linear_velocity.y, 4.0 - G * 20.0 / 60.0, 0.02)
+	# Steel wire (200 GPa) on a 5 g float, let go 1 cm stretched with no damping: it springs back no
+	# faster than the stretch stored.
+	var bob20 := RigidBody3D.new()
+	var bcs20 := CollisionShape3D.new()
+	bcs20.shape = _sphere(0.01)
+	bob20.add_child(bcs20)
+	bob20.mass = 0.005
+	bob20.gravity_scale = 0.0
+	bob20.collision_layer = 0
+	bob20.collision_mask = 0
+	bob20.linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	bob20.angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+	bob20.position = Vector3(6, 7.99, -800)
+	root.add_child(bob20)
+	var post20b := Node3D.new()
+	post20b.position = Vector3(6, 10, -800)
+	root.add_child(post20b)
+	var wire20: Node3D = LINE.new()
+	wire20.body = bob20
+	wire20.length = 1.98
+	wire20.stiffness = 200.0
+	wire20.damping = 0.0
+	post20b.add_child(wire20)
+	var k20b: float = wire20.spring_constant()
+	var fastest20 := 0.0
+	for i20 in 120:
+		await physics_frame
+		fastest20 = maxf(fastest20, bob20.linear_velocity.length())
+	check("stiff wire on a 5 g float: fastest (m/s) within stored", fastest20, 0.5 * sqrt(k20b / 0.005) * 0.01, 0.5 * sqrt(k20b / 0.005) * 0.01)
+	check("  at rest after 2 s, no further than its length (cm)", maxf(wire20.span - wire20.length, 0.0) * 100.0, 0.0, 0.05)
+	# Between two free bodies the line pulls both, so their momentum is kept.
+	var one20 := RigidBody3D.new()
+	var two20 := RigidBody3D.new()
+	for pair in [[one20, 2.0, Vector3(10, 5, -800)], [two20, 0.5, Vector3(13, 5, -800)]]:
+		var rb: RigidBody3D = pair[0]
+		var cs := CollisionShape3D.new()
+		cs.shape = _sphere(0.05)
+		rb.add_child(cs)
+		rb.mass = pair[1]
+		rb.gravity_scale = 0.0
+		rb.collision_layer = 0
+		rb.collision_mask = 0
+		rb.linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+		rb.angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
+		rb.position = pair[2]
+		root.add_child(rb)
+	var tow20: Node3D = LINE.new()
+	tow20.body = two20
+	tow20.length = 3.0
+	tow20.damping = 1.0
+	one20.add_child(tow20)
+	two20.linear_velocity = Vector3(2.0, 0, 0)
+	var long20 := 0.0
+	for i20 in 120:
+		await physics_frame
+		long20 = maxf(long20, tow20.stretch)
+	var p20 := one20.linear_velocity * 2.0 + two20.linear_velocity * 0.5
+	check("towing: momentum kept (kg m/s)", p20.x, 1.0, 0.001)
+	# Snatched taut at 2 m/s, it stretches no further than its energy can: v √(μ / k), μ the two masses' reduced mass.
+	var reach20: float = 2.0 * sqrt(0.4 / tow20.spring_constant())
+	check("  stretched (cm) within", long20 * 100.0, 0.5 * reach20 * 100.0, 0.5 * reach20 * 100.0)
+	check("  the tow under way (m/s)", one20.linear_velocity.x, 0.4, 0.4)
+	# A line with a slip (a reel's drag) pulls no harder than it, and runs out: 100 g on a line that
+	# slips at 0.5 N falls with (m g - 0.5) / m.
+	line20.slip_tension = 0.5
+	var long_before20: float = line20.length
+	await _wait(0.1)
+	var v0_20: float = weight20.linear_velocity.y
+	await _wait(0.5)
+	check("line slipping at 0.5 N: pull (N)", line20.tension, 0.5, 0.001)
+	check("  the weight falls at (m/s²)", (v0_20 - weight20.linear_velocity.y) / 0.5, G - 5.0, 0.02)
+	check("  line run out in 0.6 s (m)", line20.length - long_before20, 0.5 * (G - 5.0) * 0.36, 0.03)
+	line20.slip_tension = 0.0
+	# A line breaks when pulled harder than its breaking strength.
+	var snaps20 := [0.0]
+	line20.breaking_strength = 2.0
+	line20.snapped.connect(func(t: float) -> void: snaps20[0] = t)
+	weight20.mass = 0.3
+	await _wait(1.0)
+	check("300 g on a line that breaks at 2 N: broken", 1.0 if line20.broken else 0.0, 1.0, 0.0)
+	for n20 in [post20, weight20, lead20, float20, bob20, post20b, one20, two20]:
+		n20.queue_free()
+
+	# A fish (BoundedBuoyancyFish), 36 cm long. Its swim bladder makes it as dense as the water, so
+	# resting it neither sinks nor rises; swimming, it goes no faster than it means to.
+	var still20: RigidBody3D = _fish20(Vector3(30, -2.0, -770), 0.0)
+	await _wait(5.0)
+	check("fish: as dense as the water (kg/m³)", still20.density, 1000.0, 0.0)
+	check("  resting, drifted up or down (cm) in 5 s", (still20.global_position.y + 2.0) * 100.0, 0.0, 1.0)
+	still20.cruise_speed = 0.4
+	var top20 := 0.0
+	for i20 in 600:
+		await physics_frame
+		top20 = maxf(top20, still20.linear_velocity.length())
+	check("  cruising (m/s), no more than its 0.4", top20, 0.3, 0.1)
+	still20.queue_free()
+	# Float fishing: a 4 g stick float shotted down to its tip, a hook 0.5 m under it on 0.2 mm line,
+	# 6 m of 0.3 mm line from a rod tip. A fish comes to the hook, nibbles (each nibble dips the float),
+	# takes it, and drops it again if not struck.
+	var rig20 := _rig20(Vector3(-20, 0, -800))
+	var flt20: RigidBody3D = rig20[0]
+	var main20: Node3D = rig20[2]
+	await _wait(4.0)
+	var rest20: float = (flt20.global_transform * Vector3(0, 0.06, 0)).y
+	check("float cocked: tip showing (cm)", rest20 * 100.0, 2.0, 0.5)
+	check("  upright (degrees)", rad_to_deg(flt20.global_transform.basis.y.angle_to(Vector3.UP)), 0.0, 10.0)
+	var fish20: RigidBody3D = _fish20(Vector3(-18, -1.2, -799), 3.0)
+	fish20.wary_time = 3.0
+	var seen20 := {}
+	for sig in ["noticed_bait", "nibbled", "took_bait", "dropped_bait", "hooked", "tired", "escaped"]:
+		fish20.connect(sig, func(_a = null) -> void:
+			if not seen20.has(sig):
+				seen20[sig] = Engine.get_physics_frames())
+	var dip20 := 0.0
+	var dropped_after20 := -1.0
+	for i20 in 60 * 400:
+		await physics_frame
+		if fish20.state == FISH.State.NIBBLE:
+			dip20 = maxf(dip20, rest20 - (flt20.global_transform * Vector3(0, 0.06, 0)).y)
+		if seen20.has("dropped_bait") and dropped_after20 < 0.0:
+			dropped_after20 = (seen20["dropped_bait"] - seen20["took_bait"]) / 60.0
+		# The second time it takes the bait, strike: sweep the rod back, taking in a metre of line.
+		if seen20.has("dropped_bait") and fish20.state == FISH.State.TAKE:
+			main20.length -= 1.0
+			await _wait(0.3)
+		if fish20.state == FISH.State.HOOKED:
+			break
+	check("  a nibble dips the float (cm), 1 to 30", dip20 * 100.0, 15.5, 14.5)
+	check("  not struck, it drops the bait (s)", dropped_after20, fish20.take_time, 0.05)
+	check("  struck, it is hooked", 1.0 if fish20.state == FISH.State.HOOKED else 0.0, 1.0, 0.0)
+	# Hooked, it fights; held on a line that gives no more, it tires.
+	var fought20 := 0.0
+	while fish20.state == FISH.State.HOOKED and fought20 < 90.0:
+		await physics_frame
+		fought20 += 1.0 / 60.0
+	check("  played on a held line, it tires (s)", fought20, 45.0, 40.0)
+	# A slack line and it throws the hook.
+	main20.length += 30.0
+	var slack20 := 0.0
+	while fish20.state != FISH.State.FREE and slack20 < 20.0:
+		await physics_frame
+		slack20 += 1.0 / 60.0
+	check("  given slack line, it throws the hook within (s)", slack20, 0.5 * (fish20.slack_escape + 4.0), 0.5 * (fish20.slack_escape + 4.0))
+	for n20 in rig20:
+		n20.queue_free()
+	fish20.queue_free()
+	sea20.queue_free()
+
 	print("PASS" if failures == 0 else "FAIL (%d checks)" % failures)
 	quit(1 if failures else 0)
 
@@ -1749,6 +1956,60 @@ const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thrust
 const CANNON := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannon.gd")
 const BALL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonball.gd")
 const HULL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_hull.gd")
+const LINE := preload("res://addons/bounded_buoyancy/bounded_buoyancy_line.gd")
+const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
+
+
+## A fish 36 cm long (1.6 kg) at `at`, keen on bait as `appetite`, choosing as seed 5 makes it.
+func _fish20(at: Vector3, appetite: float) -> RigidBody3D:
+	var f: RigidBody3D = FISH.new()
+	var cs := CollisionShape3D.new()
+	cs.shape = _capsule(0.04, 0.36)
+	cs.rotation_degrees = Vector3(90, 0, 0)
+	f.add_child(cs)
+	f.collision_layer = 0
+	f.collision_mask = 0
+	f.position = at
+	f.appetite = appetite
+	f.cruise_speed = 0.0 if appetite == 0.0 else 0.4
+	f.random_seed = 5
+	f.mouth = Vector3(0, 0, -0.18)
+	f.home_range = 3.0
+	root.add_child(f)
+	return f
+
+
+## A float rig at `at` (on the surface): a stick float 12 cm long, 8 mm across, of 250 kg/m³; a
+## 4 g shot hook 0.5 m under it; a rod tip 5 m off and 2 m up with 6 m of line. Returns the float,
+## the hook, the main line and the rod tip.
+func _rig20(at: Vector3) -> Array:
+	var f := make_shape_body(_cylinder(0.004, 0.12), 250.0, at, 0.0)
+	f.collision_layer = 0
+	f.collision_mask = 0
+	# Shot to leave 2 cm of the tip out: the float's 10 cm under holds up its own weight and the shot's.
+	var spare := 1000.0 * PI * 0.004 * 0.004 * 0.10 - 250.0 * PI * 0.004 * 0.004 * 0.12
+	var lead := spare / (11340.0 - 1000.0)
+	var hook := make_shape_body(_sphere(pow(lead * 3.0 / (4.0 * PI), 1.0 / 3.0)), 11340.0, at + Vector3(0, -0.6, 0), 0.0)
+	hook.collision_layer = 0
+	hook.collision_mask = 0
+	hook.add_to_group(&"bounded_buoyancy_bait")
+	var hl: Node3D = LINE.new()
+	hl.position = Vector3(0, -0.06, 0)
+	hl.body = hook
+	hl.length = 0.5
+	hl.diameter = 0.0002
+	f.add_child(hl)
+	var tip := Node3D.new()
+	tip.position = at + Vector3(-5, 2, 0)
+	root.add_child(tip)
+	var ml: Node3D = LINE.new()
+	ml.body = f
+	ml.end_offset = Vector3(0, 0.06, 0)
+	ml.length = 6.0
+	tip.add_child(ml)
+	f.freeze = false
+	hook.freeze = false
+	return [f, hook, ml, tip]
 
 
 ## A 24-pounder with no scatter at `at`, pointing along `dir`, firing at `speed`; shots last.

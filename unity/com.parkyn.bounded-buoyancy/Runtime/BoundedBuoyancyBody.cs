@@ -194,7 +194,8 @@ namespace BoundedBuoyancy
                     c.Register();
         }
 
-        void OnDisable()
+        /// <summary>A subclass that overrides this must call base.OnDisable().</summary>
+        protected virtual void OnDisable()
         {
             BoundedBuoyancySimulation.bodies.Remove(this);
             // Hand the Rigidbody back as it was, so that it falls and damps as usual.
@@ -278,6 +279,7 @@ namespace BoundedBuoyancy
                 core.Frozen();
                 return;
             }
+            BeforeStep(dt);
             core.Bounded = model == Model.Bounded;
             core.Density = density;
             core.AddedMassCoefficient = addedMassCoefficient;
@@ -335,6 +337,13 @@ namespace BoundedBuoyancy
             }
             if (core.Crossing != Crossing.None)
                 ReportCrossing();
+        }
+
+        /// <summary>For a body that does something of its own each physics step (Bounded Buoyancy Fish swims): called each
+        /// step before the buoyancy, once the body is set up and while it is not kinematic. Density, settings, forces and
+        /// torques set here count in this step; Water is the water the body was in last step.</summary>
+        protected virtual void BeforeStep(float dt)
+        {
         }
 
         /// <summary>The velocity this step starts from, given the Rigidbody's: a subclass may hand back one of its own (and

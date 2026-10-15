@@ -321,6 +321,35 @@ namespace BoundedBuoyancy.Tests
         }
 
         [Test]
+        public void LineStretchesAsHookesLawGivesAndNeverPushes()
+        {
+            // 100 g hanging under a post on 2 m of 0.3 mm nylon (E 2.5 GPa), stepped at 60 Hz with the line's pull
+            // (velocity first, then position, as the engines do): it comes to rest stretched by m g / k exactly.
+            double g = 9.80665, m = 0.1, dt = 1.0 / 60.0;
+            double k = Tether.SpringConstant(2.5, 0.0003, 2.0);
+            Assert.AreEqual(2.5e9 * Math.PI * 0.0003 * 0.0003 / 4.0 / 2.0, k, 1e-9, "E A / L (N/m)");
+            double y = -2.0, v = 0.0, paid, j = 0.0;   // the weight's height below the post, and its speed (up)
+            for (int i = 0; i < 180; i++)
+            {
+                // The line runs down from the post: the ends draw apart as the weight goes down.
+                j = Tether.Pull(-y - 2.0, -(v - g * dt), 1.0 / m, k, 1.0, dt, 0.0, out paid);
+                v += -g * dt + j / m;
+                y += v * dt;
+            }
+            Assert.AreEqual(m * g / k, -y - 2.0, 1e-9, "stretch (m)");
+            Assert.AreEqual(m * g, j / dt, 1e-9, "pull (N)");
+            Assert.AreEqual(0.0, Tether.Pull(-0.01, 0.0, 1.0 / m, k, 1.0, dt, 0.0, out paid), 0.0, "slack: no pull");
+            Assert.AreEqual(0.0, Tether.Pull(0.01, -5.0, 1.0 / m, k, 1.0, dt, 0.0, out paid), 0.0, "ends closing fast: no push");
+            // A slip of 0.5 N holds the pull to it and pays out line.
+            double held = Tether.Pull(0.05, 1.0, 1.0 / m, k, 1.0, dt, 0.5, out paid);
+            Assert.AreEqual(0.5, held / dt, 1e-12, "slipping: the pull (N)");
+            Assert.Greater((float)paid, 0f, "slipping: line paid out");
+            // At a point off the centre of mass its turning adds to the give: a rod 1 m long pulled square at its end.
+            double rod = Tether.InverseMassAt(1.0, new V3(0.5, 0, 0), new V3(0, 1, 0), new V3(1e-6, 1.0 / 12.0, 1.0 / 12.0), M3.Identity);
+            Assert.AreEqual(1.0 + 0.25 * 12.0, rod, 1e-9, "1/m + r² / I");
+        }
+
+        [Test]
         public void CircleSegmentIn2D()
         {
             var b = new ShapeBuilder2D();

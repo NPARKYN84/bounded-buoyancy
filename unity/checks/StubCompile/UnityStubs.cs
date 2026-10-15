@@ -49,6 +49,7 @@ namespace UnityEngine
         public GameObject(string name) { }
         public Transform transform { get { return null; } }
         public int layer { get; set; }
+        public bool activeInHierarchy { get { return false; } }
         public SceneManagement.Scene scene { get { return default(SceneManagement.Scene); } }
         public string tag { get; set; }
         public static GameObject CreatePrimitive(PrimitiveType type) { return null; }
@@ -214,6 +215,7 @@ namespace UnityEngine
         public static float Sqrt(float f) { return 0f; }
         public static float Asin(float f) { return 0f; }
         public static float Abs(float f) { return 0f; }
+        public static float Sign(float f) { return 0f; }
         public static float Pow(float f, float p) { return 0f; }
         public static float Exp(float power) { return 0f; }
         public static float Log(float f) { return 0f; }
@@ -637,10 +639,19 @@ namespace UnityEngine.Events
     [Serializable]
     public abstract class UnityEventBase { }
 
+    public delegate void UnityAction();
     public delegate void UnityAction<T0>(T0 arg0);
     public delegate void UnityAction<T0, T1>(T0 arg0, T1 arg1);
     public delegate void UnityAction<T0, T1, T2>(T0 arg0, T1 arg1, T2 arg2);
     public delegate void UnityAction<T0, T1, T2, T3>(T0 arg0, T1 arg1, T2 arg2, T3 arg3);
+
+    [Serializable]
+    public class UnityEvent : UnityEventBase
+    {
+        public UnityEvent() { }
+        public void AddListener(UnityAction call) { }
+        public void Invoke() { }
+    }
 
     [Serializable]
     public class UnityEvent<T0, T1, T2, T3> : UnityEventBase
