@@ -5,9 +5,12 @@ using System;
 
 namespace UnityEngine
 {
+    public enum FindObjectsSortMode { None = 0, InstanceID = 1 }
+
     public partial class Object
     {
         public static T FindAnyObjectByType<T>() where T : Object { return null; }
+        public static T[] FindObjectsByType<T>(FindObjectsSortMode sortMode) where T : Object { return null; }
     }
 
     public enum CameraClearFlags { Skybox = 1, Color = 2, SolidColor = 2, Depth = 3, Nothing = 4 }
@@ -87,6 +90,60 @@ namespace UnityEngine
         public static void Space(float pixels) { }
         public static bool Toggle(bool value, string text, params GUILayoutOption[] options) { return value; }
         public static float HorizontalSlider(float value, float leftValue, float rightValue, params GUILayoutOption[] options) { return value; }
+        public static bool RepeatButton(string text, params GUILayoutOption[] options) { return false; }
+    }
+
+    // For the sea scenes (Runtime/Export/Graphics/RenderSettings.bindings.cs, Physics/Dynamics.bindings.cs and others).
+    public enum FogMode { Linear = 1, Exponential = 2, ExponentialSquared = 3 }
+
+    public sealed partial class RenderSettings : Object
+    {
+        public static bool fog { get; set; }
+        public static FogMode fogMode { get; set; }
+        public static float fogDensity { get; set; }
+        public static Color fogColor { get; set; }
+    }
+
+    public partial class Transform
+    {
+        public Vector3 localEulerAngles { get; set; }
+    }
+
+    public sealed partial class GameObject
+    {
+        public void SetActive(bool value) { }
+    }
+
+    public partial class Rigidbody
+    {
+        public void MovePosition(Vector3 position) { }
+    }
+
+    public partial class Physics
+    {
+        public static void IgnoreCollision(Collider collider1, Collider collider2) { }
+    }
+
+    public partial struct Vector3
+    {
+        public static Vector3 RotateTowards(Vector3 current, Vector3 target, float maxRadiansDelta, float maxMagnitudeDelta) { return current; }
+    }
+
+    public partial struct Quaternion
+    {
+        public static Quaternion FromToRotation(Vector3 fromDirection, Vector3 toDirection) { return default(Quaternion); }
+    }
+
+    public partial struct Color
+    {
+        public static Color Lerp(Color a, Color b, float t) { return a; }
+    }
+
+    public partial struct Mathf
+    {
+        public static float SmoothStep(float from, float to, float t) { return from; }
+        public static float InverseLerp(float a, float b, float value) { return 0f; }
+        public static float Repeat(float t, float length) { return t; }
     }
 }
 

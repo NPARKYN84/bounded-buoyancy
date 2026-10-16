@@ -44,7 +44,7 @@ namespace UnityEngine
 
     public class MonoBehaviour : Behaviour { }
 
-    public sealed class GameObject : Object
+    public sealed partial class GameObject : Object
     {
         public GameObject(string name) { }
         public Transform transform { get { return null; } }
@@ -57,7 +57,7 @@ namespace UnityEngine
         public T GetComponent<T>() { return default(T); }
     }
 
-    public class Transform : Component
+    public partial class Transform : Component
     {
         public Vector3 position { get; set; }
         public Vector3 localPosition { get; set; }
@@ -113,7 +113,7 @@ namespace UnityEngine
         public Vector4(float x, float y, float z, float w) { this.x = x; this.y = y; this.z = z; this.w = w; }
     }
 
-    public struct Vector3
+    public partial struct Vector3
     {
         public float x, y, z;
         public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
@@ -147,7 +147,7 @@ namespace UnityEngine
         public override int GetHashCode() { return 0; }
     }
 
-    public struct Quaternion
+    public partial struct Quaternion
     {
         public float x, y, z, w;
         public static Quaternion identity { get { return default(Quaternion); } }
@@ -183,7 +183,7 @@ namespace UnityEngine
         public Vector3 extents { get { return default(Vector3); } set { } }
     }
 
-    public struct Color
+    public partial struct Color
     {
         public float r, g, b, a;
         public Color(float r, float g, float b, float a) { this.r = r; this.g = g; this.b = b; this.a = a; }
@@ -203,7 +203,7 @@ namespace UnityEngine
         public static implicit operator Color32(Color c) { return default(Color32); }
     }
 
-    public struct Mathf
+    public partial struct Mathf
     {
         public const float PI = 3.14159274F;
         public const float Deg2Rad = PI * 2F / 360F;

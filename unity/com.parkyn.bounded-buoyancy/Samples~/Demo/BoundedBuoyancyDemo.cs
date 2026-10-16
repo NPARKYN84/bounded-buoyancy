@@ -6,9 +6,9 @@ using UnityEngine;
 
 namespace BoundedBuoyancy.Samples
 {
-    public class BoundedBuoyancyDemo : MonoBehaviour
+    public partial class BoundedBuoyancyDemo : MonoBehaviour
     {
-        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind, Boats }
+        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind, Boats, Fishing, Submarine, Battle }
 
         static readonly string[] Captions =
         {
@@ -21,6 +21,9 @@ namespace BoundedBuoyancy.Samples
             "RIVER: the water flows, slower along the banks. Bodies drift with it by drag on their speed through the water.",
             "WIND: gusty wind over a lake. Boats with sails run before it and heel; balloons drift with it; crates barely move.",
             "BOATS: drive the orange motorboat (W / S throttle, A / D rudder, or the sliders): a keel, a rudder and a propeller. The dinghy, with a centreboard, a rudder and a sail that trims itself, beats up into the wind in tacks on its own, then runs back.",
+            "FISHING: float fishing from a jetty. The angler casts; fish come to the bait and nibble, each nibble dipping the float, then one takes it. He strikes, the fish runs and tires against the reel's drag (the line's slip tension), and he reels it in and lands it. The line is real 0.25 mm nylon that stretches and breaks.",
+            "SUBMARINE: real sea water, brackish at the top over cold salty water from 25 m down. Flooded, the submarine sinks until the water round it is as dense as it is and rests there on the salt layer; the trim tank moves it up or down a little; blown, it surfaces. The yellow floats each hang where the water is as dense as they are.",
+            "BATTLE: a pirate brig against a navy brig under sail, five 12-pounders a side. Shot goes through the oak sides and holes the compartments behind; the sea comes in at the holes at and below the waterline, the ship settles and heels, and with 35 t of water in her she strikes her colours.",
         };
 
         Scene scene = Scene.Release;
@@ -81,6 +84,10 @@ namespace BoundedBuoyancy.Samples
             scene = s;
             if (root != null)
                 Destroy(root.gameObject);
+            // Splinters from the BATTLE scene's planking are made outside the scene's root.
+            foreach (BoundedBuoyancyBody b in Object.FindObjectsByType<BoundedBuoyancyBody>(FindObjectsSortMode.None))
+                if (b.name == "Splinter")
+                    Destroy(b.gameObject);
             root = new GameObject("Demo " + s).transform;
             bodies.Clear();
             sails.Clear();
@@ -96,6 +103,7 @@ namespace BoundedBuoyancy.Samples
             wrapMin = float.NegativeInfinity;
             wrapMax = float.PositiveInfinity;
             orbit = true;
+            ResetSea();
             switch (s)
             {
                 case Scene.Release: BuildRelease(); break;
@@ -107,6 +115,9 @@ namespace BoundedBuoyancy.Samples
                 case Scene.River: BuildRiver(); break;
                 case Scene.Wind: BuildWind(); break;
                 case Scene.Boats: BuildBoats(); break;
+                case Scene.Fishing: BuildFishing(); break;
+                case Scene.Submarine: BuildSubmarine(); break;
+                case Scene.Battle: BuildBattle(); break;
             }
         }
 
@@ -413,6 +424,7 @@ namespace BoundedBuoyancy.Samples
 
         void FixedUpdate()
         {
+            SeaStep(Time.fixedDeltaTime);
             if (scene != Scene.Boats || motorboat == null)
                 return;
             if (keyW)
@@ -619,11 +631,14 @@ namespace BoundedBuoyancy.Samples
                 yaw = Mathf.LerpAngle(yaw, heading, 1f - Mathf.Exp(-2f * Time.deltaTime));
                 distance = followDinghy ? 16f : 12f;
             }
-            if (orbit)
-                yaw += 4f * Time.deltaTime;
-            Quaternion q = Quaternion.Euler(pitch, yaw, 0f);
-            cam.transform.position = focus - q * Vector3.forward * distance;
-            cam.transform.rotation = q;
+            if (!SeaCamera())
+            {
+                if (orbit)
+                    yaw += 4f * Time.deltaTime;
+                Quaternion q = Quaternion.Euler(pitch, yaw, 0f);
+                cam.transform.position = focus - q * Vector3.forward * distance;
+                cam.transform.rotation = q;
+            }
 
             // Sails turn to face the wind they feel, like a sail let out to run before the wind.
             foreach (Transform sail in sails)
@@ -673,7 +688,9 @@ namespace BoundedBuoyancy.Samples
                 if (GUILayout.Button((i + 1) + "  " + names[i]))
                     pendingScene = i;
             GUILayout.Space(8f);
-            orbit = GUILayout.Toggle(orbit, " Turn the camera");
+            if (!eyeSet)
+                orbit = GUILayout.Toggle(orbit, " Turn the camera");
+            SeaGUI();
             if (scene == Scene.Release && GUILayout.Button("Release again"))
                 pendingScene = (int)Scene.Release;
             if ((scene == Scene.Float || scene == Scene.Waves || scene == Scene.Tilt) && GUILayout.Button("Drop a crate"))

@@ -251,7 +251,7 @@ The air is real air: the standard atmosphere (the US Standard Atmosphere, 1976, 
 
 In the checks, the air's density at 0, 1000, 5000, 11 000, 15 000 and 20 000 m matches the standard atmosphere's tables (1.2250 to 0.08891 kg/m³), and the speed of sound at sea level is 340.3 m/s. A body 1000 m up feels the air there, and on a hot damp day (30 °C, 1000 hPa, 60%) the air of that day. A sealed balloon as dense as the air 1000 m up, let go at 900 m, floats at 1000.0 m. In a thermal 3 °C warm the air is less dense by 288/291 and rises at its updraft, 2 m/s; a balloon as dense as the air outside climbs in it at 1.41 m/s, sinking through the warm air at about the 0.54 m/s its extra weight against the drag gives.
 
-![Two foil helium balloons and a hot-air balloon, at twice real speed](docs/sky.gif)
+![Two foil helium balloons, and a hot-air balloon lifting off in the real air as its pilot burns](docs/sky.gif)
 
 | Released from rest in air (60 Hz) | Usual engine method | Bounded Buoyancy |
 | --- | ---: | ---: |
