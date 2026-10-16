@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Demo: the FISHING scene is dressed better. The fish are perch, trout and bass, each with its own shape, fins, eyes and markings (and trout dash hardest, bass pull hardest). The angler sits on a seat box on the jetty in a waxed jacket, a vest, wellingtons and a bucket hat, his hands on the rod and the reel's handle, which turns as he winds. The rod has a cork handle, a reel seat and whipped guides; the reel is a fixed-spool reel. The float has a bolder tip, the hook a worm on it, and an open tackle box of lures stands on the jetty. The water is clearer, the lake bed sandy, with stones and swaying weed. The fish, the tackle and the angler are drawn by demo/demo_tackle.gd.
+
 ## 2.5.2
 
 - Demo: the brigs' planking is drawn as meant. The joints between planks were drawn the wrong way round, so the whole hull was drawn at about a fifth of its colour with bright marks at the joints; now the planks are their colour, with dark seams and butt joints. The deck had the same fault. The gun ports' lids swing out and up, as on a real ship; they swung inward.

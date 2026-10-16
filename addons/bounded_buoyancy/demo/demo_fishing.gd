@@ -14,16 +14,19 @@ extends Node3D
 ##   C       change the camera (following the float, on the jetty, under the water by the hook)
 ##   R       start again
 ##   Tab     next scene
-## The float, the shot and the fish are ordinary Bounded Buoyancy bodies; the fish are
-## BoundedBuoyancyFish, the line BoundedBuoyancyLine (0.25 mm nylon, about 3 kg breaking strain).
-## The rod is drawn bending with the pull on the line, and its tip moves with it. The float is drawn
-## half as wide again as it is, so that it can be seen.
+## The float, the shot and the fish are ordinary Bounded Buoyancy bodies; the fish (perch, trout and
+## bass) are BoundedBuoyancyFish, the line BoundedBuoyancyLine (0.25 mm nylon, about 3 kg breaking
+## strain). The rod is drawn bending with the pull on the line, and its tip moves with it; the angler's
+## hands follow the rod and the reel's handle, which turns as line is wound in. The float is drawn
+## twice as wide as it is, and the hook and worm half as big again, so that they can be seen. The
+## fish, the tackle and the angler are drawn by demo_tackle.gd.
 
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const LINE := preload("res://addons/bounded_buoyancy/bounded_buoyancy_line.gd")
 const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
 const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
+const TACKLE := preload("res://addons/bounded_buoyancy/demo/demo_tackle.gd")
 const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_submarine.tscn"
 
 const DECK := 0.8               # m: the jetty's deck above the water
@@ -79,7 +82,10 @@ var _bar: ProgressBar
 var _drag_mark: ColorRect
 var _message := ""
 var _message_time := 0.0
-var _float_mat: ShaderMaterial
+var _reel_look: Node3D
+var _angler: Dictionary
+var _wound := 0.0               # line wound in, for turning the reel's handle
+var _last_length := 0.0
 
 
 func _ready() -> void:
@@ -153,7 +159,7 @@ func _make_tackle() -> void:
 	_float.collision_mask = 0
 	_float.angular_drag = 6.0
 	_float.position = tip + Vector3(0, -1.0, 0)
-	_float.add_child(_float_mesh())
+	_float.add_child(TACKLE.float_mesh(FLOAT_LONG, FLOAT_WIDE))
 	add_child(_float)
 	# The shot that cocks it: enough that it floats with only TIP_SHOWING out, less its own weight.
 	var area := PI * FLOAT_WIDE * FLOAT_WIDE * 0.25
@@ -171,17 +177,8 @@ func _make_tackle() -> void:
 	_hook.collision_mask = 0
 	_hook.position = _float.position + Vector3(0, -0.5 * FLOAT_LONG - DEPTH, 0)
 	_hook.add_to_group(&"bounded_buoyancy_bait")
-	var shot := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = r * 1.6
-	sm.height = r * 3.2
-	shot.mesh = sm
-	var lead_look := StandardMaterial3D.new()
-	lead_look.albedo_color = Color(0.35, 0.36, 0.38)
-	lead_look.metallic = 0.6
-	lead_look.roughness = 0.4
-	shot.material_override = lead_look
-	_hook.add_child(shot)
+	TACKLE.ball(_hook, Vector3.ZERO, r * 1.6, TACKLE.mat(Color(0.35, 0.36, 0.38), 0.4, 0.6))
+	TACKLE.hook_and_worm(_hook, r * 1.6)
 	add_child(_hook)
 	_snood = LINE.new()
 	_snood.position = Vector3(0, -0.5 * FLOAT_LONG, 0)
@@ -199,7 +196,7 @@ func _make_tackle() -> void:
 	_main.damping = 0.5
 	_main.breaking_strength = BREAKS
 	_main.slip_tension = _drag
-	_main.colour = Color(0.92, 0.94, 0.9, 0.85)
+	_main.colour = Color(1.0, 0.86, 0.18, 0.95)   # a bright line, to be seen
 	for l in [_main, _snood]:
 		l.snapped.connect(func(_t: float) -> void:
 			_say("Snap! The %s broke." % ("line" if l == _main else "hook length"), 4.0)
@@ -210,43 +207,14 @@ func _make_tackle() -> void:
 	_tip.add_child(_main)
 
 
-## A stick float 25 cm long: dark below, a white band, an orange tip.
-func _float_mesh() -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	# Drawn half as wide again as it is, so that it can be seen from the jetty.
-	cm.top_radius = FLOAT_WIDE * 0.75
-	cm.bottom_radius = FLOAT_WIDE * 0.4
-	cm.height = FLOAT_LONG
-	cm.radial_segments = 12
-	m.mesh = cm
-	var sh := Shader.new()
-	sh.code = """
-shader_type spatial;
-uniform float long = 0.25;
-varying float y;
-void vertex() { y = VERTEX.y / long + 0.5; }
-void fragment() {
-	vec3 c = vec3(0.10, 0.16, 0.10);
-	if (y > 0.86) { c = vec3(1.0, 0.32, 0.04); EMISSION = c * 1.2; }
-	else if (y > 0.80) { c = vec3(0.95, 0.95, 0.9); }
-	ALBEDO = c;
-	ROUGHNESS = 0.5;
-}
-"""
-	_float_mat = ShaderMaterial.new()
-	_float_mat.shader = sh
-	_float_mat.set_shader_parameter("long", FLOAT_LONG)
-	m.material_override = _float_mat
-	return m
-
-
 # --- The fish ---------------------------------------------------------------------------------
 
-## A fish somewhere out from the jetty: 25 to 45 cm long, as strong as its size.
+## A fish somewhere out from the jetty, a perch, a trout or a bass: 20 to 50 cm long, as strong as
+## its size; trout dash hardest, bass pull hardest.
 func _add_fish() -> void:
 	var f: RigidBody3D = FISH.new()
-	var long := _rng.randf_range(0.25, 0.45)
+	var kind := _rng.randi_range(0, 2)
+	var long := _rng.randf_range(0.2, 0.34) if kind == TACKLE.PERCH else _rng.randf_range(0.3, 0.5)
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.11 * long
@@ -261,10 +229,11 @@ func _add_fish() -> void:
 	f.rotation.y = _rng.randf() * TAU
 	f.mouth = Vector3(0, 0, -0.5 * long)
 	f.cruise_speed = 1.0 * long
-	f.burst_speed = 7.0 * long
+	f.burst_speed = (8.5 if kind == TACKLE.TROUT else 7.0) * long
 	var kg := 1000.0 * PI * pow(0.11 * long, 2) * long * 0.85
-	f.max_thrust = 8.0 * kg
-	f.endurance = 8.0 + 10.0 * kg
+	f.max_thrust = (10.0 if kind == TACKLE.BASS else 8.0) * kg
+	f.endurance = (6.0 if kind == TACKLE.TROUT else 8.0) + 10.0 * kg
+	f.set_meta(&"kind", kind)
 	f.bite_pull = 0.08
 	f.appetite = 0.08
 	f.min_depth = 0.6
@@ -272,7 +241,7 @@ func _add_fish() -> void:
 	f.home_range = 6.0
 	f.sense_range = 5.0
 	f.random_seed = _rng.randi() | 1
-	var look := _fish_mesh(long)
+	var look := TACKLE.fish_mesh(kind, long)
 	f.add_child(look)
 	f.set_meta(&"look", look.material_override)
 	add_child(f)
@@ -298,120 +267,35 @@ func _add_fish() -> void:
 	_fish.append(f)
 
 
-## A fish's body: deep in the middle, narrow at the tail, flatter side to side, with a tail fin
-## and a fin on its back; its tail beats as it swims.
-func _fish_mesh(long: float) -> MeshInstance3D:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings := 16
-	var around := 12
-	var pts: Array = []
-	for i in rings + 1:
-		var t := float(i) / rings          # 0 at the nose, 1 at the tail
-		var z := (t - 0.5) * long
-		var r := 0.11 * long * pow(sin(PI * clampf(t * 0.92 + 0.04, 0.0, 1.0)), 0.75) * (1.0 - 0.55 * t * t)
-		var row: Array = []
-		for j in around:
-			var a := TAU * j / around
-			row.append(Vector3(cos(a) * r * 0.62, sin(a) * r, z))
-		pts.append(row)
-	for i in rings:
-		for j in around:
-			var a: Vector3 = pts[i][j]
-			var b: Vector3 = pts[i][(j + 1) % around]
-			var c: Vector3 = pts[i + 1][j]
-			var d: Vector3 = pts[i + 1][(j + 1) % around]
-			for p in [a, c, b, b, c, d]:
-				st.add_vertex(p)
-	# Tail fin and back fin, both sides.
-	var tail_z := 0.5 * long
-	var fins := [
-		[Vector3(0, 0, tail_z - 0.04 * long), Vector3(0, 0.13 * long, tail_z + 0.13 * long), Vector3(0, -0.13 * long, tail_z + 0.13 * long)],
-		[Vector3(0, 0.09 * long, -0.05 * long), Vector3(0, 0.17 * long, 0.08 * long), Vector3(0, 0.08 * long, 0.18 * long)],
-	]
-	for f in fins:
-		st.add_vertex(f[0])
-		st.add_vertex(f[1])
-		st.add_vertex(f[2])
-		st.add_vertex(f[0])
-		st.add_vertex(f[2])
-		st.add_vertex(f[1])
-	st.generate_normals()
-	var m := MeshInstance3D.new()
-	m.mesh = st.commit()
-	var sh := Shader.new()
-	sh.code = """
-shader_type spatial;
-render_mode cull_disabled;
-uniform float long = 0.35;
-uniform float beat = 0.0;
-varying vec3 p;
-void vertex() {
-	p = VERTEX;
-	float t = clamp(VERTEX.z / long + 0.5, 0.0, 1.5);
-	VERTEX.x += sin(TIME * (6.0 + 10.0 * beat) - t * 4.0) * (0.03 + 0.07 * beat) * long * t * t;
-}
-void fragment() {
-	float up = p.y / (0.11 * long);
-	vec3 back = vec3(0.10, 0.16, 0.10);
-	vec3 side = vec3(0.55, 0.60, 0.50);
-	vec3 belly = vec3(0.85, 0.83, 0.74);
-	vec3 c = mix(side, back, smoothstep(0.1, 0.8, up));
-	c = mix(c, belly, smoothstep(-0.2, -0.8, up));
-	// Dark spots along the flanks.
-	vec2 q = vec2(p.z * 40.0 / long, p.y * 60.0 / long);
-	float spot = smoothstep(0.32, 0.22, length(fract(q * 0.5) - 0.5));
-	c = mix(c, vec3(0.08, 0.10, 0.07), spot * smoothstep(0.6, -0.1, abs(up - 0.25)) * 0.6);
-	ALBEDO = c;
-	ROUGHNESS = 0.35;
-	SPECULAR = 0.6;
-}
-"""
-	var mat := ShaderMaterial.new()
-	mat.shader = sh
-	mat.set_shader_parameter("long", long)
-	m.material_override = mat
-	return m
-
-
 # --- The rod ----------------------------------------------------------------------------------
 
 func _make_rod() -> void:
-	var cork := StandardMaterial3D.new()
-	cork.albedo_color = Color(0.62, 0.48, 0.32)
-	cork.roughness = 0.9
-	var blank := StandardMaterial3D.new()
-	blank.albedo_color = Color(0.08, 0.09, 0.10)
-	blank.metallic = 0.3
-	blank.roughness = 0.35
 	for i in ROD_SEGMENTS:
 		var m := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
 		var t0 := float(i) / ROD_SEGMENTS
 		var t1 := float(i + 1) / ROD_SEGMENTS
-		cm.bottom_radius = lerpf(0.012, 0.0018, t0)
-		cm.top_radius = lerpf(0.012, 0.0018, t1)
+		cm.bottom_radius = _rod_radius(t0 * ROD)
+		cm.top_radius = _rod_radius(t1 * ROD)
 		cm.height = ROD / ROD_SEGMENTS
-		cm.radial_segments = 8
+		cm.radial_segments = 12
 		cm.rings = 1
 		m.mesh = cm
-		m.material_override = cork if i < 2 else blank
 		add_child(m)
 		_rod_parts.append(m)
 	_tip = Node3D.new()
 	add_child(_tip)
-	var reel := MeshInstance3D.new()
-	var rm := CylinderMesh.new()
-	rm.top_radius = 0.035
-	rm.bottom_radius = 0.035
-	rm.height = 0.03
-	reel.mesh = rm
-	var reel_look := StandardMaterial3D.new()
-	reel_look.albedo_color = Color(0.25, 0.27, 0.3)
-	reel_look.metallic = 0.8
-	reel.material_override = reel_look
-	reel.name = "Reel"
-	add_child(reel)
+	_reel_look = TACKLE.dress_rod(_rod_parts, ROD / ROD_SEGMENTS, _rod_radius)
+	# The angler on his seat box, just behind the rod's butt.
+	_angler = TACKLE.angler(self, Vector3(HAND.x - 0.12, DECK + 0.38, HAND.z + 0.3))
+	TACKLE.tackle_box(self, Vector3(-0.55, DECK + 0.025, -0.15), 0.35)
+
+
+## The rod's radius `along` metres from the butt: a thick cork handle, then the blank tapering to the tip.
+func _rod_radius(along: float) -> float:
+	if along < 0.52:
+		return 0.0135
+	return lerpf(0.0085, 0.0018, (along - 0.52) / (ROD - 0.52))
 
 
 ## Lay the rod out from the angler's hands, at its pitch, bent toward the line by the pull on it:
@@ -443,9 +327,12 @@ func _place_rod() -> void:
 		m.global_transform = Transform3D(Basis(x, d, x.cross(d)).orthonormalized(), mid)
 		p += d * piece
 	_tip.global_position = p
-	var reel: Node3D = get_node("Reel")
-	reel.global_position = HAND + dir * 0.35 + Vector3(0, -0.06, 0)
-	reel.global_rotation = Vector3(0, 0, PI * 0.5)
+	# The handle turns as line is wound in; his left hand on its knob, his right on the rod above the reel.
+	(_reel_look.get_node("Handle") as Node3D).rotation.x = -_wound * 18.0
+	(_reel_look.get_node("Rotor") as Node3D).rotation.y = -_wound * 90.0
+	var seat: Node3D = _rod_parts[1]
+	var right_hand := seat.global_transform * Vector3(0.0, 0.41 - 1.5 * ROD / ROD_SEGMENTS, -0.01)
+	TACKLE.pose_arms(_angler, (_reel_look.get_node("Handle/Knob") as Node3D).global_position, right_hand)
 
 
 # --- Playing ----------------------------------------------------------------------------------
@@ -537,9 +424,11 @@ func _physics_process(dt: float) -> void:
 			_main.length = maxf(_main.length - REEL_SPEED * dt, 1.0)
 		elif Input.is_key_pressed(KEY_S):
 			_main.length += REEL_SPEED * dt
+		_wound += maxf(_last_length - _main.length, 0.0)
 		# Reeled right in: the float is back at the rod, ready to cast again.
 		if _main.length <= 1.05 and not _on:
 			_cast_out = false
+	_last_length = _main.length
 	if _main.broken and _on == null:
 		_cast_out = false
 	_land()
@@ -559,7 +448,7 @@ func _land() -> void:
 		var kg: float = _on.own_mass
 		_caught += 1
 		_caught_kg += kg
-		_say("Landed! %.2f kg. Hold Space to cast again." % kg, 5.0)
+		_say("Landed a %s! %.2f kg. Hold Space to cast again." % [TACKLE.NAMES[_on.get_meta(&"kind", 0)], kg], 5.0)
 		_auto_wait = 4.0
 		var f := _on
 		_on = null
@@ -652,10 +541,10 @@ func _process(dt: float) -> void:
 		under = true
 	# Under the water: the light is green and the far side lost in it.
 	under = under and _cam.global_position.y < _water.height_at(_cam.global_position)
-	_env.fog_density = 0.2 if under else _sky_fog
+	_env.fog_density = 0.07 if under else _sky_fog
 	_env.fog_sky_affect = 1.0 if under else 0.0
 	_env.fog_aerial_perspective = 0.0 if under else 0.4
-	_env.fog_light_color = Color(0.12, 0.26, 0.22) if under else Color(0.70, 0.78, 0.82)
+	_env.fog_light_color = Color(0.20, 0.40, 0.36) if under else Color(0.70, 0.78, 0.82)
 
 
 func _say(text: String, seconds: float) -> void:
@@ -809,27 +698,50 @@ func _scenery() -> void:
 		reed.position = Vector3(x, cm.height * 0.5 - 0.3, _rng.randf_range(6.0, 12.0))
 		reed.rotation = Vector3(_rng.randf_range(-0.12, 0.12), 0, _rng.randf_range(-0.12, 0.12))
 		add_child(reed)
-	# The lake bed, and weed on it.
+	# The lake bed, stones on it, and clumps of weed swaying.
 	var bed := MeshInstance3D.new()
 	var bp := PlaneMesh.new()
 	bp.size = Vector2(120, 120)
 	bed.mesh = bp
-	var mud := StandardMaterial3D.new()
-	mud.albedo_color = Color(0.25, 0.23, 0.15)
-	bed.material_override = mud
+	bed.material_override = TACKLE.mat(Color(0.46, 0.41, 0.28), 1.0)
 	bed.position = Vector3(0, -4.5, -20)
 	add_child(bed)
-	var weed_look := StandardMaterial3D.new()
-	weed_look.albedo_color = Color(0.15, 0.30, 0.12)
-	for i in 120:
-		var weed := MeshInstance3D.new()
-		var cm := CylinderMesh.new()
-		cm.top_radius = 0.01
-		cm.bottom_radius = 0.03
-		cm.height = _rng.randf_range(0.6, 2.4)
-		cm.radial_segments = 4
-		weed.mesh = cm
-		weed.material_override = weed_look
-		weed.position = Vector3(_rng.randf_range(-16, 16), -4.5 + cm.height * 0.5, _rng.randf_range(-30, -3))
-		weed.rotation = Vector3(_rng.randf_range(-0.2, 0.2), 0, _rng.randf_range(-0.2, 0.2))
-		add_child(weed)
+	var stone := TACKLE.mat(Color(0.42, 0.42, 0.38), 0.9)
+	for i in 90:
+		var r := _rng.randf_range(0.08, 0.35)
+		TACKLE.ball(self, Vector3(_rng.randf_range(-16, 16), -4.5 + 0.3 * r, _rng.randf_range(-30, -2)), r, stone,
+			Vector3(_rng.randf_range(0.8, 1.4), _rng.randf_range(0.4, 0.7), _rng.randf_range(0.8, 1.4)))
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec3 colour : source_color;
+varying float h;
+void vertex() {
+	h = UV.y;
+	float sway = (1.0 - UV.y);
+	VERTEX.x += sin(TIME * 0.9 + NODE_POSITION_WORLD.x * 0.7 + VERTEX.y * 1.5) * 0.12 * sway * sway;
+	VERTEX.z += cos(TIME * 0.7 + NODE_POSITION_WORLD.z * 0.5) * 0.06 * sway * sway;
+}
+void fragment() {
+	ALBEDO = colour * mix(0.55, 1.15, 1.0 - h);
+	ROUGHNESS = 0.8;
+}
+"""
+	var greens := [Color(0.22, 0.48, 0.16), Color(0.38, 0.52, 0.14), Color(0.16, 0.38, 0.20)]
+	for i in 70:
+		var at := Vector3(_rng.randf_range(-16, 16), -4.5, _rng.randf_range(-30, -3))
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.set_shader_parameter("colour", greens[i % 3])
+		for k in _rng.randi_range(4, 8):
+			var blade := MeshInstance3D.new()
+			var qm := QuadMesh.new()
+			var h := _rng.randf_range(0.8, 2.6)
+			qm.size = Vector2(_rng.randf_range(0.04, 0.08), h)
+			qm.subdivide_depth = 6
+			blade.mesh = qm
+			blade.material_override = m
+			blade.position = at + Vector3(_rng.randf_range(-0.25, 0.25), 0.5 * h, _rng.randf_range(-0.25, 0.25))
+			blade.rotation = Vector3(_rng.randf_range(-0.15, 0.15), _rng.randf() * TAU, _rng.randf_range(-0.15, 0.15))
+			add_child(blade)
