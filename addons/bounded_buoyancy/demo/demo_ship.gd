@@ -65,7 +65,8 @@ void fragment() {
 	float f = fract(across);
 	float seam = smoothstep(0.0, 0.14, f) * smoothstep(1.0, 0.88, f);
 	float along = UV.x + hash(plank) * 6.0;
-	float butt = smoothstep(0.0, 0.015, abs(fract(along / 6.0) - 0.5) * 6.0 - 2.99);
+	// Dark at the butts, where one plank ends and the next begins (every 6 m, staggered).
+	float butt = smoothstep(0.0, 0.03, (0.5 - abs(fract(along / 6.0) - 0.5)) * 6.0);
 	float grain = 0.9 + 0.1 * noise1(UV.x * 3.0 + plank * 17.0) + 0.22 * (hash(plank + floor(along / 6.0)) - 0.5);
 	float tz = clamp(lp.z / half_length, -1.0, 1.0);
 	float rail_here = transom ? rail : rail + 0.45 * tz * tz + 0.85 * smoothstep(0.5, 0.75, tz);
@@ -141,7 +142,7 @@ void fragment() {
 	float f = fract(across);
 	float seam = smoothstep(0.0, 0.07, f) * smoothstep(1.0, 0.93, f);
 	float along = lp.z + hash(plank) * 5.0;
-	float butt = smoothstep(0.0, 0.02, abs(fract(along / 5.0) - 0.5) * 5.0 - 2.49);
+	float butt = smoothstep(0.0, 0.03, (0.5 - abs(fract(along / 5.0) - 0.5)) * 5.0);
 	vec3 c = vec3(0.66, 0.56, 0.42) * (0.88 + 0.16 * hash(plank + floor(along / 5.0)));
 	ALBEDO = c * mix(0.45, 1.0, seam * butt);
 	ROUGHNESS = 0.9;
@@ -672,7 +673,7 @@ static func _gun_ports(b: Node3D, ports: Array, lid_colour: Color, run_out: bool
 			# Hinged along its top edge, swung out and up 70 degrees.
 			var hinge := Node3D.new()
 			hinge.position = Vector3(x + side * 0.03, hi + 0.02, z)
-			hinge.rotation_degrees = Vector3(0, 0, -side * 70.0)
+			hinge.rotation_degrees = Vector3(0, 0, side * 70.0)
 			b.add_child(hinge)
 			lid.position = Vector3(0, -0.5 * (hi - lo + 0.04), 0)
 			hinge.add_child(lid)

@@ -41,6 +41,9 @@ namespace BoundedBuoyancy.Samples
             pirateHelm = 0f;
             subThrottle = 0f;
             RenderSettings.fog = false;
+            Time.timeScale = 1f;
+            gunShip = target = null;
+            floodShips.Clear();
             if (cam != null)
                 cam.farClipPlane = 500f;
         }
@@ -150,6 +153,13 @@ namespace BoundedBuoyancy.Samples
                 eye = Vector3.Lerp(eye == Vector3.zero ? want : eye, want, 1f - Mathf.Exp(-2f * Time.deltaTime));
                 focus = Vector3.Lerp(focus, look, k);
             }
+            else if (scene == Scene.Flood && eyeSet)
+            {
+                // A fixed view of both ships.
+            }
+            else if (scene == Scene.Cannons && CannonsCamera())
+            {
+            }
             else
                 return false;
             cam.transform.position = eye;
@@ -167,10 +177,18 @@ namespace BoundedBuoyancy.Samples
                 SubmarineStep(dt);
             else if (scene == Scene.Battle)
                 BattleStep(dt);
+            else if (scene == Scene.Flood)
+                FloodStep(dt);
+            else if (scene == Scene.Cannons)
+                CannonsStep(dt);
         }
 
         void SeaGUI()
         {
+            if (scene == Scene.Flood)
+                FloodGUI();
+            else if (scene == Scene.Cannons)
+                CannonsGUI();
             if (scene == Scene.Fishing && rodTip != null)
             {
                 // Drawn from last frame's choice: IMGUI changes a toggle in the mouse-up event, after its layout.
@@ -739,8 +757,8 @@ namespace BoundedBuoyancy.Samples
             wind.directionSwing = 4f;
             // Both reaching across the wind on converging courses: the pirate heading east, the navy brig west, to the
             // south of her.
-            pirate = Brig(new Vector3(0f, 0f, 0f), 90f, new Color(0.07f, 0.065f, 0.06f), new Color(0.55f, 0.1f, 0.08f), new Color(0.02f, 0.02f, 0.02f));
-            navy = Brig(new Vector3(230f, 0f, -55f), 270f, new Color(0.13f, 0.11f, 0.09f), new Color(0.8f, 0.62f, 0.27f), new Color(0.05f, 0.05f, 0.4f));
+            pirate = Brig(new Vector3(0f, 0f, 0f), 90f, "Pirate", ShipLook.Pirate);
+            navy = Brig(new Vector3(230f, 0f, -55f), 270f, "Navy", ShipLook.Navy);
             pirate.enemy = navy;
             navy.enemy = pirate;
             cam.farClipPlane = 3000f;
@@ -751,80 +769,30 @@ namespace BoundedBuoyancy.Samples
             Say("Two brigs under sail close to fight broadside to broadside.", 6f);
         }
 
-        // The hull's shape: half its width at t along it (-1 at the bow, 1 at the stern) and height y; the keel and rail.
-        static float HalfWidth(float t, float y)
-        {
-            float plan;
-            if (t < 0f)
-                plan = Mathf.Pow(Mathf.Max(1f - Mathf.Pow(-t, 2.3f), 0f), 0.55f);
-            else
-            {
-                float above = 1f - 0.3f * Mathf.Pow(t, 2.2f);
-                float below = Mathf.Pow(Mathf.Max(1f - Mathf.Pow(t, 2.6f), 0f), 0.6f);
-                plan = Mathf.Lerp(below, above, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(Tuck - 0.7f, Tuck + 0.15f, y)));
-            }
-            float low = MaxBeam - KeelAt(t);
-            float g;
-            if (y < MaxBeam)
-            {
-                float u = Mathf.Clamp01((MaxBeam - y) / Mathf.Max(low, 0.05f));
-                g = Mathf.Pow(1f - Mathf.Pow(u, 2.4f), 1f / 2.4f);
-            }
-            else
-            {
-                float u = Mathf.Clamp01((y - MaxBeam) / (RailAt(t) - MaxBeam));
-                g = 1f - 0.12f * u * u;
-            }
-            return Mathf.Max(0.5f * ShipBeam * plan * g, 0.07f * Mathf.Min(plan * 4f, 1f));
-        }
+        // The hull's shape as the physics has it (ShipLook): half its width at t along it (-1 at the bow, 1 at the stern)
+        // and height y, the keel, the rail and the deck.
+        static float HalfWidth(float t, float y) { return ShipLook.HalfWidth(t, y, ShipLook.HullRailAt(t)); }
 
-        static float KeelAt(float t)
-        {
-            return Keel + 1.7f * Mathf.Pow(Mathf.Max((-t - 0.5f) / 0.5f, 0f), 2f) + 0.35f * Mathf.Pow(Mathf.Max((t - 0.8f) / 0.2f, 0f), 2f);
-        }
+        static float KeelAt(float t) { return ShipLook.KeelAt(t); }
 
-        static float RailAt(float t)
-        {
-            return ShipRail + 0.3f * t * t + 0.55f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 0.85f, t));
-        }
+        static float RailAt(float t) { return ShipLook.HullRailAt(t); }
 
-        static float DeckAt(float t)
-        {
-            return ShipDeck + 0.25f * t * t + 0.55f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 0.85f, t));
-        }
+        static float DeckAt(float t) { return ShipLook.HullDeckAt(t); }
 
         /// <summary>A brig at `at`, heading `heading` degrees clockwise from north (+Z), her bow toward her +Z: the hull
-        /// (its convex hull, to float on and to be struck), compartments, planking, guns, sails, a keel and a rudder.</summary>
-        Ship Brig(Vector3 at, float heading, Color wood, Color band, Color flagColor)
+        /// (its convex hull, to float on and to be struck, drawn by DressShip), compartments, planking, guns, sails, a keel
+        /// and a rudder.</summary>
+        Ship Brig(Vector3 at, float heading, string name, ShipColours colours)
         {
             var s = new Ship();
-            var pts = new List<Vector3>();
-            for (int i = 0; i <= 8; i++)
+            GameObject flag;
+            BoundedBuoyancyBody b = BrigBody(at, heading, 400f, name, colours, false, out flag);
+            GameObject go = b.gameObject;
+            s.flag = flag;
+            s.body = b;
+            // The sails on each mast: foils that trim themselves to the wind (drawn by DressShip).
+            foreach (float z in new[] { 0.22f * ShipLength, -0.1f * ShipLength })
             {
-                float t = -1f + 2f * i / 8f;          // bow to stern
-                float z = -t * 0.5f * ShipLength;   // the bow toward +Z
-                foreach (float y in new[] { KeelAt(t), KeelAt(t) + 0.45f, MaxBeam, RailAt(t) })
-                {
-                    float w = HalfWidth(t, y);
-                    pts.Add(new Vector3(w, y, z));
-                    pts.Add(new Vector3(-w, y, z));
-                }
-            }
-            GameObject go = HullObject("Brig", pts.ToArray(), at, heading, wood);
-            // A band along her ports, a deck, two masts with their yards, and a flag at the main masthead.
-            // (in short pieces along her, each as wide as she is there)
-            for (int i = 0; i < 10; i++)
-            {
-                float t = -0.8f + 1.6f * (i + 0.5f) / 10f;
-                float z = -t * 0.5f * ShipLength, piece = 0.08f * ShipLength + 0.05f;
-                Part(PrimitiveType.Cube, go.transform, new Vector3(0f, ShipDeck + 0.36f, z), new Vector3(2f * HalfWidth(t, ShipDeck + 0.36f) + 0.03f, 0.5f, piece), band);
-                Part(PrimitiveType.Cube, go.transform, new Vector3(0f, DeckAt(t), z), new Vector3(2f * HalfWidth(t, DeckAt(t)) - 0.15f, 0.06f, piece), new Color(0.6f, 0.5f, 0.36f));
-            }
-            Color spar = new Color(0.32f, 0.22f, 0.13f), canvas = new Color(0.94f, 0.91f, 0.82f);
-            float[] masts = { 0.22f * ShipLength, -0.1f * ShipLength };
-            foreach (float z in masts)
-            {
-                Part(PrimitiveType.Cylinder, go.transform, new Vector3(0f, ShipDeck + 7f, z), new Vector3(0.28f, 7f, 0.28f), spar);
                 var sailGo = new GameObject("Sail");
                 sailGo.transform.SetParent(go.transform, false);
                 sailGo.transform.localPosition = new Vector3(0f, ShipDeck + 7.5f, z);
@@ -835,23 +803,8 @@ namespace BoundedBuoyancy.Samples
                 sail.autoTrim = true;
                 sail.maxTrim = 70f;
                 sail.trimAngleOfAttack = 18f;
-                // Drawn as a square sail across the ship, on its yard.
-                Part(PrimitiveType.Cube, go.transform, new Vector3(0f, ShipDeck + 7.8f, z + 0.25f), new Vector3(9f, 7.5f, 0.06f), canvas);
-                Part(PrimitiveType.Cylinder, go.transform, new Vector3(0f, ShipDeck + 11.6f, z + 0.2f), new Vector3(0.18f, 5f, 0.18f), spar)
-                    .transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
                 s.sails.Add(sail);
             }
-            s.flag = Part(PrimitiveType.Cube, go.transform, new Vector3(0f, ShipDeck + 14.4f, masts[1] - 0.6f), new Vector3(0.04f, 0.8f, 1.2f), flagColor);
-            BoundedBuoyancyBody b = Floater(go, 400f);
-            b.dragCoefficient = 0.05f;              // a ship's hull is shaped to slip through the water
-            b.keepMomentumOnEntry = false;
-            b.angularDrag = 1.5f;
-            // Ballast low in the hold: the centre of mass 1.2 m above the keel, as in the Godot demo (the offset is from
-            // the centre of the hull's volume).
-            b.RebuildShape();
-            b.centreOfMassOffset = new Vector3(0f, Keel + 1.2f - (float)b.Core.Shape.Centroid.y, 0f);
-            b.RebuildShape();
-            s.body = b;
             var planking = go.AddComponent<BoundedBuoyancyHull>();
             planking.thickness = 0.25f;
             planking.struck.AddListener((ball, p, through, outSpeed) =>
@@ -884,6 +837,7 @@ namespace BoundedBuoyancy.Samples
                 }
             }
             // A keel (the hull's long underwater side) and a rudder.
+            Color wood = new Color(colours.Bottom[0], colours.Bottom[1], colours.Bottom[2]);
             BoundedBuoyancyFoil keel = BoatFoil(b, new Vector3(0f, Keel + 0.5f, 0f), 16f, 0.6f, Core.Medium.Water, 0f, wood, 0.05f);
             keel.name = "Keel";
             s.rudder = BoatFoil(b, new Vector3(0f, Keel + 0.8f, -0.5f * ShipLength + 0.2f), 3.5f, 1.5f, Core.Medium.Water, 0.4f, wood, 0.1f);

@@ -23,6 +23,7 @@ These run without Unity, with the .NET 8 SDK. None of this folder is part of the
   any engine's code; their damping is tuned once, on a wooden float, and used for everything. `dotnet run -c Release`
   prints the tables and writes `compare_results.csv` and traces of a table-tennis ball's and a wooden ball's height;
   `python3 chart.py` (with matplotlib) then redraws `docs/compare.png`.
+- `ShipLook`: writes the demo sample's ship (`Samples~/Demo/ShipLook.cs`: its meshes, paint and rig) to plain files, `dotnet run -c Release -- OUTDIR [navy|merchant|pirate] [runout]`, so that it can be drawn outside Unity and looked at (meshes as `v x y z u v` and `f a b c` lines, paint as PPM, rig parts one a line).
 - `make_meta.py`: writes the `.meta` files Unity needs when the package is installed from git; the GUIDs come from
   each file's path, so they do not change from one run to the next.
 

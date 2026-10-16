@@ -487,7 +487,7 @@ namespace UnityEngine
     }
 
     // Graphics ---------------------------------------------------------------------------------------------------
-    public sealed class Mesh : Object
+    public sealed partial class Mesh : Object
     {
         public Mesh() { }
         public bool isReadable { get { return false; } }
@@ -507,7 +507,7 @@ namespace UnityEngine
         public static Shader Find(string name) { return null; }
     }
 
-    public class Texture : Object
+    public partial class Texture : Object
     {
         public TextureWrapMode wrapMode { get; set; }
     }
@@ -515,14 +515,14 @@ namespace UnityEngine
     public enum TextureWrapMode { Repeat = 0, Clamp = 1, Mirror = 2, MirrorOnce = 3 }
     public enum TextureFormat { RGBA32 = 4 }
 
-    public sealed class Texture2D : Texture
+    public sealed partial class Texture2D : Texture
     {
         public Texture2D(int width, int height, TextureFormat textureFormat, bool mipChain) { }
         public void SetPixels32(Color32[] colors) { }
         public void Apply() { }
     }
 
-    public class Material : Object
+    public partial class Material : Object
     {
         public Material(Shader shader) { }
         public Material(Material source) { }

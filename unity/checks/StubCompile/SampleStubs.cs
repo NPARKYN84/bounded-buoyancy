@@ -137,6 +137,8 @@ namespace UnityEngine
     public partial struct Color
     {
         public static Color Lerp(Color a, Color b, float t) { return a; }
+        public static Color white { get { return default(Color); } }
+        public static Color gray { get { return default(Color); } }
     }
 
     public partial struct Mathf
@@ -144,6 +146,32 @@ namespace UnityEngine
         public static float SmoothStep(float from, float to, float t) { return from; }
         public static float InverseLerp(float a, float b, float value) { return 0f; }
         public static float Repeat(float t, float length) { return t; }
+        public static float Round(float f) { return f; }
+    }
+
+    // For the drawn ships (Runtime/Export/Graphics/Texture.bindings.cs, Mesh.cs, Material.bindings.cs).
+    public enum FilterMode { Point = 0, Bilinear = 1, Trilinear = 2 }
+
+    public partial class Texture
+    {
+        public FilterMode filterMode { get; set; }
+        public int anisoLevel { get; set; }
+    }
+
+    public sealed partial class Texture2D
+    {
+        public void Apply(bool updateMipmaps, bool makeNoLongerReadable) { }
+    }
+
+    public partial class Material
+    {
+        public void EnableKeyword(string keyword) { }
+        public void SetColor(string name, Color value) { }
+    }
+
+    public sealed partial class Mesh
+    {
+        public Vector2[] uv { get; set; }
     }
 }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.5.2] - 2026-10-16
+
+- Demo sample: the brigs are drawn and painted in code as in the Godot plugin's demo (`ShipLook.cs`): a hull rounded at the bilge, planked and painted, with a gilt moulding, open gun ports with their lids up, round windows lit from within along the quarters and across the stern, a stern lantern, a deck sweeping up to a raised quarterdeck, two masts with every square sail set, a jib, shrouds, stays and a flag. They float on the same hull as before, drawn above it. New FLOOD (two ships, the same hole: one big hold sinks, six compartments stay afloat; pumps) and CANNONS (broadsides at close range, ricochet fire, holes and flooding, moored ships) scenes.
+
 ## [2.5.1] - 2026-10-16
 
 - Demo sample: FISHING (an angler on a jetty casts, strikes, plays and lands fish on a real line), SUBMARINE (flooded, it rests on the salt layer of real, layered sea water; floats hang where the water is as dense as they are) and BATTLE (a pirate brig against a navy brig under sail, with cannons, shot holes and flooding compartments), as in the Godot plugin's demo. They compile against Unity 2022.3 and Unity 6 but have not yet been played in the editor.

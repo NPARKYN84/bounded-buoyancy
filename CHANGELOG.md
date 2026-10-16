@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.2
+
+- Demo: the brigs' planking is drawn as meant. The joints between planks were drawn the wrong way round, so the whole hull was drawn at about a fifth of its colour with bright marks at the joints; now the planks are their colour, with dark seams and butt joints. The deck had the same fault. The gun ports' lids swing out and up, as on a real ship; they swung inward.
+- Unity: the demo sample's ships are drawn as the Godot demo's, and it has FLOOD and CANNONS scenes (see the Unity package's changelog).
+
 ## 2.5.1
 
 - Demo: the brigs of the BATTLE and CANNONS scenes are dressed better. Every square sail is set (the courses were furled), so the canvas comes down near the deck; the planking shows; a gilt moulding runs under the rail; the gun ports stand open with their lids swung up, a gun's muzzle in each (or the ship's own guns, where she has them); round windows, lit from within, run along the quarters and across the stern, where a lantern stands; and the deck sweeps up to a raised quarterdeck over a raked stern. The pirate's hull is planked brown. The stern was drawn facing inward, and so dark; it now faces aft and takes the light. The hull's collision shape follows the new sheer and stern, all above the waterline.

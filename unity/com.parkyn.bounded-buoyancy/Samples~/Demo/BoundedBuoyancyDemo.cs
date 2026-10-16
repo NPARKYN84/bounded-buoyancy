@@ -8,7 +8,7 @@ namespace BoundedBuoyancy.Samples
 {
     public partial class BoundedBuoyancyDemo : MonoBehaviour
     {
-        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind, Boats, Fishing, Submarine, Battle }
+        enum Scene { Release, Float, Tilt, Waves, Sky, Many, River, Wind, Boats, Flood, Cannons, Fishing, Submarine, Battle }
 
         static readonly string[] Captions =
         {
@@ -21,6 +21,8 @@ namespace BoundedBuoyancy.Samples
             "RIVER: the water flows, slower along the banks. Bodies drift with it by drag on their speed through the water.",
             "WIND: gusty wind over a lake. Boats with sails run before it and heel; balloons drift with it; crates barely move.",
             "BOATS: drive the orange motorboat (W / S throttle, A / D rudder, or the sliders): a keel, a rudder and a propeller. The dinghy, with a centreboard, a rudder and a sail that trims itself, beats up into the wind in tacks on its own, then runs back.",
+            "FLOOD: two ships, the same hole below the waterline. The one with a single big hold floods right across and goes down; the one divided into six compartments floods only the holed one, lists a little toward it, and stays afloat. Pumps bring her upright again.",
+            "CANNONS: a ship fires broadsides at another at close range. Round shot fired low skips off the water; each gun kicks the ship back, so a broadside heels her. Shot goes through the other ship's 25 cm oak sides, holing the compartments behind; the sea comes in at the lowest holes, and in the end she sinks.",
             "FISHING: float fishing from a jetty. The angler casts; fish come to the bait and nibble, each nibble dipping the float, then one takes it. He strikes, the fish runs and tires against the reel's drag (the line's slip tension), and he reels it in and lands it. The line is real 0.25 mm nylon that stretches and breaks.",
             "SUBMARINE: real sea water, brackish at the top over cold salty water from 25 m down. Flooded, the submarine sinks until the water round it is as dense as it is and rests there on the salt layer; the trim tank moves it up or down a little; blown, it surfaces. The yellow floats each hang where the water is as dense as they are.",
             "BATTLE: a pirate brig against a navy brig under sail, five 12-pounders a side. Shot goes through the oak sides and holes the compartments behind; the sea comes in at the holes at and below the waterline, the ship settles and heels, and with 35 t of water in her she strikes her colours.",
@@ -50,6 +52,9 @@ namespace BoundedBuoyancy.Samples
         int leg;
         float legTime;
         int pendingScene = -1;   // scenes change in Update, not in the middle of drawing the GUI
+
+        // Slow motion or fast play in CANNONS ends with the demo.
+        void OnDisable() { Time.timeScale = 1f; }
 
         void Start()
         {
@@ -115,6 +120,8 @@ namespace BoundedBuoyancy.Samples
                 case Scene.River: BuildRiver(); break;
                 case Scene.Wind: BuildWind(); break;
                 case Scene.Boats: BuildBoats(); break;
+                case Scene.Flood: BuildFlood(); break;
+                case Scene.Cannons: BuildCannons(); break;
                 case Scene.Fishing: BuildFishing(); break;
                 case Scene.Submarine: BuildSubmarine(); break;
                 case Scene.Battle: BuildBattle(); break;
