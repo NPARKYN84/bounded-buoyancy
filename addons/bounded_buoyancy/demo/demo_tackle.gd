@@ -1,5 +1,5 @@
 extends RefCounted
-## Fish and fishing tackle for the demo, built in code: perch, trout and bass, each with its own
+## Fish and fishing tackle for the demo, built in code: perch, trout and bass (and mackerel at sea), each with its own
 ## shape, fins and markings and its tail beating as it swims; a rod with a cork handle, a reel seat and
 ## whipped guides, and a fixed-spool reel whose handle turns as line is wound in; a stick float with a
 ## bright tip; a hook baited with a worm; an angler on his seat box, in a waxed jacket, a vest with
@@ -9,8 +9,8 @@ extends RefCounted
 ## The colours of the rod and reel are passed in as a dictionary (ROD_CLASSIC is the default), so that
 ## other tackle can be drawn the same way.
 
-enum { PERCH, TROUT, BASS }
-const NAMES := ["perch", "trout", "bass"]
+enum { PERCH, TROUT, BASS, MACKEREL }
+const NAMES := ["perch", "trout", "bass", "mackerel"]
 
 ## Each kind's shape: its depth (half its height at the deepest, as a share of its length), how far
 ## back it is deepest (0 the nose, 1 the tail), how much higher its back rises than its belly falls,
@@ -19,6 +19,7 @@ const SHAPES := [
 	{depth = 0.155, peak = 0.36, hump = 1.35, wide = 0.5, fork = 0.35},
 	{depth = 0.115, peak = 0.42, hump = 1.08, wide = 0.58, fork = 0.12},
 	{depth = 0.14, peak = 0.38, hump = 1.12, wide = 0.55, fork = -0.08},
+	{depth = 0.105, peak = 0.42, hump = 1.0, wide = 0.6, fork = 0.6},
 ]
 
 const ROD_CLASSIC := {
@@ -73,7 +74,8 @@ void fragment() {
 		vec3 top, tail, low, side;
 		if (kind == 0) { top = vec3(0.22, 0.26, 0.16); tail = vec3(0.70, 0.40, 0.12); low = vec3(1.0, 0.30, 0.04); side = vec3(0.95, 0.55, 0.15); }
 		else if (kind == 1) { top = vec3(0.36, 0.28, 0.14); tail = vec3(0.34, 0.26, 0.13); low = vec3(0.90, 0.58, 0.25); side = vec3(0.80, 0.52, 0.24); }
-		else { top = vec3(0.16, 0.24, 0.11); tail = vec3(0.18, 0.26, 0.12); low = vec3(0.45, 0.52, 0.30); side = vec3(0.50, 0.55, 0.32); }
+		else if (kind == 2) { top = vec3(0.16, 0.24, 0.11); tail = vec3(0.18, 0.26, 0.12); low = vec3(0.45, 0.52, 0.30); side = vec3(0.50, 0.55, 0.32); }
+		else { top = vec3(0.10, 0.20, 0.24); tail = vec3(0.12, 0.22, 0.26); low = vec3(0.75, 0.78, 0.80); side = vec3(0.45, 0.52, 0.56); }
 		c = fin.y < 0.1 ? top : (fin.y < 0.35 ? tail : (fin.y < 0.6 ? low : side));
 		c *= 0.82 + 0.18 * sin(t * 70.0);
 		c *= mix(1.0, 0.72, up);
@@ -86,7 +88,8 @@ void fragment() {
 		vec3 back, flank, belly;
 		if (kind == 0) { back = vec3(0.10, 0.18, 0.05); flank = vec3(0.60, 0.62, 0.12); belly = vec3(0.96, 0.92, 0.78); }
 		else if (kind == 1) { back = vec3(0.20, 0.17, 0.07); flank = vec3(0.72, 0.50, 0.18); belly = vec3(0.98, 0.86, 0.50); }
-		else { back = vec3(0.07, 0.16, 0.06); flank = vec3(0.36, 0.50, 0.20); belly = vec3(0.96, 0.96, 0.90); }
+		else if (kind == 2) { back = vec3(0.07, 0.16, 0.06); flank = vec3(0.36, 0.50, 0.20); belly = vec3(0.96, 0.96, 0.90); }
+		else { back = vec3(0.05, 0.30, 0.34); flank = vec3(0.70, 0.76, 0.80); belly = vec3(0.97, 0.97, 0.98); }
 		c = mix(flank, back, smoothstep(-0.05, 0.65, up));
 		c = mix(c, belly, smoothstep(-0.2, -0.6, up));
 		if (kind == 0) {
@@ -102,6 +105,10 @@ void fragment() {
 			float mid = smoothstep(0.5, 0.3, abs(up + 0.05)) * smoothstep(0.2, 0.28, t) * smoothstep(0.9, 0.8, t);
 			c = mix(c, vec3(0.98, 0.92, 0.80), (smoothstep(0.42, 0.36, r.x) - smoothstep(0.28, 0.24, r.x)) * mid);
 			c = mix(c, vec3(0.85, 0.08, 0.04), smoothstep(0.28, 0.22, r.x) * mid);
+		} else if (kind == 3) {
+			// Wavy black stripes across the blue-green back.
+			float w = sin(t * 70.0 + 3.0 * sin(up * 9.0 + t * 20.0));
+			c = mix(c, vec3(0.02, 0.05, 0.06), smoothstep(0.45, 0.8, w) * smoothstep(0.1, 0.35, up) * smoothstep(0.12, 0.2, t) * smoothstep(0.9, 0.82, t));
 		} else {
 			// A dark ragged band of blotches from the eye to the tail, and mottling above it.
 			float y0 = 0.06 + 0.06 * sin(t * 47.0) + 0.03 * sin(t * 131.0);
@@ -251,7 +258,7 @@ static func _fins(st: SurfaceTool, kind: int, s: Dictionary, long: float) -> voi
 	var tip := []
 	var ts := []
 	var n := 13
-	var span := 0.14 * long if kind != PERCH else 0.15 * long
+	var span := 0.15 * long if kind == PERCH else (0.17 * long if kind == MACKEREL else 0.14 * long)
 	for k in n:
 		var u := 1.0 - 2.0 * k / (n - 1)
 		var reach: float = 0.17 * long * (1.0 - s.fork * (1.0 - absf(u)))
@@ -266,10 +273,13 @@ static func _fins(st: SurfaceTool, kind: int, s: Dictionary, long: float) -> voi
 		TROUT:
 			_ridge_fin(st, s, long, 0.36, 0.53, 0.10, false, 0.0)
 			_ridge_fin(st, s, long, 0.76, 0.82, 0.035, false, 0.0)
+		MACKEREL:
+			_ridge_fin(st, s, long, 0.3, 0.42, 0.09, false, 0.0, true)
+			_ridge_fin(st, s, long, 0.55, 0.65, 0.06, false, 0.0)
 		BASS:
 			_ridge_fin(st, s, long, 0.28, 0.5, 0.095, false, 0.0, true)
 			_ridge_fin(st, s, long, 0.5, 0.71, 0.11, false, 0.0)
-	_ridge_fin(st, s, long, 0.62, 0.76, 0.085, true, 0.5, kind != TROUT)
+	_ridge_fin(st, s, long, 0.62, 0.76, 0.085 if kind != MACKEREL else 0.05, true, 0.5, kind != TROUT and kind != MACKEREL)
 	# The paired fins: pelvic fins under the belly, pectoral fins behind the gills, angled back.
 	for side in [-1.0, 1.0]:
 		for f in [[0.33, 0.41, -0.85, Vector3(0.05, -0.07, 0.07), 0.5], [0.22, 0.27, -0.35, Vector3(0.07, -0.025, 0.1), 0.75]]:
@@ -294,7 +304,7 @@ static func _eyes(parent: Node3D, kind: int, s: Dictionary, long: float) -> void
 	var r := _radius(s, long, t, 1.0)
 	var re := 0.03 * long
 	var iris := StandardMaterial3D.new()
-	iris.albedo_color = Color(0.85, 0.62, 0.15) if kind != TROUT else Color(0.78, 0.66, 0.40)
+	iris.albedo_color = Color(0.78, 0.66, 0.40) if kind == TROUT else (Color(0.8, 0.82, 0.85) if kind == MACKEREL else Color(0.85, 0.62, 0.15))
 	iris.metallic = 0.5
 	iris.roughness = 0.25
 	var pupil := StandardMaterial3D.new()

@@ -224,7 +224,8 @@ func _add_fish() -> void:
 	f.add_child(cs)
 	f.collision_layer = 0
 	f.collision_mask = 0
-	var at := Vector3(_rng.randf_range(-10, 10), -_rng.randf_range(1.0, 2.5), _rng.randf_range(-22, -6))
+	# Out where the float lands, so that one finds the bait before long.
+	var at := Vector3(_rng.randf_range(-6, 6), -_rng.randf_range(1.0, 2.5), _rng.randf_range(-20, -9))
 	f.position = at
 	f.rotation.y = _rng.randf() * TAU
 	f.mouth = Vector3(0, 0, -0.5 * long)

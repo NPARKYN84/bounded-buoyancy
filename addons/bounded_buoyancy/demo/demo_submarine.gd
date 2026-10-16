@@ -22,6 +22,8 @@ const FISH := preload("res://addons/bounded_buoyancy/bounded_buoyancy_fish.gd")
 const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const THRUSTER := preload("res://addons/bounded_buoyancy/bounded_buoyancy_thruster.gd")
 const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
+const SUB_LOOK := preload("res://addons/bounded_buoyancy/demo/demo_sub_look.gd")
+const TACKLE := preload("res://addons/bounded_buoyancy/demo/demo_tackle.gd")
 const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_battle.tscn"
 
 const LONG := 22.0              # m, the submarine's length
@@ -38,6 +40,8 @@ var _water: Node3D
 var _sub: RigidBody3D
 var _prop: Node3D
 var _rudder: Node3D
+var _parts: Dictionary          # the drawn submarine's moving parts
+var _turned := 0.0              # how far its propeller has turned
 var _dry := 0.0                 # kg: the submarine without ballast
 var _main_capacity := 0.0       # kg of water its main tanks hold
 var _main := 0.0                # 0 empty, 1 full
@@ -117,7 +121,7 @@ func _make_sub() -> void:
 	_sub.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	_sub.center_of_mass = Vector3(0, -0.45, 0)
 	_sub.position = Vector3(0, 0.6, 0)
-	_sub.add_child(_sub_look())
+	_parts = SUB_LOOK.make(_sub, LONG, RADIUS)
 	# Propeller and rudder at the stern; a sail (the fin) on top steadies it.
 	_prop = THRUSTER.new()
 	_prop.max_thrust = 60000.0
@@ -150,46 +154,6 @@ func _make_sub() -> void:
 func _ballast() -> void:
 	var vol: float = _sub.volume if _sub.volume > 0.0 else PI * RADIUS * RADIUS * (LONG - 2.0 * RADIUS) + 4.0 / 3.0 * PI * pow(RADIUS, 3)
 	_sub.density = (_dry + _main * _main_capacity + _trim) / vol
-
-
-func _sub_look() -> Node3D:
-	var root := Node3D.new()
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.13, 0.14, 0.16)
-	steel.roughness = 0.55
-	steel.metallic = 0.3
-	var hull := MeshInstance3D.new()
-	var cm := CapsuleMesh.new()
-	cm.radius = RADIUS
-	cm.height = LONG
-	cm.radial_segments = 24
-	cm.rings = 8
-	hull.mesh = cm
-	hull.rotation_degrees = Vector3(90, 0, 0)
-	hull.material_override = steel
-	root.add_child(hull)
-	var sail := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.9, 2.6, 4.0)
-	sail.mesh = bm
-	sail.position = Vector3(0, RADIUS + 1.0, -0.2 * LONG)
-	sail.material_override = steel
-	root.add_child(sail)
-	var planes := MeshInstance3D.new()
-	var pm := BoxMesh.new()
-	pm.size = Vector3(4.6, 0.12, 1.4)
-	planes.mesh = pm
-	planes.position = Vector3(0, 0, 0.5 * LONG - 1.2)
-	planes.material_override = steel
-	root.add_child(planes)
-	var rudder := MeshInstance3D.new()
-	var rm := BoxMesh.new()
-	rm.size = Vector3(0.12, 3.6, 1.6)
-	rudder.mesh = rm
-	rudder.position = Vector3(0, 0, 0.5 * LONG - 0.6)
-	rudder.material_override = steel
-	root.add_child(rudder)
-	return root
 
 
 # --- Floats and fish --------------------------------------------------------------------------
@@ -260,18 +224,9 @@ func _add_fish(at: Vector3, rng: RandomNumberGenerator) -> void:
 	f.home_range = 12.0
 	f.appetite = 0.0
 	f.random_seed = rng.randi() | 1
-	var look := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 0.1 * long
-	sm.height = long
-	look.mesh = sm
-	look.rotation_degrees = Vector3(90, 0, 0)
-	var silver := StandardMaterial3D.new()
-	silver.albedo_color = Color(0.6, 0.66, 0.7)
-	silver.metallic = 0.6
-	silver.roughness = 0.3
-	look.material_override = silver
+	var look := TACKLE.fish_mesh(TACKLE.MACKEREL, long)
 	f.add_child(look)
+	f.set_meta(&"look", look.material_override)
 	add_child(f)
 	_fish.append(f)
 
@@ -346,6 +301,14 @@ func _physics_process(dt: float) -> void:
 func _process(dt: float) -> void:
 	if not is_instance_valid(_sub):
 		return
+	# The propeller turns with the throttle, the rudder's blades with the rudder; the fish beat their tails.
+	_turned += _prop.throttle * 9.0 * dt
+	(_parts.prop as Node3D).rotation.z = _turned
+	for r in _parts.rudders:
+		(r as Node3D).rotation.y = deg_to_rad(_rudder.angle)
+	for f in _fish:
+		if is_instance_valid(f):
+			f.get_meta(&"look").set_shader_parameter("beat", f.effort)
 	var at := _sub.global_position
 	var fwd := -_sub.global_transform.basis.z
 	var from: Vector3
@@ -363,7 +326,7 @@ func _process(dt: float) -> void:
 	var depth: float = _water.height_at(_cam.global_position) - _cam.global_position.y
 	if depth > 0.0:
 		var dark := clampf(depth / FLOOR, 0.0, 1.0)
-		_env.fog_density = 0.035
+		_env.fog_density = 0.026
 		_env.fog_light_color = Color(0.06, 0.22, 0.28).lerp(Color(0.01, 0.04, 0.07), dark)
 		_env.fog_sky_affect = 1.0
 		_env.fog_aerial_perspective = 0.0
