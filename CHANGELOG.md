@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.5.3
 
 - Demo: the FISHING scene is dressed better. The fish are perch, trout and bass, each with its own shape, fins, eyes and markings (and trout dash hardest, bass pull hardest). The angler sits on a seat box on the jetty in a waxed jacket, a vest, wellingtons and a bucket hat, his hands on the rod and the reel's handle, which turns as he winds. The rod has a cork handle, a reel seat and whipped guides; the reel is a fixed-spool reel. The float has a bolder tip, the hook a worm on it, and an open tackle box of lures stands on the jetty. The water is clearer, the lake bed sandy, with stones and swaying weed. The fish, the tackle and the angler are drawn by demo/demo_tackle.gd.
 - Demo: the SUBMARINE is dressed better (demo/demo_sub_look.gd): a rounded bow and a stern tapering to a seven-bladed bronze propeller that turns with the throttle, light grey with a red bottom, a streamlined sail with planes, masts and navigation lights, lit round windows along both sides, a searchlight in the bow, and stern control surfaces whose rudder blades turn with the rudder. Its fish are mackerel, drawn as the fishing scene's fish are; the water is a little clearer. In FISHING, the fish start out where the float lands.
+- Unity: the demo sample's FISHING and SUBMARINE scenes are drawn as the Godot demo's, with a view under the water in FISHING (see the Unity package's changelog).
 
 ## 2.5.2
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.5.3] - 2026-10-16
 
 - Demo sample: FISHING and SUBMARINE are drawn as in the Godot plugin's demo (`TackleLook.cs`, `BoundedBuoyancyDemoTackle.cs`). The fish are perch, trout and bass, each with its own shape, fins, eyes and markings (trout dash hardest, bass pull hardest), and they start out where the float lands. The angler sits on a seat box in a waxed jacket, a vest, wellingtons and a bucket hat, his hands on the rod and the reel's handle, which turns as he winds; the rod bends with the pull on the line, with a cork handle, a reel seat and whipped guides, and the reel is a fixed-spool reel. The float has a bright tip, the hook a worm on it, the line is a bright yellow, and an open tackle box of lures stands on the jetty. A new view under the water shows the hook and the fish, over a sandy bed with stones and weed. The submarine has a rounded bow and a stern tapering to a seven-bladed bronze propeller that turns with the throttle, light grey paint with a red bottom, a streamlined sail with planes, masts and navigation lights, lit round windows, a searchlight in the bow and stern rudders that turn; its fish are mackerel.
 
