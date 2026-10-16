@@ -11,6 +11,7 @@ namespace UnityEngine
     {
         public static T FindAnyObjectByType<T>() where T : Object { return null; }
         public static T[] FindObjectsByType<T>(FindObjectsSortMode sortMode) where T : Object { return null; }
+        public int GetInstanceID() { return 0; }
     }
 
     public enum CameraClearFlags { Skybox = 1, Color = 2, SolidColor = 2, Depth = 3, Nothing = 4 }
@@ -32,6 +33,9 @@ namespace UnityEngine
     {
         public LightType type { get; set; }
         public float intensity { get; set; }
+        public Color color { get; set; }
+        public float range { get; set; }
+        public float spotAngle { get; set; }
     }
 
     public enum PrimitiveType { Sphere = 0, Capsule = 1, Cylinder = 2, Cube = 3, Plane = 4, Quad = 5 }
@@ -127,11 +131,13 @@ namespace UnityEngine
     public partial struct Vector3
     {
         public static Vector3 RotateTowards(Vector3 current, Vector3 target, float maxRadiansDelta, float maxMagnitudeDelta) { return current; }
+        public static Vector3 ProjectOnPlane(Vector3 vector, Vector3 planeNormal) { return vector; }
     }
 
     public partial struct Quaternion
     {
         public static Quaternion FromToRotation(Vector3 fromDirection, Vector3 toDirection) { return default(Quaternion); }
+        public static Quaternion Euler(Vector3 euler) { return default(Quaternion); }
     }
 
     public partial struct Color

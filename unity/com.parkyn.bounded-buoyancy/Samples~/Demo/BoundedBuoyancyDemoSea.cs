@@ -25,6 +25,15 @@ namespace BoundedBuoyancy.Samples
             mainLine = null;
             snood = null;
             fishes.Clear();
+            fishLooks.Clear();
+            fishKinds.Clear();
+            arms.Clear();
+            rodSegments = null;
+            rodBend = wound = lastLength = 0f;
+            fishUnder = false;
+            subPropLook = null;
+            subRudderLooks.Clear();
+            subTurned = 0f;
             onLine = null;
             castOut = inFlight = false;
             castWait = 1f;
@@ -63,25 +72,6 @@ namespace BoundedBuoyancy.Samples
 #endif
         }
 
-        /// <summary>An empty object with a capsule collider along Z (a fish's or a submarine's), and a capsule drawn along
-        /// it, `width` across and `height` deep.</summary>
-        GameObject CapsuleAlongZ(string name, Vector3 at, float length, float radius, float width, float height, Color color)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(root, false);
-            go.transform.position = at;
-            var cc = go.AddComponent<CapsuleCollider>();
-            cc.direction = 2;
-            cc.radius = radius;
-            cc.height = length;
-            GameObject look = Shape(PrimitiveType.Capsule, Vector3.zero, new Vector3(width, 0.5f * length, height), color);
-            DropCollider(look);
-            look.transform.SetParent(go.transform, false);
-            look.transform.localPosition = Vector3.zero;
-            look.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            return go;
-        }
-
         GameObject Part(PrimitiveType type, Transform parent, Vector3 local, Vector3 scale, Color color)
         {
             GameObject go = Shape(type, Vector3.zero, scale, color);
@@ -107,6 +97,20 @@ namespace BoundedBuoyancy.Samples
                 target.y *= 0.5f;
                 focus = Vector3.Lerp(focus, target, k);
                 eye = new Vector3(-0.5f, 2.6f, -2.6f);
+                RenderSettings.fog = false;
+                if (fishUnder && hookShot != null)
+                {
+                    // Under the water, a little way from the hook (or the fish on it), looking at it; the light green.
+                    Vector3 h = onLine != null ? onLine.Body.position : hookShot.Body.position;
+                    Vector3 want = h + new Vector3(1.4f, 0.15f, -1.2f);
+                    want.y = Mathf.Min(want.y, -0.25f);
+                    eye = want;
+                    focus = h;
+                    RenderSettings.fog = true;
+                    RenderSettings.fogMode = FogMode.Exponential;
+                    RenderSettings.fogDensity = 0.12f;
+                    RenderSettings.fogColor = new Color(0.20f, 0.40f, 0.36f);
+                }
             }
             else if (scene == Scene.Submarine && sub != null)
             {
@@ -124,7 +128,7 @@ namespace BoundedBuoyancy.Samples
                 float depth = -eye.y;
                 RenderSettings.fog = depth > 0f;
                 RenderSettings.fogMode = FogMode.ExponentialSquared;
-                RenderSettings.fogDensity = 0.03f;
+                RenderSettings.fogDensity = 0.024f;
                 RenderSettings.fogColor = Color.Lerp(new Color(0.06f, 0.22f, 0.28f), new Color(0.01f, 0.04f, 0.07f), Mathf.Clamp01(depth / SeaFloor));
             }
             else if (scene == Scene.Battle && pirate != null)
@@ -171,6 +175,7 @@ namespace BoundedBuoyancy.Samples
         {
             if (newsLeft > 0f)
                 newsLeft -= dt;
+            SwimFish();
             if (scene == Scene.Fishing)
                 FishingStep(dt);
             else if (scene == Scene.Submarine)
@@ -194,6 +199,7 @@ namespace BoundedBuoyancy.Samples
                 // Drawn from last frame's choice: IMGUI changes a toggle in the mouse-up event, after its layout.
                 bool wasAuto = autoAngler;
                 autoAngler = GUILayout.Toggle(autoAngler, " Angler fishes by himself");
+                fishUnder = GUILayout.Toggle(fishUnder, " Watch under the water");
                 if (!wasAuto)
                 {
                     if (!castOut && !inFlight && GUILayout.Button("Cast"))
@@ -286,7 +292,7 @@ namespace BoundedBuoyancy.Samples
         const float FloatLong = 0.25f, FloatWide = 0.02f, FloatDensity = 280f, TipShowing = 0.025f, HookDepth = 1.3f;
         const float ReelSpeed = 0.7f, LineBreaks = 30f;
         Rigidbody rodTip;
-        Transform rodLook;
+        bool fishUnder;
         BoundedBuoyancyBody bobber, hookShot;
         BoundedBuoyancyLine mainLine, snood;
         readonly List<BoundedBuoyancyFish> fishes = new List<BoundedBuoyancyFish>();
@@ -310,15 +316,17 @@ namespace BoundedBuoyancy.Samples
             foreach (float z in new[] { 0.8f, -2.2f, -5.2f })
                 foreach (float x in new[] { -1.1f, 1.1f })
                     Shape(PrimitiveType.Cylinder, new Vector3(x, JettyDeck - 1.6f, z), new Vector3(0.2f, 2.2f, 0.2f), old);
-            // The rod: its tip is a kinematic body, so the line holds fast there; it is drawn leaning toward the pull.
+            // The rod: its tip is a kinematic body, so the line holds fast there; it is drawn bending toward the pull. The
+            // angler sits on his seat box behind it, his tackle box beside him; the lake bed lies below.
             var tip = new GameObject("Rod tip");
             tip.transform.SetParent(root, false);
             rodTip = tip.AddComponent<Rigidbody>();
             rodTip.isKinematic = true;
             rodTip.interpolation = RigidbodyInterpolation.Interpolate;
-            GameObject rod = Shape(PrimitiveType.Cylinder, Vector3.zero, new Vector3(0.018f, 0.5f * RodLength, 0.018f), new Color(0.08f, 0.09f, 0.1f));
-            DropCollider(rod);
-            rodLook = rod.transform;
+            MakeAngler(new Vector3(RodHand.x - 0.12f, JettyDeck + 0.38f, RodHand.z - 0.3f));
+            MakeRod();
+            TackleBox(new Vector3(-0.55f, JettyDeck + 0.025f, 0.15f), -20f);
+            LakeBed();
             PlaceRod(true);
             for (int i = 0; i < 5; i++)
                 AddFish();
@@ -329,20 +337,9 @@ namespace BoundedBuoyancy.Samples
             Say("The angler casts, waits for a bite, strikes, plays the fish and lands it.", 6f);
         }
 
-        void PlaceRod(bool snap)
+        void PlaceRod(bool snap, float dt = 0f)
         {
-            float p = rodPitch * Mathf.Deg2Rad;
-            var dir = new Vector3(0f, Mathf.Sin(p), Mathf.Cos(p));
-            if (mainLine != null && mainLine.body != null && !mainLine.Broken)
-            {
-                Vector3[] e = mainLine.Ends;
-                Vector3 pull = (e[1] - e[0]).normalized;
-                // The rod bends toward the pull, about a radian for each 9 N; drawn straight, it leans half that.
-                dir = Vector3.RotateTowards(dir, pull, 0.5f * Mathf.Min(mainLine.Tension / 9f, 1.2f), 0f);
-            }
-            rodLook.position = RodHand + dir * (0.5f * RodLength);
-            rodLook.rotation = Quaternion.FromToRotation(Vector3.up, dir);
-            Vector3 tip = RodHand + dir * RodLength;
+            Vector3 tip = LayRod(dt);
             if (snap)
                 rodTip.position = tip;
             else
@@ -355,8 +352,8 @@ namespace BoundedBuoyancy.Samples
         {
             Vector3 tip = rodTip.position;
             GameObject f = Shape(PrimitiveType.Cylinder, tip + Vector3.down, new Vector3(FloatWide, 0.5f * FloatLong, FloatWide), new Color(0.1f, 0.16f, 0.1f));
-            GameObject top = Part(PrimitiveType.Sphere, f.transform, new Vector3(0f, 0.85f, 0f), new Vector3(2.2f, 0.3f, 2.2f), new Color(1f, 0.35f, 0.05f));
-            top.name = "Tip";
+            f.GetComponent<Renderer>().enabled = false;   // drawn by FloatLook, wider, so that it can be seen
+            FloatLook(Unscaled(f.transform));
             bobber = Floater(f, FloatDensity);
             bobber.angularDrag = 6f;
             bobber.Body.detectCollisions = false;   // the tackle and the fish touch nothing, as in the Godot demo
@@ -366,6 +363,7 @@ namespace BoundedBuoyancy.Samples
             float r = Mathf.Pow(spare / (11340f - 1000f) * 3f / (4f * Mathf.PI), 1f / 3f);
             hookShot = Ball(r, 11340f, f.transform.position + Vector3.down * (0.5f * FloatLong + HookDepth), new Color(0.35f, 0.36f, 0.38f));
             hookShot.gameObject.AddComponent<BoundedBuoyancyBait>();
+            HookAndWorm(Unscaled(hookShot.transform), r);
             hookShot.Body.detectCollisions = false;
             var s = new GameObject("Hook length");
             s.transform.SetParent(f.transform, false);
@@ -383,11 +381,12 @@ namespace BoundedBuoyancy.Samples
             mainLine.body = bobber.Body;
             mainLine.endOffset = new Vector3(0f, 0.5f * FloatLong, 0f);
             mainLine.length = 1f;
+            lastLength = 1f;
             mainLine.diameter = 0.00025f;
             mainLine.damping = 0.5f;
             mainLine.breakingStrength = LineBreaks;
             mainLine.slipTension = reelDrag;
-            mainLine.colour = new Color(0.92f, 0.94f, 0.9f, 0.85f);
+            mainLine.colour = new Color(1f, 0.86f, 0.18f, 0.95f);   // a bright line, to be seen
             mainLine.lineWidth = 0.003f;
             castOut = inFlight = false;
             brokenTime = 0f;
@@ -407,12 +406,14 @@ namespace BoundedBuoyancy.Samples
             MakeTackle();
         }
 
-        /// <summary>A fish somewhere out from the jetty, 25 to 45 cm long, as strong as its size.</summary>
+        /// <summary>A fish out where the float lands, a perch, a trout or a bass: 20 to 50 cm long, as strong as its size;
+        /// trout dash hardest, bass pull hardest.</summary>
         void AddFish()
         {
-            float len = Rand(0.25f, 0.45f);
-            var at = new Vector3(Rand(-10f, 10f), -Rand(1f, 2.5f), Rand(6f, 22f));
-            GameObject go = CapsuleAlongZ("Fish", at, len, 0.11f * len, 0.15f * len, 0.24f * len, new Color(0.42f, 0.48f, 0.36f));
+            int kind = rnd.Next(3);
+            float len = kind == TackleLook.Perch ? Rand(0.2f, 0.34f) : Rand(0.3f, 0.5f);
+            var at = new Vector3(Rand(-6f, 6f), -Rand(1f, 2.5f), Rand(9f, 20f));
+            GameObject go = FishBody(at, len, kind);
             go.transform.rotation = Quaternion.Euler(0f, Rand(0f, 360f), 0f);
             Rigidbody rb = go.AddComponent<Rigidbody>();
             rb.interpolation = RigidbodyInterpolation.Interpolate;
@@ -420,10 +421,11 @@ namespace BoundedBuoyancy.Samples
             var f = go.AddComponent<BoundedBuoyancyFish>();
             f.mouth = new Vector3(0f, 0f, 0.5f * len);
             f.cruiseSpeed = 1f * len;
-            f.burstSpeed = 7f * len;
+            f.burstSpeed = (kind == TackleLook.Trout ? 8.5f : 7f) * len;
             float kg = 1000f * Mathf.PI * Mathf.Pow(0.11f * len, 2f) * len * 0.85f;
-            f.maxThrust = 8f * kg;
-            f.endurance = 8f + 10f * kg;
+            f.maxThrust = (kind == TackleLook.Bass ? 10f : 8f) * kg;
+            f.endurance = (kind == TackleLook.Trout ? 6f : 8f) + 10f * kg;
+            fishKinds[f] = kind;
             f.bitePull = 0.08f;
             f.appetite = 0.08f;
             f.minDepth = 0.6f;
@@ -447,6 +449,23 @@ namespace BoundedBuoyancy.Samples
             });
             fishes.Add(f);
             bodies.Add(f);
+            fishLooks.Add(new KeyValuePair<BoundedBuoyancyFish, Transform>(f, go.transform.Find("Look")));
+        }
+
+        readonly Dictionary<BoundedBuoyancyFish, int> fishKinds = new Dictionary<BoundedBuoyancyFish, int>();
+
+        /// <summary>A fish's body: a capsule collider along Z, and its look.</summary>
+        GameObject FishBody(Vector3 at, float len, int kind)
+        {
+            var go = new GameObject(TackleLook.Names[kind]);
+            go.transform.SetParent(root, false);
+            go.transform.position = at;
+            var cc = go.AddComponent<CapsuleCollider>();
+            cc.direction = 2;
+            cc.radius = 0.11f * len;
+            cc.height = len;
+            FishLook(go.transform, kind, len);
+            return go;
         }
 
         void Cast()
@@ -483,7 +502,7 @@ namespace BoundedBuoyancy.Samples
                     rodPitchTo = RestPitch + (onLine != null ? 20f : 0f);
             }
             rodPitch = Mathf.MoveTowards(rodPitch, rodPitchTo, (rodPitchTo > rodPitch ? 300f : 260f) * dt);
-            PlaceRod(false);
+            PlaceRod(false, dt);
             if (mainLine == null || bobber == null)
                 return;
             // A broken line: new tackle on the rod a few seconds later.
@@ -565,8 +584,10 @@ namespace BoundedBuoyancy.Samples
                 float kg = onLine.OwnMass;
                 caught++;
                 caughtKg += kg;
-                Say("Landed! " + kg.ToString("0.00") + " kg.", 4f);
                 BoundedBuoyancyFish f = onLine;
+                int kind;
+                Say("Landed a " + TackleLook.Names[fishKinds.TryGetValue(f, out kind) ? kind : 0] + "! " + kg.ToString("0.00") + " kg.", 4f);
+                fishKinds.Remove(f);
                 onLine = null;
                 fishes.Remove(f);
                 bodies.Remove(f);
@@ -604,12 +625,15 @@ namespace BoundedBuoyancy.Samples
             subSea.waveHeight = 0.15f;
             subSea.waveLength = 14f;
             subSea.surfaceColor = new Color(0.05f, 0.20f, 0.26f, 0.85f);
-            Color steel = new Color(0.13f, 0.14f, 0.16f);
-            GameObject go = CapsuleAlongZ("Submarine", new Vector3(0f, 0.6f, 0f), SubLong, SubRadius, 2f * SubRadius, 2f * SubRadius, steel);
-            // Bow toward +Z: the sail (the fin) forward of the middle, the rudder and the planes at the stern.
-            Part(PrimitiveType.Cube, go.transform, new Vector3(0f, SubRadius + 1f, 0.2f * SubLong), new Vector3(0.9f, 2.6f, 4f), steel);
-            Part(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, -0.5f * SubLong + 1.2f), new Vector3(4.6f, 0.12f, 1.4f), steel);
-            Part(PrimitiveType.Cube, go.transform, new Vector3(0f, 0f, -0.5f * SubLong + 0.6f), new Vector3(0.12f, 3.6f, 1.6f), steel);
+            // Bow toward +Z: drawn by SubLook, with its sail forward of the middle and its rudder and propeller at the stern.
+            var go = new GameObject("Submarine");
+            go.transform.SetParent(root, false);
+            go.transform.position = new Vector3(0f, 0.6f, 0f);
+            var hullShape = go.AddComponent<CapsuleCollider>();
+            hullShape.direction = 2;
+            hullShape.radius = SubRadius;
+            hullShape.height = SubLong;
+            SubLook(go.transform, SubLong, SubRadius);
             Rigidbody rb = go.AddComponent<Rigidbody>();
             rb.interpolation = RigidbodyInterpolation.Interpolate;
             sub = go.AddComponent<BoundedBuoyancyBody>();
@@ -660,7 +684,8 @@ namespace BoundedBuoyancy.Samples
             {
                 float len = Rand(0.5f, 0.9f);
                 var at = new Vector3(Rand(-30f, 30f), -Rand(8f, 40f), Rand(15f, 60f));
-                GameObject fg = CapsuleAlongZ("Fish", at, len, 0.1f * len, 0.14f * len, 0.2f * len, new Color(0.6f, 0.66f, 0.7f));
+                GameObject fg = FishBody(at, len, TackleLook.Mackerel);
+                fg.GetComponent<CapsuleCollider>().radius = 0.1f * len;
                 Rigidbody frb = fg.AddComponent<Rigidbody>();
                 frb.interpolation = RigidbodyInterpolation.Interpolate;
                 frb.detectCollisions = false;
@@ -675,6 +700,7 @@ namespace BoundedBuoyancy.Samples
                 f.appetite = 0f;
                 f.randomSeed = rnd.Next() | 1;
                 bodies.Add(f);
+                fishLooks.Add(new KeyValuePair<BoundedBuoyancyFish, Transform>(f, fg.transform.Find("Look")));
             }
             orbit = false;
             eyeSet = true;
@@ -711,6 +737,12 @@ namespace BoundedBuoyancy.Samples
                 subMain = Mathf.Max(subMain - dt / MainBlow, subMainTo);
             subProp.throttle = subThrottle;
             SubBallast();
+            // The propeller turns with the throttle, the rudder's blades with the rudder.
+            subTurned += subThrottle * 500f * dt;
+            if (subPropLook != null)
+                subPropLook.localRotation = Quaternion.Euler(0f, 0f, subTurned);
+            foreach (Transform r in subRudderLooks)
+                r.localRotation = Quaternion.Euler(0f, -subRudder.Angle, 0f);
         }
 
         // BATTLE ---------------------------------------------------------------------------------------------------

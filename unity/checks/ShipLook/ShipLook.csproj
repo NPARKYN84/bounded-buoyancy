@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../com.parkyn.bounded-buoyancy/Samples~/Demo/ShipLook.cs" />
+    <Compile Include="../../com.parkyn.bounded-buoyancy/Samples~/Demo/TackleLook.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 </Project>

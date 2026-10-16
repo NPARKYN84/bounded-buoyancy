@@ -1,5 +1,6 @@
 // Writes the demo ship's meshes, paint and rig (ShipLook) to files, so that they can be drawn and looked at outside
-// Unity: `dotnet run -c Release -- OUTDIR [navy|merchant|pirate] [runout]`. Meshes as "v x y z u v" and "f a b c" lines,
+// Unity: `dotnet run -c Release -- OUTDIR [navy|merchant|pirate] [runout]`; with `tackle` in place of the colours,
+// the fish (TackleLook) and the submarine's hull instead. Meshes as "v x y z u v" and "f a b c" lines,
 // paint as binary PPM (row 0 at the bottom, as Unity has it), parts as one line each.
 using System;
 using System.Globalization;
@@ -39,6 +40,23 @@ static class Program
     {
         string dir = args.Length > 0 ? args[0] : "out";
         string who = args.Length > 1 ? args[1] : "pirate";
+        if (who == "tackle")
+        {
+            Directory.CreateDirectory(dir);
+            for (int k = 0; k < 4; k++)
+            {
+                Mesh(Path.Combine(dir, "fish" + k + ".txt"), TackleLook.Fish(k));
+                Ppm(Path.Combine(dir, "fish" + k + ".ppm"), TackleLook.FishPaint(k, 512, 128), 512, 128);
+                float er;
+                P3 e = TackleLook.Eye(k, out er);
+                File.WriteAllText(Path.Combine(dir, "eye" + k + ".txt"), V(e) + " " + er.ToString(C));
+            }
+            Mesh(Path.Combine(dir, "sub.txt"), TackleLook.SubHull(22f, 1.6f));
+            Ppm(Path.Combine(dir, "sub.ppm"), TackleLook.SubPaint(22f, 1024, 256), 1024, 256);
+            Mesh(Path.Combine(dir, "torus.txt"), TackleLook.Torus(0.5f, 0.1f));
+            Console.WriteLine("Wrote " + dir + ": four fish, the submarine's hull, a ring");
+            return 0;
+        }
         bool runOut = args.Length > 2 && args[2] == "runout";
         Directory.CreateDirectory(dir);
         ShipColours c = who == "navy" ? ShipLook.Navy : who == "merchant" ? ShipLook.Merchant : ShipLook.Pirate;

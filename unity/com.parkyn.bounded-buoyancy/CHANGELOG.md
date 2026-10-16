@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Demo sample: FISHING and SUBMARINE are drawn as in the Godot plugin's demo (`TackleLook.cs`, `BoundedBuoyancyDemoTackle.cs`). The fish are perch, trout and bass, each with its own shape, fins, eyes and markings (trout dash hardest, bass pull hardest), and they start out where the float lands. The angler sits on a seat box in a waxed jacket, a vest, wellingtons and a bucket hat, his hands on the rod and the reel's handle, which turns as he winds; the rod bends with the pull on the line, with a cork handle, a reel seat and whipped guides, and the reel is a fixed-spool reel. The float has a bright tip, the hook a worm on it, the line is a bright yellow, and an open tackle box of lures stands on the jetty. A new view under the water shows the hook and the fish, over a sandy bed with stones and weed. The submarine has a rounded bow and a stern tapering to a seven-bladed bronze propeller that turns with the throttle, light grey paint with a red bottom, a streamlined sail with planes, masts and navigation lights, lit round windows, a searchlight in the bow and stern rudders that turn; its fish are mackerel.
+
 ## [2.5.2] - 2026-10-16
 
 - Demo sample: the brigs are drawn and painted in code as in the Godot plugin's demo (`ShipLook.cs`): a hull rounded at the bilge, planked and painted, with a gilt moulding, open gun ports with their lids up, round windows lit from within along the quarters and across the stern, a stern lantern, a deck sweeping up to a raised quarterdeck, two masts with every square sail set, a jib, shrouds, stays and a flag. They float on the same hull as before, drawn above it. New FLOOD (two ships, the same hole: one big hold sinks, six compartments stay afloat; pumps) and CANNONS (broadsides at close range, ricochet fire, holes and flooding, moored ships) scenes.
