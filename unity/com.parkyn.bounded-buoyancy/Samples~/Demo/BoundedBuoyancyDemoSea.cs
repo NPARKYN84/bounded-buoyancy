@@ -31,6 +31,7 @@ namespace BoundedBuoyancy.Samples
             rodSegments = null;
             rodBend = wound = lastLength = 0f;
             fishUnder = false;
+            underEye = underLook = Vector3.zero;
             subPropLook = null;
             subRudderLooks.Clear();
             subTurned = 0f;
@@ -98,14 +99,19 @@ namespace BoundedBuoyancy.Samples
                 focus = Vector3.Lerp(focus, target, k);
                 eye = new Vector3(-0.5f, 2.6f, -2.6f);
                 RenderSettings.fog = false;
+                if (!fishUnder)
+                    underEye = underLook = Vector3.zero;
                 if (fishUnder && hookShot != null)
                 {
                     // Under the water, a little way from the hook (or the fish on it), looking at it; the light green.
-                    Vector3 h = onLine != null ? onLine.Body.position : hookShot.Body.position;
+                    Vector3 h = onLine != null ? onLine.transform.position : hookShot.transform.position;
                     Vector3 want = h + new Vector3(1.4f, 0.15f, -1.2f);
                     want.y = Mathf.Min(want.y, -0.25f);
-                    eye = want;
-                    focus = h;
+                    float soft = 1f - Mathf.Exp(-2f * Time.deltaTime);
+                    underEye = underEye == Vector3.zero ? want : Vector3.Lerp(underEye, want, soft);
+                    underLook = underLook == Vector3.zero ? h : Vector3.Lerp(underLook, h, soft);
+                    eye = underEye;
+                    focus = underLook;
                     RenderSettings.fog = true;
                     RenderSettings.fogMode = FogMode.Exponential;
                     RenderSettings.fogDensity = 0.12f;
@@ -293,6 +299,7 @@ namespace BoundedBuoyancy.Samples
         const float ReelSpeed = 0.7f, LineBreaks = 30f;
         Rigidbody rodTip;
         bool fishUnder;
+        Vector3 underEye, underLook;
         BoundedBuoyancyBody bobber, hookShot;
         BoundedBuoyancyLine mainLine, snood;
         readonly List<BoundedBuoyancyFish> fishes = new List<BoundedBuoyancyFish>();
@@ -322,8 +329,8 @@ namespace BoundedBuoyancy.Samples
             tip.transform.SetParent(root, false);
             rodTip = tip.AddComponent<Rigidbody>();
             rodTip.isKinematic = true;
-            rodTip.interpolation = RigidbodyInterpolation.Interpolate;
-            MakeAngler(new Vector3(RodHand.x - 0.12f, JettyDeck + 0.38f, RodHand.z - 0.3f));
+            rodTip.interpolation = RigidbodyInterpolation.None;   // moved with the drawn rod, each step
+            MakeAngler(new Vector3(RodHand.x - 0.12f, JettyDeck + 0.38f, RodHand.z - 0.18f));
             MakeRod();
             TackleBox(new Vector3(-0.55f, JettyDeck + 0.025f, 0.15f), -20f);
             LakeBed();

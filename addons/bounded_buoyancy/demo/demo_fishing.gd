@@ -288,7 +288,7 @@ func _make_rod() -> void:
 	add_child(_tip)
 	_reel_look = TACKLE.dress_rod(_rod_parts, ROD / ROD_SEGMENTS, _rod_radius)
 	# The angler on his seat box, just behind the rod's butt.
-	_angler = TACKLE.angler(self, Vector3(HAND.x - 0.12, DECK + 0.38, HAND.z + 0.3))
+	_angler = TACKLE.angler(self, Vector3(HAND.x - 0.12, DECK + 0.38, HAND.z + 0.18))
 	TACKLE.tackle_box(self, Vector3(-0.55, DECK + 0.025, -0.15), 0.35)
 
 

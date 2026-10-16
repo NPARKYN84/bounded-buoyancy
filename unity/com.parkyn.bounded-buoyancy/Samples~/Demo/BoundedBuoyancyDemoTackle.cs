@@ -100,7 +100,11 @@ namespace BoundedBuoyancy.Samples
                 {
                     float effort = f.Key.Effort;
                     float yaw = Mathf.Sin(now * (6f + 10f * effort) + f.Key.GetInstanceID()) * (4f + 9f * effort);
-                    f.Value.localRotation = Quaternion.Euler(0f, yaw, 0f);
+                    // Swung about its nose, so that the mouth (and the hook in it) stays put.
+                    Quaternion turn = Quaternion.Euler(0f, yaw, 0f);
+                    Vector3 nose = new Vector3(0f, 0f, 0.5f * f.Value.localScale.z);
+                    f.Value.localRotation = turn;
+                    f.Value.localPosition = nose - turn * nose;
                 }
         }
 
@@ -179,9 +183,9 @@ namespace BoundedBuoyancy.Samples
             reelRotor.SetParent(r, false);
             reelRotor.localPosition = new Vector3(0f, 0f, 0.075f);
             Stick(reelRotor, new Vector3(0f, 0.016f, 0f), new Vector3(0f, 0.05f, 0f), 0.027f, body);
-            Ring(reelRotor, new Vector3(0f, 0.07f, 0f), 0.03f, 0.0022f, steel).transform.localRotation = Quaternion.Euler(0f, 0f, 18f);
-            Stick(reelRotor, new Vector3(0.027f, 0.045f, 0f), new Vector3(0.031f, 0.07f, 0.006f), 0.0025f, steel);
-            Stick(reelRotor, new Vector3(-0.027f, 0.045f, 0f), new Vector3(-0.031f, 0.07f, -0.006f), 0.0025f, steel);
+            Ring(reelRotor, new Vector3(0f, 0.07f, 0f), 0.03f, 0.0022f, steel).transform.localRotation = Quaternion.Euler(0f, 0f, -18f);
+            Stick(reelRotor, new Vector3(-0.027f, 0.045f, 0f), new Vector3(-0.031f, 0.07f, 0.006f), 0.0025f, steel);
+            Stick(reelRotor, new Vector3(0.027f, 0.045f, 0f), new Vector3(0.031f, 0.07f, -0.006f), 0.0025f, steel);
             Stick(r, new Vector3(0f, 0.05f, 0.075f), new Vector3(0f, 0.088f, 0.075f), 0.025f, gold);
             Stick(r, new Vector3(0f, 0.055f, 0.075f), new Vector3(0f, 0.083f, 0.075f), 0.0262f, line);
             Stick(r, new Vector3(0f, 0.088f, 0.075f), new Vector3(0f, 0.094f, 0.075f), 0.012f, gold);
@@ -227,10 +231,12 @@ namespace BoundedBuoyancy.Samples
             }
             if (mainLine != null)
             {
-                wound += Mathf.Max(lastLength - mainLine.length, 0f);
+                // Line wound in while the float is out (not the slack taken up when it lands).
+                if (castOut && !inFlight)
+                    wound += Mathf.Max(lastLength - mainLine.length, 0f);
                 lastLength = mainLine.length;
             }
-            reelHandle.localRotation = Quaternion.Euler(wound * 1000f, 0f, 0f);
+            reelHandle.localRotation = Quaternion.Euler(-wound * 1031f, 0f, 0f);
             reelRotor.localRotation = Quaternion.Euler(0f, wound * 5000f, 0f);
             Vector3 right = rodSegments[1].TransformPoint(new Vector3(0f, 0.41f - 1.5f * piece, -0.01f));
             PoseArms(reelKnob.position, right);
@@ -343,7 +349,7 @@ namespace BoundedBuoyancy.Samples
         /// olive body with a gold band, a white band under a black ring, and a bright tip that glows.</summary>
         void FloatLook(Transform parent)
         {
-            float h = 0.5f * FloatLong, r = FloatWide * 0.8f;
+            float h = 0.5f * FloatLong, r = FloatWide;
             Stick(parent, new Vector3(0f, -h, 0f), new Vector3(0f, -h + 0.015f, 0f), r * 0.7f, new Color(0.5f, 0.35f, 0.2f));
             Stick(parent, new Vector3(0f, -h + 0.015f, 0f), new Vector3(0f, -h + 0.7f * FloatLong, 0f), r, new Color(0.14f, 0.20f, 0.10f));
             Stick(parent, new Vector3(0f, -h + 0.41f * FloatLong, 0f), new Vector3(0f, -h + 0.43f * FloatLong, 0f), r * 1.05f, new Color(0.85f, 0.65f, 0.2f));
@@ -564,7 +570,7 @@ namespace BoundedBuoyancy.Samples
                 var blade = new GameObject("Blade").transform;
                 blade.SetParent(subPropLook, false);
                 blade.localRotation = Quaternion.Euler(0f, 0f, 360f * k / 7f);
-                Brick(blade, new Vector3(0f, 0.5f, -0.25f), new Vector3(0.36f, 0.72f, 0.04f), bronze, new Vector3(0f, -50f, 15f));
+                Brick(blade, new Vector3(0f, 0.5f, -0.25f), new Vector3(0.36f, 0.72f, 0.04f), bronze, new Vector3(0f, -50f, -15f));
             }
         }
     }

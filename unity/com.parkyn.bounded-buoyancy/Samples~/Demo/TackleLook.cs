@@ -82,16 +82,16 @@ namespace BoundedBuoyancy.Samples
                 {
                     int j1 = (j + 1) % around;
                     int a = idx[i, j], b = idx[i, j1], c = idx[i + 1, j], d = idx[i + 1, j1];
-                    m.Tri(a, b, c);
-                    m.Tri(b, d, c);
+                    m.Tri(a, c, b);
+                    m.Tri(b, c, d);
                 }
             int nose = m.Add(new P3(0f, -0.02f, 0.51f), 0f, 0.5f);
             int end = m.Add(new P3(0f, 0f, -0.505f), BodyU, 0.5f);
             for (int j = 0; j < around; j++)
             {
                 int j1 = (j + 1) % around;
-                m.Tri(nose, idx[0, j1], idx[0, j]);
-                m.Tri(end, idx[rings, j], idx[rings, j1]);
+                m.Tri(nose, idx[0, j], idx[0, j1]);
+                m.Tri(end, idx[rings, j1], idx[rings, j]);
             }
             Fins(m, kind, s);
             return m;
@@ -434,12 +434,12 @@ namespace BoundedBuoyancy.Samples
                 for (int j = 0; j < around; j++)
                 {
                     int a = idx[i, j], b = idx[i, j + 1], c = idx[i + 1, j], d = idx[i + 1, j + 1];
-                    m.Tri(a, b, c);
-                    m.Tri(b, d, c);
+                    m.Tri(a, c, b);
+                    m.Tri(b, c, d);
                 }
             int tail = m.Add(new P3(0f, 0f, -0.5f * length - 0.05f), 1f, 0.5f);
             for (int j = 0; j < around; j++)
-                m.Tri(idx[rings, j], idx[rings, j + 1], tail);
+                m.Tri(idx[rings, j + 1], idx[rings, j], tail);
             return m;
         }
 
