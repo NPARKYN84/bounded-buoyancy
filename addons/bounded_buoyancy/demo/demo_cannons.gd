@@ -223,7 +223,7 @@ func _make_ship(at: Vector3, colours: Dictionary, armed: bool, density: float) -
 	var ports := []
 	for i in GUNS:
 		ports.append(-4.0 + 2.0 * i)
-	var b := SHIP.make(self, at, colours, density, ports)
+	var b := SHIP.make(self, at, colours, density, ports, not armed)
 	b.set_meta(&"home", at)
 	var planking: Node = PLANKING.new()
 	planking.thickness = 0.25

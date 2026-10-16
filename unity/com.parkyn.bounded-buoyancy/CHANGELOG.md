@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.5.1] - 2026-10-16
 
 - Demo sample: FISHING (an angler on a jetty casts, strikes, plays and lands fish on a real line), SUBMARINE (flooded, it rests on the salt layer of real, layered sea water; floats hang where the water is as dense as they are) and BATTLE (a pirate brig against a navy brig under sail, with cannons, shot holes and flooding compartments), as in the Godot plugin's demo. They compile against Unity 2022.3 and Unity 6 but have not yet been played in the editor.
 

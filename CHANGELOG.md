@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.1
+
+- Demo: the brigs of the BATTLE and CANNONS scenes are dressed better. Every square sail is set (the courses were furled), so the canvas comes down near the deck; the planking shows; a gilt moulding runs under the rail; the gun ports stand open with their lids swung up, a gun's muzzle in each (or the ship's own guns, where she has them); round windows, lit from within, run along the quarters and across the stern, where a lantern stands; and the deck sweeps up to a raised quarterdeck over a raked stern. The pirate's hull is planked brown. The stern was drawn facing inward, and so dark; it now faces aft and takes the light. The hull's collision shape follows the new sheer and stern, all above the waterline.
+- Docs: the SKY scene's picture is recorded again, with the hot-air balloon flying in the real air.
+- Unity: the demo sample has FISHING, SUBMARINE and BATTLE scenes (see the Unity package's changelog).
+
 ## 2.5.0
 
 - Lines: **BoundedBuoyancyLine**, a line that pulls but never pushes (a fishing line, a mooring rope, a tow line), between where its node is made fast (a rod's tip, a bollard; the RigidBody3D it is under, if any, is pulled too) and its **Body**. Elastic as nylon is: stretched beyond its **Length** it pulls with E A x / L (Hooke's law), from its **Diameter** and **Stiffness**; slack, it pulls nothing. Bounded like the buoyancy: the pull is worked out with the stretch and speed at the end of the step against the inertia of what is on each end (their mass and turning at the points where it is made fast, and the other forces on them over the step), so a stiff line on a light float neither shakes nor flings it, and a weight hanging still stretches it by exactly m g / k. **Damping**, **Slip Tension** (a reel's drag: pulled harder, the line runs out), **Breaking Strength** and the `snapped` signal; `pay_out()`, `spring_constant()`, `ends()`; it reports `tension`, `stretch` and `span`, and draws itself, hanging in a curve when slack and lying along the water.

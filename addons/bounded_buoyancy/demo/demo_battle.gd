@@ -26,7 +26,7 @@ const FOIL := preload("res://addons/bounded_buoyancy/bounded_buoyancy_foil.gd")
 const WIND := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
 const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_2d.tscn"
 
-const PIRATE := {wood = Color(0.07, 0.065, 0.06), band = Color(0.55, 0.10, 0.08), bottom = Color(0.40, 0.30, 0.22), ports = Color(0.55, 0.10, 0.08), flag = Color(0.02, 0.02, 0.02), waterline = 0.35}
+const PIRATE := {wood = Color(0.26, 0.17, 0.10), band = Color(0.55, 0.10, 0.08), bottom = Color(0.40, 0.30, 0.22), ports = Color(0.55, 0.10, 0.08), flag = Color(0.02, 0.02, 0.02), waterline = 0.35}
 const GUNS := 5
 const DENSITY := 400.0          # kg/m³: each brig with her guns, stores and crew
 const WIND_SPEED := 9.0         # m/s, a fresh breeze, from the north (-z) toward the south (+z)
@@ -110,7 +110,7 @@ func _brig(at: Vector3, heading: float, colours: Dictionary, who: String) -> Rig
 	var ports := []
 	for i in GUNS:
 		ports.append(-4.0 + 2.0 * i)
-	var b := SHIP.make(self, at, colours, DENSITY, ports)
+	var b := SHIP.make(self, at, colours, DENSITY, ports, false)
 	b.rotation.y = -deg_to_rad(heading)
 	b.drag_coefficient = 0.05      # a ship's hull is shaped to slip through the water
 	b.set_meta(&"who", who)

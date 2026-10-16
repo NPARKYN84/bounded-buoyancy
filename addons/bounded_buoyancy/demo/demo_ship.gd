@@ -1,9 +1,11 @@
 extends RefCounted
 ## Sailing ships for the demo, built in code: a brig's hull, rounded at the bilge and drawn in toward
-## the rail, sharp at the bow and square at the stern, planked, with a painted band along its gunports;
-## a planked deck; two masts with yards, topsails set and courses furled, a jib on the bowsprit,
-## shrouds and stays, and a flag. The hull's shape is its collision shape, so it floats, heels and
-## sinks as itself. For show: the physics needs only the hull.
+## the rail, sharp at the bow, its deck sweeping up to a raised quarterdeck and a raked stern; planked,
+## with a painted band and a gilt moulding, open gun ports with their lids swung up, and round windows
+## lit from within along the quarters and across the stern, where a lantern stands; a planked deck; two
+## masts with yards and every square sail set, a jib on the bowsprit, shrouds and stays, and a flag.
+## The hull's shape is its collision shape, so it floats, heels and sinks as itself. For show: the
+## physics needs only the hull.
 ##
 ## make() gives a BoundedBuoyancyBody with the ship on it. The bow is toward -Z, starboard toward +X,
 ## and its origin is on the keel line, LIFT below the deck.
@@ -44,6 +46,7 @@ uniform float port_hi;
 uniform bool transom;
 uniform float rail;
 varying vec3 lp;
+uniform float half_length = 7.5;
 float hash(float n) {
 	return fract(sin(n * 91.345) * 47453.13);
 }
@@ -57,13 +60,15 @@ void vertex() {
 }
 void fragment() {
 	// Planks run along the hull (UV.y counts across them, from the keel up); their butts are staggered.
-	float across = UV.y / 0.24;
+	float across = UV.y / 0.28;
 	float plank = floor(across);
 	float f = fract(across);
-	float seam = smoothstep(0.0, 0.06, f) * smoothstep(1.0, 0.94, f);
+	float seam = smoothstep(0.0, 0.14, f) * smoothstep(1.0, 0.88, f);
 	float along = UV.x + hash(plank) * 6.0;
 	float butt = smoothstep(0.0, 0.015, abs(fract(along / 6.0) - 0.5) * 6.0 - 2.99);
-	float grain = 0.9 + 0.1 * noise1(UV.x * 3.0 + plank * 17.0) + 0.08 * (hash(plank + floor(along / 6.0)) - 0.5);
+	float grain = 0.9 + 0.1 * noise1(UV.x * 3.0 + plank * 17.0) + 0.22 * (hash(plank + floor(along / 6.0)) - 0.5);
+	float tz = clamp(lp.z / half_length, -1.0, 1.0);
+	float rail_here = transom ? rail : rail + 0.45 * tz * tz + 0.85 * smoothstep(0.5, 0.75, tz);
 	vec3 c = wood;
 	float rough = 0.85;
 	float metal = 0.0;
@@ -74,8 +79,13 @@ void fragment() {
 		c = band;
 	}
 	// Black wales above and below the band, and along the rail.
-	if (abs(lp.y - band_lo) < 0.07 || abs(lp.y - band_hi) < 0.05 || lp.y > rail - 0.06) {
+	if (abs(lp.y - band_lo) < 0.07 || abs(lp.y - band_hi) < 0.05 || lp.y > rail_here - 0.06) {
 		c = vec3(0.05, 0.045, 0.04);
+	}
+	if (abs(lp.y - (rail_here - 0.16)) < 0.035) {
+		c = vec3(0.78, 0.58, 0.2);
+		rough = 0.35;
+		metal = 0.8;
 	}
 	// The gun ports, cut through the band.
 	if (!transom && lp.y > port_lo && lp.y < port_hi) {
@@ -84,22 +94,32 @@ void fragment() {
 				break;
 			}
 			if (abs(lp.z - port_z[i]) < 0.5 * port_w) {
-				c = lids;
 				float frame = min(abs(abs(lp.z - port_z[i]) - 0.5 * port_w), min(lp.y - port_lo, port_hi - lp.y));
-				c *= 0.6 + 0.4 * smoothstep(0.0, 0.04, frame);
+				c = frame < 0.05 ? lids : vec3(0.015, 0.012, 0.01);
 			}
 		}
 	}
 	vec3 e = vec3(0.0);
-	// Stern windows, lit from within.
-	if (transom && lp.y > rail - 0.85 && lp.y < rail - 0.35) {
-		float w = fract((lp.x + 5.0) / 0.55);
-		if (w > 0.18 && w < 0.82 && abs(lp.x) < 1.4) {
+	// Round windows with brass rims, lit from within: a row across the transom, and along each quarter
+	// under the quarterdeck rail.
+	vec2 win = vec2(1e9);
+	if (transom && abs(lp.x) < 1.55) {
+		win = vec2(fract((lp.x + 5.0) / 0.6) - 0.5, (lp.y - (rail - 0.62)) / 0.6) * 0.6;
+	} else if (!transom && lp.z > 4.6 && lp.z < 7.0) {
+		win = vec2(fract((lp.z + 0.15) / 0.7) - 0.5, (lp.y - (rail_here - 0.62)) / 0.7) * 0.7;
+	}
+	float r = length(win);
+	if (r < 0.19) {
+		c = vec3(0.75, 0.55, 0.22);
+		rough = 0.35;
+		metal = 0.8;
+		if (r < 0.15) {
 			c = vec3(0.08, 0.07, 0.05);
-			e = vec3(1.0, 0.72, 0.35) * 0.6;
+			metal = 0.0;
+			e = vec3(1.0, 0.72, 0.35) * 0.7;
 		}
 	}
-	ALBEDO = c * mix(0.55, 1.0, seam * butt) * grain;
+	ALBEDO = c * mix(0.22, 1.0, seam * butt) * grain;
 	ROUGHNESS = rough;
 	METALLIC = metal;
 	EMISSION = e;
@@ -163,13 +183,12 @@ void fragment() {
 static var _spar_material: StandardMaterial3D
 static var _rope_material: StandardMaterial3D
 static var _iron_material: StandardMaterial3D
-static var _furl_material: StandardMaterial3D
 static var _shaders := {}
 
 
 ## How wide the hull is (half its width) at `t` along it (-1 at the bow, 1 at the stern) and height
 ## `y`.
-static func half_width(t: float, y: float) -> float:
+static func half_width(t: float, y: float, rail := -1.0) -> float:
 	var plan: float
 	if t < 0.0:
 		plan = pow(maxf(1.0 - pow(-t, 2.3), 0.0), 0.55)
@@ -185,7 +204,7 @@ static func half_width(t: float, y: float) -> float:
 		var u := clampf((MAX_BEAM - y) / maxf(low, 0.05), 0.0, 1.0)
 		g = pow(1.0 - pow(u, 2.4), 1.0 / 2.4)
 	else:
-		var u := clampf((y - MAX_BEAM) / (rail_at(t) - MAX_BEAM), 0.0, 1.0)
+		var u := clampf((y - MAX_BEAM) / ((rail if rail > 0.0 else rail_at(t)) - MAX_BEAM), 0.0, 1.0)
 		g = 1.0 - TUMBLE * u * u
 	return maxf(0.5 * BEAM * plan * g, 0.07 * minf(plan * 4.0, 1.0))
 
@@ -197,18 +216,29 @@ static func keel_at(t: float) -> float:
 
 ## Height of the rail at `t`: it sweeps up toward both ends, and higher at the stern.
 static func rail_at(t: float) -> float:
-	return RAIL + 0.3 * t * t + 0.55 * smoothstep(0.55, 0.85, t)
+	return RAIL + 0.45 * t * t + 0.85 * smoothstep(0.5, 0.75, t)
 
 
 ## Height of the deck at `t`.
 static func deck_at(t: float) -> float:
+	return DECK + 0.25 * t * t + 0.75 * smoothstep(0.5, 0.56, t)
+
+
+## The rail and the deck as the physics has them: the hull it floats, floods and is struck as, with a
+## lower sheer and an upright stern. The raised quarterdeck and the raked stern are drawn above that,
+## all of it above the waterline, so they change how she looks, not how she sails.
+static func hull_rail_at(t: float) -> float:
+	return RAIL + 0.3 * t * t + 0.55 * smoothstep(0.55, 0.85, t)
+
+
+static func hull_deck_at(t: float) -> float:
 	return DECK + 0.25 * t * t + 0.55 * smoothstep(0.55, 0.85, t)
 
 
 ## A ship of `colours` (NAVY or MERCHANT) of `density` at `at`, its ports at `ports` (positions
 ## along it, z), under `parent`. Returns the body; its "ports" meta has the ports' places, where
 ## its guns go (local, starboard side).
-static func make(parent: Node, at: Vector3, colours: Dictionary, density: float, ports: Array) -> RigidBody3D:
+static func make(parent: Node, at: Vector3, colours: Dictionary, density: float, ports: Array, run_out := true) -> RigidBody3D:
 	var b := BB.new()
 	b.name = "Ship"
 	# The hull, and the same shape to float on and to be struck.
@@ -257,6 +287,8 @@ static func make(parent: Node, at: Vector3, colours: Dictionary, density: float,
 	b.density = density
 	b.angular_drag = 1.5
 	b.position = at
+	_gun_ports(b, ports, colours.ports, run_out)
+	_lantern(b)
 	b.set_meta(&"ports", ports.map(func(z: float) -> Vector3: return Vector3(half_width(z / (0.5 * LENGTH), DECK + 0.4), DECK + 0.4, z)))
 	parent.add_child(b)
 	b.center_of_mass = Vector3(0, KEEL + 1.2, 0)   # ballast low in the hold
@@ -278,8 +310,8 @@ static func compartments(b: Node3D, kind: Script, ends: Array) -> void:
 		for i in 9:
 			var t := lerpf(z0, z1, i / 8.0) / (0.5 * LENGTH)
 			lo = maxf(lo, keel_at(t) + 0.2)
-			deck_y = minf(deck_y, deck_at(t))
-			rail_y = minf(rail_y, rail_at(t))
+			deck_y = minf(deck_y, hull_deck_at(t))
+			rail_y = minf(rail_y, hull_rail_at(t))
 		# How much the hull holds on one side between lo and the deck, summed in small boxes.
 		var held := 0.0
 		var n := 24
@@ -287,13 +319,13 @@ static func compartments(b: Node3D, kind: Script, ends: Array) -> void:
 			var t := lerpf(z0, z1, (i + 0.5) / n) / (0.5 * LENGTH)
 			for j in n:
 				var y := lerpf(lo, deck_y, (j + 0.5) / n)
-				held += maxf(half_width(t, y) - 0.08, 0.0)
+				held += maxf(half_width(t, y, hull_rail_at(t)) - 0.08, 0.0)
 		var height := deck_y - lo
 		var wide := held / (n * n)
 		var well_wide := INF
 		for i in 9:
 			var t := lerpf(z0, z1, i / 8.0) / (0.5 * LENGTH)
-			well_wide = minf(well_wide, half_width(t, rail_y) - 0.1)
+			well_wide = minf(well_wide, half_width(t, rail_y, hull_rail_at(t)) - 0.1)
 		for side in [-1.0, 1.0]:
 			var room: Node3D = kind.new()
 			room.size = Vector3(wide, height, z1 - z0)
@@ -372,14 +404,16 @@ static func _hull_mesh() -> Array:
 		for j in ROWS + 1:
 			var v := float(j) / ROWS
 			var y := lerpf(y0, y1, 1.0 - pow(1.0 - v, 1.4))
-			var p := Vector3(half_width(t, y), y, z)
+			var p := Vector3(half_width(t, y), y, z + 0.35 * (y - TUCK) * smoothstep(0.9, 1.0, t))
 			if j > 0:
 				girth += p.distance_to(prev)
 			prev = p
 			row.append([p, girth])
 			if i % 4 == 0 and j % 3 == 0:
-				points.append(p)
-				points.append(Vector3(-p.x, p.y, p.z))
+				var hy := lerpf(y0, hull_rail_at(t), 1.0 - pow(1.0 - v, 1.4))
+				var h := Vector3(half_width(t, hy, hull_rail_at(t)), hy, z)
+				points.append(h)
+				points.append(Vector3(-h.x, h.y, h.z))
 		grid.append(row)
 	for side in [1.0, -1.0]:
 		for i in STATIONS:
@@ -413,7 +447,7 @@ static func _hull_mesh() -> Array:
 		var q: Vector3 = last[j + 1][0]
 		var pp := Vector3(-p.x, p.y, p.z)
 		var qq := Vector3(-q.x, q.y, q.z)
-		for v in [pp, p, q, pp, q, qq]:
+		for v in [pp, q, p, pp, qq, q]:   # wound to face aft
 			ts.set_normal(Vector3.BACK)
 			ts.set_uv(Vector2(v.x, v.y))
 			ts.add_vertex(v)
@@ -467,7 +501,7 @@ static func _rig(b: Node3D, colours: Dictionary) -> void:
 		var course_yard := cap - Vector3(0, 1.0, 0)
 		var w1 := 3.6
 		_spar_between(b, course_yard - Vector3(w1, 0, 0), course_yard + Vector3(w1, 0, 0), 0.08, 0.1, true)
-		_furl(b, course_yard + Vector3(0, -0.12, 0.05), w1 * 1.8)
+		_sail(b, course_yard + Vector3(0, -0.1, 0.05), Vector3(0, deck_at(z / (0.5 * LENGTH)) + 1.5, z + 0.05), w1 * 0.95, w1 * 1.05)
 		var top_yard := head - Vector3(0, 0.7, 0)
 		var w2 := 2.7
 		_spar_between(b, top_yard - Vector3(w2, 0, 0), top_yard + Vector3(w2, 0, 0), 0.06, 0.08, true)
@@ -554,24 +588,6 @@ static func _along(mi: Node3D, a: Vector3, c: Vector3) -> void:
 	mi.transform = Transform3D(Basis(x, d, z), 0.5 * (a + c))
 
 
-## A sail rolled up along its yard.
-static func _furl(b: Node3D, at: Vector3, width: float) -> void:
-	if _furl_material == null:
-		_furl_material = StandardMaterial3D.new()
-		_furl_material.albedo_color = Color(0.82, 0.78, 0.68)
-		_furl_material.roughness = 0.95
-	var mi := MeshInstance3D.new()
-	var m := CapsuleMesh.new()
-	m.radius = 0.17
-	m.height = width
-	m.radial_segments = 10
-	mi.mesh = m
-	mi.material_override = _furl_material
-	mi.rotation_degrees = Vector3(0, 0, 90)
-	mi.position = at
-	b.add_child(mi)
-
-
 ## A square sail from its head at `head` (half-width `wh`) to its foot at `foot` (half-width
 ## `wf`), filled by a wind from astern: it bellies forward.
 static func _sail(b: Node3D, head: Vector3, foot: Vector3, wh: float, wf: float) -> void:
@@ -629,3 +645,89 @@ static func _jib(b: Node3D, head: Vector3, tack: Vector3, clew: Vector3) -> void
 	mi.mesh = st.commit()
 	mi.material_override = _material(SAIL_SHADER)
 	b.add_child(mi)
+
+
+## At each port, both sides: its lid, swung up on its hinges, and (with `run_out`) a gun's muzzle run
+## out through it; a ship given guns of her own (BoundedBuoyancyCannon, with gun_look) leaves them out.
+static func _gun_ports(b: Node3D, ports: Array, lid_colour: Color, run_out: bool) -> void:
+	var lid_look := StandardMaterial3D.new()
+	lid_look.albedo_color = lid_colour
+	lid_look.roughness = 0.8
+	if _iron_material == null:
+		_iron_material = StandardMaterial3D.new()
+		_iron_material.albedo_color = Color(0.07, 0.07, 0.08)
+		_iron_material.metallic = 0.7
+		_iron_material.roughness = 0.45
+	var lo := DECK + 0.17
+	var hi := DECK + 0.6
+	for z in ports:
+		var t: float = z / (0.5 * LENGTH)
+		for side in [-1.0, 1.0]:
+			var x: float = side * half_width(t, hi)
+			var lid := MeshInstance3D.new()
+			var lm := BoxMesh.new()
+			lm.size = Vector3(0.05, hi - lo + 0.04, 0.6)
+			lid.mesh = lm
+			lid.material_override = lid_look
+			# Hinged along its top edge, swung out and up 70 degrees.
+			var hinge := Node3D.new()
+			hinge.position = Vector3(x + side * 0.03, hi + 0.02, z)
+			hinge.rotation_degrees = Vector3(0, 0, -side * 70.0)
+			b.add_child(hinge)
+			lid.position = Vector3(0, -0.5 * (hi - lo + 0.04), 0)
+			hinge.add_child(lid)
+			if not run_out:
+				continue
+			var barrel := MeshInstance3D.new()
+			var bm := CylinderMesh.new()
+			bm.top_radius = 0.08
+			bm.bottom_radius = 0.11
+			bm.height = 1.1
+			bm.radial_segments = 12
+			barrel.mesh = bm
+			barrel.material_override = _iron_material
+			barrel.rotation_degrees = Vector3(0, 0, -side * 90.0)
+			barrel.position = Vector3(x + side * 0.15, 0.5 * (lo + hi), z)
+			b.add_child(barrel)
+
+
+## A lantern on a post at the top of the stern.
+static func _lantern(b: Node3D) -> void:
+	var top := Vector3(0, rail_at(1.0), 0.5 * LENGTH + 0.35 * (rail_at(1.0) - TUCK))
+	var post := MeshInstance3D.new()
+	var pm := CylinderMesh.new()
+	pm.top_radius = 0.04
+	pm.bottom_radius = 0.05
+	pm.height = 0.9
+	post.mesh = pm
+	post.material_override = _spar()
+	post.position = top + Vector3(0, 0.45, -0.1)
+	b.add_child(post)
+	var glass := MeshInstance3D.new()
+	var gm := CylinderMesh.new()
+	gm.top_radius = 0.12
+	gm.bottom_radius = 0.2
+	gm.height = 0.5
+	gm.radial_segments = 8
+	glass.mesh = gm
+	var lit := StandardMaterial3D.new()
+	lit.albedo_color = Color(1.0, 0.8, 0.45)
+	lit.emission_enabled = true
+	lit.emission = Color(1.0, 0.65, 0.3)
+	lit.emission_energy_multiplier = 1.5
+	glass.material_override = lit
+	glass.position = top + Vector3(0, 1.1, -0.1)
+	b.add_child(glass)
+	var cap := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.02
+	cm.bottom_radius = 0.16
+	cm.height = 0.2
+	cap.mesh = cm
+	var gold := StandardMaterial3D.new()
+	gold.albedo_color = Color(0.78, 0.58, 0.2)
+	gold.metallic = 0.8
+	gold.roughness = 0.35
+	cap.material_override = gold
+	cap.position = top + Vector3(0, 1.45, -0.1)
+	b.add_child(cap)
