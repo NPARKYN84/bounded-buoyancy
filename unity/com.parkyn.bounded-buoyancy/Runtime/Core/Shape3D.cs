@@ -180,8 +180,10 @@ namespace BoundedBuoyancy.Core
             return AddTriangles(faces, -1.0);
         }
 
-        /// <summary>A closed indexed mesh (body coordinates).</summary>
-        public bool AddMesh(IList<V3> vertices, IList<int> triangles, double exactVolume = -1.0)
+        /// <summary>An indexed mesh (body coordinates). With closeOpen, a mesh that is not watertight is closed
+        /// first (see MeshClosing.Close); the result is reported in Openings: 0 closed already, n openings
+        /// capped, -1 replaced by its convex hull.</summary>
+        public bool AddMesh(IList<V3> vertices, IList<int> triangles, double exactVolume = -1.0, bool closeOpen = false)
         {
             var faces = new List<V3>(triangles.Count);
             for (int i = 0; i + 2 < triangles.Count; i += 3)
@@ -190,8 +192,19 @@ namespace BoundedBuoyancy.Core
                 faces.Add(vertices[triangles[i + 1]]);
                 faces.Add(vertices[triangles[i + 2]]);
             }
+            Openings = 0;
+            if (closeOpen)
+            {
+                int n;
+                faces = MeshClosing.Close(faces, out n);
+                Openings = n;
+            }
             return AddTriangles(faces, exactVolume);
         }
+
+        /// <summary>What the last AddMesh with closeOpen did: 0 nothing (closed already), n openings capped,
+        /// -1 the mesh was replaced by its convex hull.</summary>
+        public int Openings { get; private set; }
 
         /// <summary>A closed set of triangles (body coordinates), three points each. With exactVolume > 0 the
         /// faceted volume is scaled to that value; the sign corrects for the winding of the triangles.</summary>
@@ -336,6 +349,133 @@ namespace BoundedBuoyancy.Core
                 }
             }
             return faces;
+        }
+    }
+
+    /// <summary>Makes a set of triangles watertight. Vertices are welded by position; a mesh with every edge
+    /// shared by two triangles is returned as it is (openings = 0). Otherwise each opening (a loop of edges
+    /// with a triangle on one side only) is capped with a fan from its centre, which is what buoyancy wants
+    /// of a hull with no deck (openings = the number capped). A mesh that cannot be capped (triangles wound
+    /// both ways, an edge shared by three faces, loops that cannot be followed) is replaced by the convex
+    /// hull of its points (openings = -1).</summary>
+    public static class MeshClosing
+    {
+        struct Key : IEquatable<Key>
+        {
+            public long a, b, c;
+            public bool Equals(Key o) { return a == o.a && b == o.b && c == o.c; }
+            public override bool Equals(object o) { return o is Key && Equals((Key)o); }
+            public override int GetHashCode() { return (int)(a * 73856093L ^ b * 19349663L ^ c * 83492791L); }
+        }
+
+        public static List<V3> Close(IList<V3> faces, out int openings)
+        {
+            openings = 0;
+            var result = new List<V3>(faces);
+            if (faces.Count < 9)
+                return result;
+            // Weld the vertices, so edges match by position.
+            double extent = 0.0;
+            foreach (V3 v in faces)
+                extent = Math.Max(extent, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+            double q = Math.Max(1e-9, extent * 1e-6);
+            var index = new Dictionary<Key, int>();
+            var verts = new List<V3>();
+            var tris = new List<int>();
+            for (int i = 0; i + 2 < faces.Count; i += 3)
+            {
+                int[] t = new int[3];
+                for (int k = 0; k < 3; k++)
+                {
+                    V3 v = faces[i + k];
+                    var key = new Key { a = (long)Math.Round(v.x / q), b = (long)Math.Round(v.y / q), c = (long)Math.Round(v.z / q) };
+                    int id;
+                    if (!index.TryGetValue(key, out id))
+                    {
+                        id = verts.Count;
+                        index[key] = id;
+                        verts.Add(v);
+                    }
+                    t[k] = id;
+                }
+                if (t[0] == t[1] || t[1] == t[2] || t[0] == t[2])
+                    continue;   // a sliver with no area
+                tris.AddRange(t);
+            }
+            // Count the directed edges: a watertight, consistently wound mesh has each edge once each way.
+            var edges = new Dictionary<long, int>();
+            int n = verts.Count;
+            for (int i = 0; i + 2 < tris.Count; i += 3)
+                for (int k = 0; k < 3; k++)
+                {
+                    long e = (long)tris[i + k] * n + tris[i + (k + 1) % 3];
+                    int c;
+                    edges.TryGetValue(e, out c);
+                    edges[e] = c + 1;
+                }
+            bool tangled = false;
+            var open = new Dictionary<int, int>();   // boundary edges a -> b (a triangle on one side only)
+            foreach (var e in edges)
+            {
+                int a = (int)(e.Key / n), b = (int)(e.Key % n);
+                int back;
+                bool hasBack = edges.TryGetValue((long)b * n + a, out back);
+                if (e.Value > 1 || (hasBack && back > 1))
+                    tangled = true;
+                else if (!hasBack)
+                {
+                    if (open.ContainsKey(a))
+                        tangled = true;   // two openings meet at a vertex: the loops cannot be followed
+                    open[a] = b;
+                }
+            }
+            if (open.Count == 0 && !tangled)
+                return result;   // closed already
+            if (!tangled)
+            {
+                // Follow each loop of boundary edges and cap it with a fan from its centre, wound the
+                // opposite way to the triangles it closes.
+                var outFaces = new List<V3>(faces);
+                var seen = new HashSet<int>();
+                int loops = 0;
+                foreach (var start in open)
+                {
+                    if (seen.Contains(start.Key))
+                        continue;
+                    var loop = new List<int>();
+                    int v = start.Key;
+                    bool ok = true;
+                    for (;;)
+                    {
+                        if (seen.Contains(v)) { ok = v == start.Key; break; }
+                        seen.Add(v);
+                        loop.Add(v);
+                        int next;
+                        if (!open.TryGetValue(v, out next)) { ok = false; break; }
+                        v = next;
+                    }
+                    if (!ok || loop.Count < 3) { tangled = true; break; }
+                    V3 centre = V3.Zero;
+                    foreach (int j in loop)
+                        centre = centre + verts[j];
+                    centre = centre / loop.Count;
+                    for (int j = 0; j < loop.Count; j++)
+                    {
+                        outFaces.Add(verts[loop[(j + 1) % loop.Count]]);
+                        outFaces.Add(verts[loop[j]]);
+                        outFaces.Add(centre);
+                    }
+                    loops++;
+                }
+                if (!tangled)
+                {
+                    openings = loops;
+                    return outFaces;
+                }
+            }
+            openings = -1;
+            var hull = ConvexHull.Build(verts);
+            return hull ?? result;
         }
     }
 }

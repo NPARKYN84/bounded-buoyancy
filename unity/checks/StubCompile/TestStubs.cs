@@ -37,6 +37,7 @@ namespace NUnit.Framework
             if (Equals(expected, actual))
                 Fail("expected not " + expected, message);
         }
+        public static void AreEqual(object expected, object actual) { AreEqual(expected, actual, null); }
         public static void AreEqual(object expected, object actual, string message)
         {
             if (!Equals(expected, actual))

@@ -68,6 +68,92 @@ namespace BoundedBuoyancy.Tests
             Assert.AreEqual(0.002, b.Build().Volume, 1e-12);
         }
 
+        // A box mesh with no top (a boat without a deck); with a hole, a hole is also knocked through one
+        // side; tangled winds half its triangles the wrong way, so no capping can make sense of it.
+        static void OpenBox(double hx, double hy, double hz, bool hole, bool tangled, out List<V3> verts, out List<int> tris)
+        {
+            verts = new List<V3>
+            {
+                new V3(-hx, -hy, -hz), new V3(hx, -hy, -hz), new V3(hx, -hy, hz), new V3(-hx, -hy, hz),
+                new V3(-hx, hy, -hz), new V3(hx, hy, -hz), new V3(hx, hy, hz), new V3(-hx, hy, hz),
+            };
+            // Outward wound quads: bottom and four sides; no top.
+            int[][] quads = { new[] { 0, 3, 2, 1 }, new[] { 0, 1, 5, 4 }, new[] { 1, 2, 6, 5 }, new[] { 2, 3, 7, 6 }, new[] { 3, 0, 4, 7 } };
+            tris = new List<int>();
+            for (int k = 0; k < quads.Length; k++)
+            {
+                int[] q = quads[k];
+                if (hole && k == 2)
+                {
+                    // The side x = +hx with a square hole in its middle: a ring of eight triangles.
+                    int[] ring = { 1, 2, 6, 5 };
+                    int baseIndex = verts.Count;
+                    foreach (int r in ring)
+                        verts.Add(new V3(hx, verts[r].y * 0.4, verts[r].z * 0.4));
+                    for (int j = 0; j < 4; j++)
+                    {
+                        int a = ring[j], b = ring[(j + 1) % 4], ia = baseIndex + j, ib = baseIndex + (j + 1) % 4;
+                        tris.AddRange(new[] { a, b, ib, a, ib, ia });
+                    }
+                }
+                else if (tangled && k % 2 == 1)
+                    tris.AddRange(new[] { q[0], q[2], q[1], q[0], q[3], q[2] });
+                else
+                    tris.AddRange(new[] { q[0], q[1], q[2], q[0], q[2], q[3] });
+            }
+        }
+
+        [Test]
+        public void OpenToppedBoxIsCappedToTheBoxsVolume()
+        {
+            List<V3> v; List<int> t;
+            OpenBox(0.1, 0.05, 0.15, false, false, out v, out t);
+            var b = new ShapeBuilder3D();
+            Assert.IsTrue(b.AddMesh(v, t, -1.0, true));
+            Assert.AreEqual(1, b.Openings);
+            Assert.AreEqual(0.006, b.Build().Volume, 1e-9);
+        }
+
+        [Test]
+        public void BoxWithAHoleInItsSideHasBothOpeningsCapped()
+        {
+            List<V3> v; List<int> t;
+            OpenBox(0.1, 0.05, 0.15, true, false, out v, out t);
+            var b = new ShapeBuilder3D();
+            Assert.IsTrue(b.AddMesh(v, t, -1.0, true));
+            Assert.AreEqual(2, b.Openings);
+            Assert.AreEqual(0.006, b.Build().Volume, 1e-9);
+        }
+
+        [Test]
+        public void TangledMeshIsReplacedByItsConvexHull()
+        {
+            List<V3> v; List<int> t;
+            OpenBox(0.1, 0.05, 0.15, false, true, out v, out t);
+            var b = new ShapeBuilder3D();
+            Assert.IsTrue(b.AddMesh(v, t, -1.0, true));
+            Assert.AreEqual(-1, b.Openings);
+            Assert.AreEqual(0.006, b.Build().Volume, 1e-9);
+        }
+
+        [Test]
+        public void ClosedMeshIsLeftAlone()
+        {
+            var b = new ShapeBuilder3D();
+            Assert.IsTrue(b.AddBox(V3.Zero, new V3(0.1, 0, 0), new V3(0, 0.05, 0), new V3(0, 0, 0.15)));
+            var faces = new List<V3>();
+            // The same box as triangles, through the closing step: nothing to do.
+            int n;
+            List<V3> v; List<int> t;
+            OpenBox(0.1, 0.05, 0.15, false, false, out v, out t);
+            for (int i = 0; i < t.Count; i++) faces.Add(v[t[i]]);
+            // Add the top by hand so it is closed.
+            faces.AddRange(new[] { v[4], v[5], v[6], v[4], v[6], v[7] });
+            var closed = MeshClosing.Close(faces, out n);
+            Assert.AreEqual(0, n);
+            Assert.AreEqual(faces.Count, closed.Count);
+        }
+
         [Test]
         public void TurnedBoxHasTheBoxsPrincipalMoments()
         {

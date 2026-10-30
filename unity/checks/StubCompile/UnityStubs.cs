@@ -253,6 +253,8 @@ namespace UnityEngine
 
     public class Debug
     {
+        public static void Log(object message) { }
+        public static void Log(object message, Object context) { }
         public static void LogWarning(object message) { }
         public static void LogWarning(object message, Object context) { }
     }

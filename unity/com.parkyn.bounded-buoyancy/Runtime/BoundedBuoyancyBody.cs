@@ -80,8 +80,10 @@ namespace BoundedBuoyancy
         public Vector3 sailCentre = new Vector3(0f, 0.5f, 0f);
 
         [Header("Shape")]
-        [Tooltip("Optional closed mesh used for buoyancy instead of the colliders, in this object's local space (like a Mesh Filter's mesh): for example a simplified, watertight hull. It must be Read/Write enabled.")]
+        [Tooltip("Optional mesh used for buoyancy instead of the colliders, in this object's local space (like a Mesh Filter's mesh): for example a simplified hull. It must be Read/Write enabled. It need not be watertight (see Close Open Mesh).")]
         public Mesh buoyancyMesh;
+        [Tooltip("An open buoyancy mesh (a hull with no deck, a hole in the skin) is closed for you: each opening is capped, which is right for a boat (it displaces water as if decked over), and a mesh that still is not watertight is wrapped in its convex hull. Turn this off to use the mesh exactly as given.")]
+        public bool closeOpenMesh = true;
 
         [Tooltip("Facets round the curve of capsules, and of spheres that share a body with other colliders. The volume is corrected to the exact value, so a few facets are enough.")]
         [Range(8, 64)] public int curveSegments = 16;
@@ -325,7 +327,7 @@ namespace BoundedBuoyancy
                     if (!warned)
                     {
                         warned = true;
-                        Debug.LogWarning("Bounded Buoyancy Body '" + name + "' needs a collider (box, sphere, capsule or convex mesh) or a closed buoyancy mesh.", this);
+                        Debug.LogWarning("Bounded Buoyancy Body '" + name + "' needs a collider (box, sphere, capsule or convex mesh) or a buoyancy mesh.", this);
                     }
                     return;
                 }
@@ -657,7 +659,11 @@ namespace BoundedBuoyancy
                     var pts = new V3[mv.Length];
                     for (int i = 0; i < mv.Length; i++)
                         pts[i] = point(root.TransformPoint(mv[i]));
-                    b.AddMesh(pts, buoyancyMesh.triangles);
+                    b.AddMesh(pts, buoyancyMesh.triangles, -1.0, closeOpenMesh);
+                    if (b.Openings > 0)
+                        Debug.Log("Bounded Buoyancy Body '" + name + "': the buoyancy mesh was open; closed across " + b.Openings + (b.Openings == 1 ? " opening." : " openings."), this);
+                    else if (b.Openings < 0)
+                        Debug.LogWarning("Bounded Buoyancy Body '" + name + "': the buoyancy mesh is not watertight and could not be capped; using the convex hull of its points instead (untick Close Open Mesh to use it as given).", this);
                 }
             }
             else

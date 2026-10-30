@@ -1,6 +1,12 @@
 # Bounded Buoyancy for Unity
 
-**Stable, accurate buoyancy for Unity 2022.3 LTS and Unity 6, in 3D and 2D.** Light objects stop launching out of the water, floats settle after a few bobs as real ones do, crates, rafts and boats of any collider shape tilt and right themselves, ride the waves (their own, or HDRP's Water System's) and drift down rivers, boats with keels, rudders, propellers and sails steer and sail up into the wind, balloons rise and float in the standard atmosphere and climb in thermals, bodies settle where real water's density matches theirs (on brine, under oil, at a thermocline), wind fills sails, floats dip as fish bite and hooked fish fight the line, things splash as they hit the water, and hundreds of bodies can cross the surface at once. It is the Unity version of the Bounded Buoyancy plugin for Godot, with the same physics and the same benchmarks.
+**Floating done properly, in one component.** Put a Bounded Buoyancy Body on your Rigidbody and give it a density. It floats at the right depth, tilts and rights itself, rides the waves and never shoots out of the water. That is the whole setup. Unity 2022.3 LTS and Unity 6, in 3D and 2D.
+
+**Thirty seconds:** install the package · add the component to a Rigidbody that has a collider · set **Density**. Water is at height 0 until you add a Bounded Buoyancy Water where you want it.
+
+**"Isn't an upward force in a trigger volume enough?"** For a box sitting still, yes. The moment anything lighter than water goes under (a ball thrown in, a crate off a jetty) a plain upward force on its own mass launches it out at tens of g. This component puts the water the body has to shove aside into its inertia, so it comes up as real things do. Same effort, right answer, and it stays right when you add waves, boats, wind, flooding and the rest below.
+
+**When you want more** (each a component or a setting, none of it required): light objects stop launching out of the water, floats settle after a few bobs as real ones do, crates, rafts and boats of any collider shape tilt and right themselves, ride the waves (their own, or HDRP's Water System's) and drift down rivers, boats with keels, rudders, propellers and sails steer and sail up into the wind, balloons rise and float in the standard atmosphere and climb in thermals, bodies settle where real water's density matches theirs (on brine, under oil, at a thermocline), wind fills sails, floats dip as fish bite and hooked fish fight the line, things splash as they hit the water, and hundreds of bodies can cross the surface at once. It is the Unity version of the Bounded Buoyancy plugin for Godot, with the same physics and the same benchmarks.
 
 Most engines apply buoyancy as a force on the body's own mass. For anything lighter than water that has no upper limit: released under water, an air bubble accelerates at 815g in its first frame and moves 2.2 m in one 60 Hz step. Real light spheres and bubbles start at no more than about 2g, because the water around them has to be set moving too. That water is the *added mass* of classical hydrodynamics.
 
@@ -39,7 +45,7 @@ Press Play. The component sets the Rigidbody's mass, turns off its gravity and d
 
 Bodies step themselves in FixedUpdate, where Unity runs physics by default. If you set *Physics → Simulation Mode* to Update, they are stepped each frame for you. If you set it to Script, call `BoundedBuoyancySimulation.Step(dt)` (and `Step2D(dt)` for 2D) just before your own `Physics.Simulate(dt)`.
 
-To give a boat ballast, set **Centre Of Mass Offset** below zero: the lower it is, the harder the boat rights itself. For a detailed hull, set **Buoyancy Mesh** to a simple closed mesh with Read/Write enabled. If you add or change colliders while the game runs, call `RebuildShape()`.
+To give a boat ballast, set **Centre Of Mass Offset** below zero: the lower it is, the harder the boat rights itself. For a detailed hull, set **Buoyancy Mesh** to a simple mesh with Read/Write enabled; it need not be watertight (a hull with no deck, or a mesh with a hole in it, is closed for you: each opening capped, or a mesh too tangled to cap wrapped in its convex hull, with a warning). If you add or change colliders while the game runs, call `RebuildShape()`.
 
 ### Bounded Buoyancy Body
 
@@ -57,7 +63,8 @@ To give a boat ballast, set **Centre Of Mass Offset** below zero: the lower it i
 | Fixed Air | Use Air Density and Air Half Height instead of real air (the standard atmosphere; see Real air below). Setting `AirDensity` or `AirHalfHeight` from a script turns it on | off |
 | Air Density / Air Half Height | With Fixed Air: air at height 0 (0 leaves air out), and the height over which it halves (0: the same at every height) | 1.2 / 0 |
 | Sail Area / Sail Centre | Area for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
-| Buoyancy Mesh | Optional closed mesh used instead of the colliders, in the object's local space | none |
+| Buoyancy Mesh | Optional mesh used instead of the colliders, in the object's local space; open meshes are closed for you | none |
+| Close Open Mesh | Cap the openings of an open buoyancy mesh (or wrap it in its hull); off to use it as given | on |
 | Curve Segments | Facets round capsules, and spheres that share a body (volumes are corrected to the exact value) | 16 |
 | Set Centre Of Mass / Offset | Put the centre of mass at the centre of the volume, plus the offset; off keeps the Rigidbody's own | on / 0 |
 | Set Inertia | Work out the rotational inertia (with its principal axes) from the shape; off keeps the Rigidbody's own | on |
@@ -206,7 +213,7 @@ The buoyancy work for 300 bodies riding waves, measured in plain .NET 8 on a 2.1
 
 ## Limits
 
-- Submerged volumes are exact for every shape (capsules, and spheres in compound bodies, to within the facets, corrected to the exact total). Overlapping colliders in one body are counted twice, and a buoyancy mesh must be closed.
+- Submerged volumes are exact for every shape (capsules, and spheres in compound bodies, to within the facets, corrected to the exact total). Overlapping colliders in one body are counted twice. An open buoyancy mesh is closed by capping its openings, which is exact for a hull with no deck and a fair reading of most holes; a mesh too tangled to cap is replaced by its convex hull.
 - A mesh collider counts as the convex hull of its points, as Unity's physics treats a dynamic body's mesh. Its mesh (or the buoyancy mesh) must have Read/Write enabled for builds; otherwise its bounding box is used, with a warning.
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only. The energy a body's bobbing sends out as ripples is taken away (Wave Damping), but the ripples themselves do not move other bodies, a moving boat makes no wake to slow it, and splashes are drawn, not simulated. Wave damping acts on bobbing up and down; rolling and pitching are slowed by Angular Drag. It is worked out for deep water, from the volume under water and the depth of its centre. The volume under a wave is accurate while the waves are long compared with the body.
