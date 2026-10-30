@@ -51,7 +51,7 @@ Each of these is a node or a setting, and the [guide](docs/GUIDE.md) has the det
 | **Cannons, round shot and damage** — shot that flies with a cannonball's drag, skips off the water and holes planking by Poncelet's law | [guide](docs/GUIDE.md#cannons-and-round-shot) |
 | **Fishing** — lines that pull and never push, floats, and fish that bite, run and tire | [guide](docs/GUIDE.md#fishing-lines-floats-and-fish) |
 | **Splashes, air and balloons, 2D** — splashes and rings; the same law in air for balloons and hot-air balloons in the standard atmosphere; all of it for RigidBody2D too | [guide](docs/GUIDE.md#splashes) |
-| **Hundreds of bodies** — an optional native kernel (Windows, Linux, macOS) for crowds of floating things | [guide](docs/GUIDE.md#hundreds-of-bodies-and-fast-ones) |
+| **Hundreds of bodies** — an optional native kernel (Windows and Linux; a Mac can build its own from `native/`) for crowds of floating things | [guide](docs/GUIDE.md#hundreds-of-bodies-and-fast-ones) |
 | **How it compares** — against the usual method and the other ways of floating things, on the same tests | [guide](docs/GUIDE.md#how-it-compares) |
 
 ![A boat, a raft, a crate, a log and a ball on waves](docs/waves.gif)
