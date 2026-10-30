@@ -2,7 +2,13 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23305636.svg)](https://doi.org/10.5281/zenodo.23305636)
 
-**Stable, accurate buoyancy for Godot 4.4+.** Light objects stop launching out of the water, floats settle after a few bobs as real ones do, rafts, crates and boats tilt and right themselves, ride the waves (their own, or those of the ocean shader you already use) and drift down rivers, balloons rise and float, wind fills sails, holed ships flood and sink, cannonballs skip across the water, floats dip as fish bite and hooked fish fight the line, things splash as they hit the water, hundreds of bodies can cross the surface at once, and it works in 2D as well as 3D.
+**Floating done properly, in one node.** Put a BoundedBuoyancyBody on your RigidBody3D and give it a density. It floats at the right depth, tilts and rights itself, rides the waves and never shoots out of the water. That is the whole setup.
+
+**Thirty seconds:** enable the plugin · add the node to a RigidBody3D that has a collision shape · set **Density**. Water is at height 0 until you place a BoundedBuoyancyWater node where you want it.
+
+**"Isn't an upward force in an Area3D enough?"** For a box sitting still, yes. The moment anything lighter than water goes under (a ball thrown in, a crate off a jetty) a plain upward force on its own mass launches it out at tens of g. This node puts the water the body has to shove aside into its inertia, so it comes up as real things do. Same effort, right answer, and it stays right when you add waves, boats, wind, flooding and the rest below.
+
+**When you want more** (each a node or a setting, none of it required): floats settle after a few bobs as real ones do; rafts, crates and boats tilt and right themselves, ride the waves (their own, or those of the ocean shader you already use) and drift down rivers; balloons rise and float; wind fills sails; holed ships flood and sink; cannonballs skip across the water; floats dip as fish bite and hooked fish fight the line; things splash as they hit the water; hundreds of bodies can cross the surface at once; and it works in 2D as well as 3D. Godot 4.4+, Godot Physics or Jolt.
 
 ![Usual engine buoyancy (left) against Bounded Buoyancy (right): light balls released under water](docs/release.gif)
 
