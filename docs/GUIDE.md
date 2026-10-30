@@ -1,0 +1,296 @@
+# Bounded Buoyancy: the guide
+
+Everything the plugin does, in detail, with the settings for each part. The [README](../README.md) has the one-node version, the physics and how to install; this is the rest.
+
+## Any shape, tilting and righting
+
+Buoyancy acts at the centre of the immersed volume, worked out exactly each step by cutting the body's shape at the waterline. So bodies tip and roll the way real ones do: a raft settles flat, a tall block tips onto its side, and a boat with a low centre of mass rights itself.
+
+![A raft, a tall block and a boat dropped into the water](docs/tilt.gif)
+
+Supported shapes: sphere, box, cylinder, capsule and convex polygon (including the shapes Godot makes with *Create Convex Collision Sibling*), alone or several in one body. For anything else, such as a detailed hull, set **Buoyancy Mesh** to a mesh. It need not be watertight: a hull with no deck, or a mesh with a hole in it, is closed for you (each opening capped, which is what a boat displaces until it floods; a mesh too tangled to cap is wrapped in its convex hull, with a warning).
+
+## Settling: the ripples a body makes
+
+A body bobbing at the surface pushes the water out in rings, and the rings carry its energy away. That is why a real float settles after a few bobs, and why a raft settles sooner than a fishing float. Bounded Buoyancy takes that energy away too (**Wave Damping**, on by default). It acts on the body's bobbing relative to the surface under it, so a body riding waves still rises and falls with them, and a body let go from rest starts exactly as before.
+
+How much depends on the shape, as it does in real water. A wide, shallow body makes big rings and settles in a bob or two; a deep, narrow one hardly disturbs the surface and bobs on for a long time.
+
+| Floating body | Each bob is lower than the last by |
+| --- | ---: |
+| Deep post or spar buoy | 3% |
+| Cube or ball floating half under | about 27% |
+| Log | about 50% |
+| Raft or boat | about 70% |
+
+These amounts are not tuned by eye. They come from linear wave theory, the method engineers use for floating structures, solved exactly with the open-source solver [Capytaine](https://github.com/capytaine/capytaine) for 30 floating boxes, posts, balls and logs, from deep and narrow to wide and shallow, with one curve fitted to the results (`reference/wave_damping.py` and `reference/wave_damping.csv`). In the simulation that gives 0.8 to 1.5 times the exact damping for flat-bottomed bodies, about 0.5 to 0.7 times for balls and logs floating at least half out of the water (they come out a little bouncier than real ones), more for heavy balls floating mostly under, and within about 2% in 2D. In the checks, a wooden ball let go 3 cm below its floating height still bobs 3 mm either way after 3 s and under a fifth of a millimetre after 9 s, where without wave damping it bobs 12 mm and then 6 mm; a raft has settled within 3 s; and a raft on long waves, or carried up by rising water, keeps up with the surface as before.
+
+Set **Wave Damping** to 0 to leave it out (the paper's benchmarks do, as they leave out air), or above 1 for more.
+
+## Water you can place, with waves
+
+Add a **BoundedBuoyancyWater** node where you want the surface and set its **Size**: the water fills that box below the node. Once a scene has one, bodies float only inside water nodes, so a pond, a pool and the sea can sit at different heights with different densities (1000 kg/m³ fresh, about 1025 sea). Give it a **Wave Height** and **Wave Length** and every body rides and rocks on the surface it sits on, each part of it measured against the water above that part. The water moving up and down in the waves pushes on everything in it too, so a small raft rises and falls as far as the water does (99% on waves 20 times its length, where exact wave theory gives 100%), and a ball as dense as water, drifting a metre under the surface, moves up and down with the water round it. The node draws a surface that moves with the waves: the sky reflected in it, what lies under it seen through it (less the deeper it is: **Surface Color** sets the water's colour, and its opacity how murky the water is), small ripples drawn for the eye (**Surface Detail**; bodies do not feel them) and foam where the water meets things (**Foam**). Seen from under the water, light from above comes through it only within Snell's window, 48.6° of straight up; further over, it is a dim mirror, as real water is. Turn **Show Surface** off to use your own.
+
+![A boat, a raft, a crate, a log and a ball on waves](docs/waves.gif)
+
+## Real water: temperature, salt, depth, and layers
+
+A water node's density is real water's: worked out from its **Temperature** and **Salinity** (0 g/kg fresh, about 35 for the open sea) and the pressure at each depth, by the equation of state oceanographers use (UNESCO's EOS-80). Fresh water at 15 °C is 999.1 kg/m³, the sea at 15 °C 1026.0, and the sea 1000 m down about 1030.5. Below a **Thermocline Depth** the water changes to its **Deep Temperature** (4 °C by default, as in deep lakes and the deep sea) and, with **Deep Salinity Change**, gets saltier (a halocline). So the water grows slightly denser with depth, and a body as dense as the water at some depth (a submarine, a diver, a fish) hangs there; nudged up or down, it bobs about that depth as an internal wave does. Set a **Density** and it is fixed at that instead, as before (**Fixed Density**, with an optional **Density Gradient**).
+
+Under the top water, **Layers** (BoundedBuoyancyLayer) each run from their **Depth** down: water under oil, brine on the bottom, mud. Each has its own **Density** (and **Density Gradient**) and **Drag**, how much harder it is to move through than water (mud 20 to 200 times). Bodies feel the weight of what they displace in each layer: the body is cut at each boundary and each part weighed at its own centre. So a body less dense than a layer floats on it, a denser one sinks through, and one between the two rests on the boundary, partly in each, as an egg does on brine under fresh water. Bobbing at a boundary sends out waves along it that settle the body, as at the surface. The boundaries are level: the waves move only the surface. The water draws its layers, tinted with each one's **Color**. From code, `density_at(p)` gives the density at any point, and bodies report `water_density_here` and `medium_drag`.
+
+![A submarine floods its main ballast tanks, sinks, and comes to rest on the salt layer about 26 m down with nothing holding it; then it blows its tanks and surfaces (ten times faster). The chart is the water's density against depth, the submarine's in red](docs/submarine.gif)
+
+In the checks, the equation of state gives all eight of UNESCO's published check values to the last digit (999.96675 kg/m³ at 0 g/kg, 5 °C and no pressure, up to 1069.48914 at 35 g/kg, 5 °C and 1000 bar). A ball as dense as the water 2 m down, in water 10 kg/m³ denser for each metre, let go 1 m down, bobs about 2.00 m down every 25.3 s, against the 24.8 s of an internal wave for a ball (2π √((1 + C) ρ / (g dρ/dz))). In real water at 20 °C over 4 °C, a ball as dense as the water 3 m down settles 2.97 m down. An egg of 1030 kg/m³ rests on brine of 1070 under fresh water, with what it displaces weighing 1030.1; a block of 850 floats in oil of 900 with 0.944 of it under (850/900); one of 950 rests half in the water under the oil. A stone sinks through mud as dense as water but 100 times as draggy at 0.100 of its speed through water.
+
+## Your own ocean, with this physics
+
+Already have an ocean or water shader, or an ocean add-on? Keep it for the look, and let Bounded Buoyancy do the floating. Add a **BoundedBuoyancyWater** over it, set **Surface Source** to the ocean's node and **Surface Method** to the name of its function that gives the height of the surface at a world point (`func get_height(p: Vector3) -> float`, say). Bodies then ride that ocean's waves, every vertex measured against the surface above it, with the added mass, righting and drag described here. The water node still sets where bodies float (its **Size**), the water's density and any current, and it stops drawing its own surface. Set **Surface Max Wave** to the height of the ocean's highest crest above its average level; for bodies further than twice that from the surface, the ocean is asked only for the height over their centre.
+
+From code, `height_function` takes a Callable instead: `$Water.height_function = func(p: Vector3) -> float: return ocean.wave_height_at(p)`.
+
+For the water's own push in the waves as well, give the ocean a second function that returns the water's upward acceleration at a world point in the water (`func get_vertical_acceleration(p: Vector3) -> float`) and set **Surface Acceleration Method** to its name (or `acceleration_function` from code). For waves made of sines, each wave's part is −height × ω² × sin(phase) × e^(k z), ω the wave's frequency, k its wave number and z the point's height above the average level (no more than 0); the example ocean below has one to copy. Without it, bodies are buoyed by the ocean's surface alone, and a small raft rises and falls 5 to 15% further than the water.
+
+Shaders run on the graphics card, where the physics cannot read them, so the ocean's script needs the same wave formula on the CPU. An ocean add-on that floats objects of its own already has such a function; for a shader of your own, copy its wave sum into GDScript. The demo's ninth scene does exactly this with an ocean drawn by its own shader (`addons/bounded_buoyancy/demo/ocean_example.gd`, a template to copy):
+
+![Bodies riding an ocean drawn by its own shader](docs/ocean.gif)
+
+**With Ocean3D.** Tested with [Ocean3D Lite](https://store.godotengine.org/asset/ocean3d/ocean3d-lite/) 0.1.0 (free, MIT), whose `Ocean` autoload gives the height of its Gerstner sea at any point. Put a BoundedBuoyancyWater at sea level (y = 0), make its **Size** cover your sea, and in any script that runs at the start:
+
+```gdscript
+$BoundedBuoyancyWater.height_function = func(p: Vector3) -> float: return Ocean.get_height(p.x, p.z)
+$BoundedBuoyancyWater.surface_max_wave = 2.0   # at least the highest crest above sea level, in metres
+```
+
+On Ocean3D's calm sea, bodies then float at the heights their densities give: over 25 s, a crate at half water's density, a raft, a log and a light ball sat on average within 2 mm of their exact floating heights above or below the surface under them.
+
+## Rivers and currents
+
+Give a water node a **Current** and the water flows. Drag acts on each body's speed through the water, so everything is carried along, quickly at first and then at the speed of the stream, and **Current Edge** slows the water near the banks. Turn the node to turn the river; join several to make bends. The surface shows faint streaks moving downstream.
+
+![A river carrying crates, barrels, balls and boats](docs/river.gif)
+
+## Wind and sails
+
+Add a **BoundedBuoyancyWind** node and the air moves, with gusts that change its strength and swing its direction, travelling downwind. The wind pushes on whatever part of a body is out of the water, so balloons drift, a crate barely moves, and a body with a **Sail Area** runs before the wind. The sail pushes at **Sail Centre**, so a boat heels, and ballast (a low centre of mass) holds it up. Limit a wind node to a box for a gap between buildings or a fan.
+
+![Boats with sails, balloons, crates and a log in a gusty wind](docs/wind.gif)
+
+## Boats: keels, rudders, sails and propellers
+
+Add **BoundedBuoyancyFoil** nodes under a body for its keel, centreboard, rudder, fins or sails, and a **BoundedBuoyancyThruster** for a propeller or a fan. A foil is a thin flat plate (span up its Y axis, leading edge forward along -Z); the flow past it makes a force square to its faces, lift and pressure drag together, at its own point, so a keel stops a boat sliding sideways, a rudder turns it, and a sail with a keel drives it across the wind and up into it. A thruster pushes along its -Z, less the faster it goes, so it gives a boat a top speed of its own and pushes astern when reversed.
+
+Like the buoyancy, their forces are bounded: each step a foil's force is worked out with the flow at the end of the step, against the inertia the body has at the foil, so it can stop the flow across the foil but never throw the body back the other way. A 10 m² foil on a 1 kg body moving across it at 10 m/s, which a plain force would fling back at thousands of metres a second in one step, just stops. A propeller brings a boat up to its speed and no further.
+
+![A dinghy beating into the wind and tacking; the sail lines up with the wind, then fills on the other side](docs/boats.gif)
+
+| Foil setting | Meaning | Default |
+| --- | --- | --- |
+| Medium | `WATER` (keel, rudder, fin: acts on its part under the water) or `AIR` (sail, wing: acts above the water, with the wind) | WATER |
+| Area / Aspect Ratio | Area of one face, m², and span² / area (1 to 2 keel, 2 to 3 rudder, 3 to 5 sail) | 0.1 / 2 |
+| Angle | Degrees about its span: a rudder's angle. Positive swings the trailing edge to +X, which turns a boat with the rudder at its stern to starboard | 0 |
+| Effort Offset | From the node (a mast, a rudder stock) to where the force acts, along the chord, m | 0 |
+| Auto Trim / Trim Angle Of Attack / Max Trim | A sail swings itself away from the wind it feels, keeping that angle to it, no further than Max Trim; running dead downwind it stays on its side until the wind is 10° round on the other (by the lee), so it does not flick across | off / 15° / 85° |
+
+The force square to a foil's faces is ½ ρ A q² C_N(α), with C_N(α) = k sin α cos α + 1.2 sin² α, no more than 1.4 (a stalled plate). k is the lift slope of a wing of its aspect ratio (Helmbold: 2π AR / (2 + √(AR² + 4))); 1.2 is a flat plate square to the flow, the drag that Sail Area has always used. A thruster has **Max Thrust** (N), **Max Speed** (m/s, where full throttle pushes no more), **Throttle** (-1 to 1), **Diameter** and **Medium**. Each reports its `force` and `immersion`; a foil also its `angle_of_attack`. A foil remembers where it was placed (its angle 0); if you turn its node by script while the game runs, call `replace()`.
+
+For hulls: a streamlined hull has much less drag than the default Drag Coefficient (a sphere's 0.47); 0.1 to 0.2 suits a boat. And turn **Keep Momentum On Entry** off for boats on waves: it is meant for bodies plunging into the water, and a hull dipping into each wave would otherwise lose speed every time. In the checks, a keeled motorboat slipping sideways at 0.5 m/s keeps 0.05 m/s of the slip after a second, against 0.35 m/s without a keel; with its rudder hard over it turns in a steady circle about three boat lengths across, the same either way; and a dinghy steered 45° off a 6 m/s wind gains 0.7 m/s towards it while heeling less than 8°. The demo's BOATS scene has a motorboat to drive and a dinghy that beats up into the wind in tacks on its own.
+
+## Flooding and sinking
+
+Add **BoundedBuoyancyCompartment** nodes under a body for the spaces inside it that can flood: a ship's holds, bow and stern sections, tanks. Each is a box (**Size**) with **Holes**, set in the inspector or made from code where something hits it: `compartment.add_hole(world_point, area)`. Water pours in through holes below the waterline by the orifice law, Q = C A √(2 g Δh), faster the deeper the hole, and drains out through holes above it. Inside, it stays level whichever way the ship leans, and its weight acts at its own centre. So a holed ship settles lower, lists toward its flooded side, and sinks or capsizes once it has taken in more water than its reserve of buoyancy will carry. **Pump Rate** takes water out again, and `patch_holes()` closes them.
+
+The physics is the naval architect's: the hull keeps its buoyancy and the flood water is weight it carries (the added-weight method), and the loose water's surface costs the ship stability (the free-surface effect). Bulkheads matter as they do in real ships. A ship divided into compartments floods only the holed one and stays afloat, where the same ship with one big hold floods right across and goes down:
+
+![Two ships with the same hole: one big hold sinks, six compartments stay afloat](docs/flood.gif)
+
+| Compartment setting | Meaning | Default |
+| --- | --- | --- |
+| Size | Width, height and length of the space, m, centred on the node; keep it inside the body's shape | 1 × 1 × 1 |
+| Holes | Each (x, y, z, area): position in the compartment's own coordinates and area in m² (a 15 cm cannonball makes about 0.018 m²) | none |
+| Discharge Coefficient | 0.6 for a sharp-edged hole, up to about 0.95 for a smooth one | 0.6 |
+| Pump Rate | Water the pumps take out, m³/s | 0 |
+| Flood Volume | Water inside now, m³; set it to start part full | 0 |
+
+Each compartment reports `fill_fraction`, `inflow` (m³/s), `water_level` and `water_centre`, and the body its `flood_mass`. In the checks, a box with a hole in its floor sinks at the steady rate of the ancient sinking-bowl water clock and goes under at the time it gives (68.07 s against 68.02 s); a barge with its middle third open to the sea settles at the draft the lost-buoyancy method gives (60.0 cm); loose water moves across a leaning tank by exactly the textbook's i tan θ / V; a barge with a slack tank across its whole floor lolls over, while the same water behind bulkheads down the middle and across leaves it upright; and a ship holed on one side lists to that side, then comes upright again when the hole is patched and pumped dry.
+
+## Cannons and round shot
+
+Add a **BoundedBuoyancyCannon** node at a gun's muzzle, pointing the way it fires (its −Z, the way Godot nodes face), and call `fire()`. Choose the **Gun**, a 6- to 32-pounder, and the shot's size and weight are set from the British round shot of Muller's *Treatise of Artillery* (1768); the muzzle speed is a long gun's with its full charge, 488 m/s (1600 ft/s). On a ship (any RigidBody3D above the gun), the shot leaves with the ship's own velocity at the muzzle added, and the ship takes the recoil there: the shot's momentum and the powder gas's. So a broadside heels the ship as well as pushing it back.
+
+The shot is a **BoundedBuoyancyCannonball**, a body of its own, and it carries the physics of fast round shot:
+
+- **Drag that changes with speed.** A ball as big as a cannonball has a drag coefficient of about 0.2 below two thirds of the speed of sound, as the air round it turns turbulent (the drag crisis), rising through the sound barrier to about 1. These are the values Miller and Bailey (1979) worked out from 18th- and 19th-century cannon firings. A 24-pounder fired at 5° first grazes the water 1.72 km off, close to the mile the old range tables give; with the drag of a slow ball it would carry a quarter further.
+- **Skipping off the water.** Meeting the water at a shallow angle, round shot skips, as gunners' ricochet fire did. The water pushes on the part of the ball under its surface, and the push lifts it out again if it came down at less than about 18° / √σ, σ its density over the water's (Birkhoff and others, 1944): 6.5° for iron, 11° for aluminium. The contact lasts a fraction of a physics step, so the plugin works through that step in short steps. Waves tilt the surface, so a ball that meets the face of a wave plunges in sooner.
+- **Striking what it hits.** It flies 8 m in a step, so continuous collision detection is on: it strikes a hull instead of passing through it, and emits `hit(body, at, velocity)`. A ship with planking is holed (next section).
+
+![A broadside in slow motion, seen from the other ship's quarter: round shot skipping off the water and striking her side](docs/cannons.gif)
+
+| Cannon setting | Meaning | Default |
+| --- | --- | --- |
+| Gun | 6-, 9-, 12-, 18-, 24- or 32-pounder (sets the shot and a full charge), or Custom | 24-pounder |
+| Shot Diameter / Shot Mass | Of the round shot, m and kg | 0.141 / 10.9 |
+| Muzzle Speed | m/s | 488 |
+| Charge Mass | The powder, kg; its gas, leaving at half the shot's speed on average, adds to the recoil | a third of the shot's |
+| Reload Time | Seconds between shots | 3 |
+| Spread | Shots leave up to this many degrees off the line | 0.3 |
+| Recoil | Push the ship back as the gun fires | on |
+| Shot Lifetime | Seconds before a shot removes itself; 0 keeps it | 30 |
+| Shot Parent | Where shots go in the scene | beside the ship |
+
+A cannonball has **Ricochet** (on), **Speed Of Sound** (343 m/s) and **Lifetime**, and reports `skips`, `exit_velocity` and `mach`. Any fast ball can be one, a musket ball or a thrown stone ball: give it one SphereShape3D. Under the water, and once slow, it is an ordinary BoundedBuoyancyBody, so an iron ball sinks.
+
+In the checks, the 24-pounder's first graze agrees with the same drag law worked through in steps of 0.1 ms to 0.4%; the recoil gives the ship exactly the shot's and the gas's momentum; a shot at 488 m/s stops at a 10 cm plank 30 m off; balls of relative density 7.42, 2.7 and 1.2 skip below 6.66°, 10.90° and 15.85°, against Birkhoff's 6.65°, 11.03° and 16.54°, and the angle is the same at 200 and 400 m/s; and a steel ball 7 mm across, meeting the water at 57 m/s and 1.04° to 4.53°, leaves it at the speed and angle Lyu, Yun and Wei (2021) measured:
+
+| In at | Speed out / in, here | Measured | Angle out, here | Measured |
+| ---: | ---: | ---: | ---: | ---: |
+| 1.04° | 0.98 | 0.97 | 1.03° | 0.94° |
+| 2.60° | 0.92 | 0.87 | 2.43° | 2.68° |
+| 3.69° | 0.85 | 0.81 | 3.39° | 3.26° |
+| 4.53° | 0.79 | 0.68 | 4.09° | 4.32° |
+
+## Damage: holes, splinters and sinking
+
+Give a ship a **BoundedBuoyancyHull** node for its planking: how thick it is (**Thickness**) and what it is made of (**Density** and **Strength**, oak by default). Round shot that strikes the ship then holes it. The wood resists shot with a pressure σ + ρ v² on the shot's cross-section, v its speed through the wood (Poncelet's law of penetration): slow shot is stopped by the wood's strength, fast shot by having to push the wood aside. With oak's 750 kg/m³ and 15 MPa, a 32-pounder goes 42 inches into solid oak from 400 yards and 31.5 inches from 1000 yards, as the gunners' handbook gives (Elvin, 1805).
+
+- **Through the side.** Shot with the speed to go through does, slower, punching a hole as big as itself in the ship's nearest compartment. It flies on across the ship and out of the far side if it still has the speed, holing that side too, and otherwise lodges in it. Through holes below the waterline the sea comes in (Flooding and sinking, above).
+- **Momentum.** The ship takes the momentum the shot loses, where it strikes, less what the splinters carry off.
+- **Splinters.** The wood the shot punches out flies off as splinters, which float.
+- **The sea first.** Shot that meets the sea on its way skips off it, or plunges in, before it gets to the ship. So shot fired low holes a ship at and above its waterline, not below it. The water comes in at the lowest holes, the ship settles, more of them go under, and in the end she lists and sinks.
+- **Glancing.** Shot meeting the planking more than about 78° off square glances off.
+- **The ship's shape.** Its collision shapes are taken as its outside, and as solid: shot goes in through the planking where it strikes them and out where its path leaves them. Shapes that touch or overlap (a convex decomposition) count as one; a part beyond a gap along the shot's path (a mast clear of the hull) is not struck by the same shot. Shot passes anything lighter than itself in its way, such as splinters.
+
+The hull emits `struck(ball, at, through, speed_out)` and `holed(at, area, compartment)`, and a cannonball that lodges reports how far it went in (`penetration`).
+
+![Close action: broadsides hole the other ship at the waterline; she settles, lists and sinks (ten times faster after the first broadside)](docs/damage.gif)
+
+![A pirate brig and a navy brig under sail exchange broadsides; both are holed at the waterline and take in water until the navy brig, 35 t of water in her, strikes her colours (twelve times faster)](docs/battle.gif)
+
+| Hull setting | Meaning | Default |
+| --- | --- | --- |
+| Thickness | Of the planking, m: a frigate's side was about 0.4 m of oak at the waterline, a ship of the line's 0.6 m | 0.2 |
+| Density | Of the wood, kg/m³ (oak 750); the splinters are made of it | 750 |
+| Strength | Of the wood against shot, MPa (oak 15) | 15 |
+| Hole Size | A shot hole's area, as a multiple of the shot's cross-section | 1 |
+| Splinters | Thrown off each time shot goes in or out; 0 for none | 4 |
+| Splinter Lifetime | Seconds; 0 keeps them | 60 |
+
+In the checks, a 32-pounder fired from 400 and from 1000 yards goes 41.9 and 31.3 inches into solid oak, against the 42 and 31.5 of the handbook. Shot fired down through a ship from 8 m off makes two holes, one in each side compartment; the ship takes the momentum the shot loses to within 0.05%; the shot comes out of the far side at the speed Poncelet's law gives (306.6 m/s against 306.4); and the sea comes into the compartment holed below the waterline only. A spent shot at 30 m/s lodges without a hole. Through a ship made of two boxes side by side, shot goes in through one and out of the other, 3 m on, at the speed the two planks give (311.5 m/s against 311.6). A 24-pounder that lands 3 m short of a ship's side at 4° skips and strikes 10 cm above the water, not 14 cm under it where its straight path goes; one that lands 1.5 m short at 20° plunges in and strikes about 43 cm under the water, slowed from 400 to about 238 m/s, close to the 242 m/s the drag of a ball wholly under the water gives over that way.
+
+## Fishing: lines, floats and fish
+
+A **BoundedBuoyancyLine** is a line that pulls but never pushes: a fishing line, a mooring rope, a tow line. Put the node where the line is made fast (a rod's tip, a bollard, a boat's bow; if that is under a RigidBody3D, that body is pulled too) and set **Body** to what is on the other end. It is elastic as nylon is: stretched by x beyond its **Length** L it pulls with T = E A x / L (Hooke's law), from its **Diameter** and the **Stiffness** E of its material (nylon 2.5 GPa). Slack, it pulls nothing. Like the buoyancy, the pull is bounded: worked out with the stretch and speed at the end of the step, against the inertia of what is on each end, so a stiff line on a light float neither shakes nor flings it. **Slip Tension** is a reel's drag (or a winch's slipping clutch): pulled harder, the line runs out instead. **Breaking Strength** breaks it. Set **Length** to reel in or pay out.
+
+A float is an ordinary body: a stick of balsa or plastic, with the hook and a little lead (shot) on a short line under it. The shot pulls the float upright (it *cocks*) and sinks it until only its tip shows, so the smallest pull on the hook dips it.
+
+A **BoundedBuoyancyFish** is a body that swims. Its swim bladder keeps it as dense as the water round it, so it neither sinks nor rises; it swims by the push of its tail (which falls to nothing at its **Burst Speed**, as a thruster's does) against the water's drag on its body, turns itself where it is going and keeps itself upright. It wanders near where it started, between **Min Depth** and **Max Depth**. Bait within **Sense Range** may draw it (**Appetite**): it comes to it, nibbles at it (each nibble a small tug, **Bite Pull**, which dips a float), and takes it and swims off with it. Strike (pull the line harder than **Strike Pull**) while it has the bait and it is hooked; wait too long and it drops the bait and keeps away from bait for a while. Hooked, it runs away from the angler, veering and diving, with all the strength it has; fighting tires it (**Endurance** is how many seconds of full effort it has in it), resting brings some strength back, and a tired fish may make another run. It throws the hook if the line from the angler goes slack for **Slack Escape** seconds, and escapes if a line breaks. Signals: `noticed_bait`, `nibbled`, `took_bait`, `dropped_bait`, `hooked`, `tired`, `escaped`; it reports `state`, `stamina` and `effort`.
+
+![Float fishing from a jetty: a missed bite, then a fish hooked, played until it tires, and landed (the waiting four times faster, the fight five)](docs/fishing.gif)
+
+| Line setting | Meaning | Default |
+| --- | --- | --- |
+| Body / End Offset | What is on the other end, and where on it the line is made fast | none / (0, 0, 0) |
+| Length | Unstretched, m | 2 |
+| Diameter | m; a fishing line is 0.1 to 0.5 mm | 0.0003 |
+| Stiffness | Young's modulus, GPa: nylon 2 to 4, braid 60 to 100, steel 200 | 2.5 |
+| Damping | Of its stretch: 0 springs back for ever, 1 settles without springing back | 0.2 |
+| Slip Tension | N; pulled harder, the line runs out (a reel's drag). 0 never | 0 |
+| Breaking Strength | N; 0 never breaks (a 0.3 mm nylon line breaks at about 60) | 0 |
+
+| Fish setting | Meaning | Default |
+| --- | --- | --- |
+| Cruise Speed / Burst Speed | m/s | 0.4 / 3 |
+| Max Thrust | Its tail's push from rest, N | 8 |
+| Swim Bladder | Keep it as dense as the water | on |
+| Min Depth / Max Depth / Home Range | Where it swims, m | 0.5 / 3 / 8 |
+| Bait / Sense Range / Appetite | What it goes for (else any body in the group `bounded_buoyancy_bait`), from how far, and its chance a second of going for it | none / 5 / 0.3 |
+| Nibbles / Bite Pull / Mouth | Most nibbles before it takes the bait, each nibble's tug (N), and where its mouth is | 3 / 0.04 / (0, 0, -0.15) |
+| Take Time / Strike Pull / Wary Time | Seconds it holds the bait unstruck, the pull that hooks it (N), seconds it then keeps away | 2.5 / 2 / 15 |
+| Endurance / Slack Escape | Seconds of full effort it has in it; seconds of slack line before it throws the hook | 20 / 3 |
+
+In the checks, 100 g hanging on 2 m of 0.3 mm nylon stretches it 11.10 mm, as Hooke's law gives, and lead under the water pulls on its line with its weight less its buoyancy (0.425 N). A slack line pulls nothing, and a weight thrown up toward the post rises as if free. Steel wire on a 5 g float, let go stretched, springs back no faster than its stored stretch allows, and comes to rest. Between two free bodies a line keeps their momentum, and stretches no further than their energy allows. A line that slips at 0.5 N pulls with 0.500 N while 100 g falls on it at 4.81 m/s², as (m g − 0.5) / m gives. A fish as dense as the water drifts neither up nor down, and cruises no faster than it means to. A 4 g stick float shotted to show 2 cm of its tip shows 2.3 to 2.4 cm and stands upright; a fish nibbling at the hook dips it; not struck, the fish drops the bait after its Take Time; struck, it is hooked; held on a line that gives no more, it tires; given slack line, it throws the hook.
+
+## Splashes
+
+When a body hits a water node fast enough, the node throws up a splash of droplets, and every entry leaves rings spreading out over the surface, riding the waves. Bodies emit **water_entered** and **water_exited** with the speed and the point on the surface, for sounds. The effects are for show and do not move anything; turn them off on the water node, or call `splash()` yourself.
+
+## Air: balloons and hot-air balloons
+
+The same law covers air, with air's density (about 1.2 kg/m³) in place of water's. Whatever part of a body is out of the water is in air, so a helium balloon rises while a crate barely notices. Released from rest, a helium party balloon (0.45 kg/m³ with its skin) starts at 0.71g, not the 1.67g of the usual method, because it has to set the air around it moving. For the same reason a push moves it off as sluggishly as a real one. It then rises at about 2 m/s, held back by drag in the air.
+
+The air is real air: the standard atmosphere (the US Standard Atmosphere, 1976, the International Standard Atmosphere to 32 km), 1.225 kg/m³ at sea level at 15 °C, its temperature falling 6.5 °C for each kilometre up to 11 km and its pressure with the weight of the air above, so it thins with height: 1.112 kg/m³ at 1000 m, 0.736 at 5000 m. A balloon that keeps its volume (a foil balloon, a hot-air balloon, an airship) rises until the air around it is as dense as it is, and floats there. Put a **BoundedBuoyancyAir** node at sea level to set the day's weather there: **Temperature**, **Pressure** and **Humidity** (damp air is less dense than dry: 1.146 kg/m³ at 30 °C and 100% against 1.164 dry). Without one, the air is the standard atmosphere at 15 °C, dry, with sea level at height 0. A cannonball's drag changes with the speed of sound in the air it flies through, which follows the air's temperature (340.3 m/s at 15 °C). To use a set density instead, as before, set a body's **Air Density** (and **Air Half Height**, the height over which the air halves): that body then has **Fixed Air**.
+
+**Warm places**: a **BoundedBuoyancyThermal** is a column of warm air over sunlit ground or a fire (or a ball of it): **Warming** at its middle, less toward its edge, so the air there is less dense, at the same pressure, as the gas law gives; and **Updraft**, the air rising in it, which carries bodies up as wind does, so a glider or a soaring bird circling in it climbs. Negative values make cold, sinking air.
+
+**Density** can be changed while the game runs: heat a hot-air balloon and it lifts off, let it cool and it comes down, or fill and empty a submarine's ballast tanks.
+
+In the checks, the air's density at 0, 1000, 5000, 11 000, 15 000 and 20 000 m matches the standard atmosphere's tables (1.2250 to 0.08891 kg/m³), and the speed of sound at sea level is 340.3 m/s. A body 1000 m up feels the air there, and on a hot damp day (30 °C, 1000 hPa, 60%) the air of that day. A sealed balloon as dense as the air 1000 m up, let go at 900 m, floats at 1000.0 m. In a thermal 3 °C warm the air is less dense by 288/291 and rises at its updraft, 2 m/s; a balloon as dense as the air outside climbs in it at 1.41 m/s, sinking through the warm air at about the 0.54 m/s its extra weight against the drag gives.
+
+![Two foil helium balloons, and a hot-air balloon lifting off in the real air as its pilot burns](docs/sky.gif)
+
+| Released from rest in air (60 Hz) | Usual engine method | Bounded Buoyancy |
+| --- | ---: | ---: |
+| Helium party balloon (0.45 kg/m³) | 1.67g up | 0.71g up |
+| Stone (2,700 kg/m³) | 1.00g down | 1.00g down |
+
+## 2D
+
+`BoundedBuoyancyBody2D`, `BoundedBuoyancyWater2D` and `BoundedBuoyancyWind2D` do the same in a side view, for `RigidBody2D`: circles, rectangles, capsules, convex polygons and collision polygons; tipping and righting; waves, currents, air, wind, sails and splashes. Lengths and speeds are in pixels, as everywhere in Godot 2D, and densities in kg/m³. A circle's added-mass coefficient in 2D is 1, so a light ball rises no faster than g.
+
+![The 2D version: boats with sails, crates, barrels, a log and balloons](docs/2d.gif)
+
+## Hundreds of bodies, and fast ones
+
+The waterline cut runs in compiled code when the optional native kernel is installed (`addons/bounded_buoyancy_native`, included for Windows and Linux), and in GDScript otherwise. The results are the same either way. With the kernel, 300 bodies riding waves at once take 3.5 to 6 ms per frame, of the 16.7 ms a 60 fps frame allows:
+
+![300 crates, barrels, balls and buoys dropped onto waves](docs/many.gif)
+
+| 300 bodies on waves, ms per frame | Native kernel | GDScript only |
+| --- | ---: | ---: |
+| Spheres | 3.6 | 3.7 |
+| Boxes | 4.0 | 10.0 |
+| Convex hulls (boats) | 5.0 | 11.0 |
+| Cylinders | 5.7 | 23.9 |
+| Capsules | 4.8 | 54.7 |
+
+Measured with `tests/bench_scale.gd` on a 2.1 GHz server processor, including Godot's own physics step for the bodies; faster desktop processors take less. In calm water the GDScript times are about a third lower. The plugin's own share per body is about 10 µs plus the waterline cut, 4 to 5 µs of it the settling and the water's push in waves added in version 2.3 (Wave Damping 0 skips the settling), and the added mass itself costs about 9 ns (`reference/cost_bench.c`).
+
+Fast bodies stay stable. A stone dropped 50 m hits the water at 31 m/s and slows straight to its sinking speed of 3.1 m/s; a light ball fired into the water at 30 m/s comes back up and floats; a box skimming the surface at 25 m/s slows without tipping. The tests check all three.
+
+## How it compares
+
+`unity/checks/Compare` puts four ways of floating things through the same tests, on the same fixed-step integrator at 60 Hz, in the same water, with the same drag: the usual method (buoyancy as a force on the body's own mass, as most engine scripts and tutorials do), the usual method with damping in the water (the usual cure for its bouncing), pontoons with damping (spheres standing in for the shape, the method of Unreal's Water plugin and many assets), and Bounded Buoyancy. The other methods are written from their published descriptions; their damping is tuned once, to settle a wooden ball as fast as it can, and used for everything.
+
+![A table-tennis ball let go under water, and a wooden ball dropped onto still water, by each method](docs/compare.png)
+
+| | Usual | Usual + damping | Pontoons + damping | Bounded Buoyancy | Physics |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Table-tennis ball let go under water: first-frame acceleration | 11g | 7.0g | 11g | 1.58g | 1.58g (added mass) |
+| Wooden ball dropped onto still water: bobbing more than 1 mm until | over 20 s | 0.6 s | 0.7 s | 7.0 s | about 5 s (linear wave theory) |
+| Raft on waves 20 times its length: rises and falls, of the surface | 102% | 90% | 101% | 99% | 100% (linear wave theory, `reference/wave_damping.py --raft`) |
+| Raft on waves 5 times its length: rises and falls, of the surface | 106% | 61% | 92% | 93% | 98 to 100% (linear wave theory) |
+| Raft on those waves: lags the surface by | 0 s | 0.18 s | 0.08 s | 0 s | close to 0 |
+
+Damping strong enough to stop the bouncing also stops a body following the waves: on the shorter waves the damped raft rises and falls only 61% as far as the water, a beat late, and the damped ball dropped from 30 cm barely dips below its floating height. Bounded Buoyancy keeps the first frame right without any damping, takes away only the energy the ripples carry, and keeps up with the waves, though on waves only five times its length its raft rises and falls a little less than exact theory gives. The rest is in the tool's output: floating heights, a raft righting itself, the same test at 30, 60 and 120 steps a second, and the cost. `python3 chart.py` there redraws the chart.
+
+## Settings
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Model | `BOUNDED`, or `USUAL` for side-by-side comparisons | BOUNDED |
+| Density | Density of the body, kg/m³ (water is 1000); can be changed while running | 500 (wood) |
+| Added Mass Coefficient | C for the shape: 0.5 sphere, about 1 long cylinder side-on | 0.5 |
+| Water Level / Water Surface | Water Level is the height of a flat surface, used when the body's world has no BoundedBuoyancyWater; Water Surface, if set, takes priority over both | 0 / none |
+| Water Density | kg/m³ (a BoundedBuoyancyWater uses its own) | 1000 |
+| Drag Coefficient | Quadratic drag, in the water and in the air | 0.47 |
+| Angular Drag | Damping of rolling and pitching in the water, per second when fully submerged; in air, in proportion to how light the body is against the air | 3.0 |
+| Keep Momentum On Entry | Water set moving takes its share of momentum as the body enters | on |
+| Wave Damping | The energy bobbing sends out as ripples, from linear wave theory: 1 is the physics, 0 leaves it out | 1 |
+| Air Density | Density of the air at height 0, kg/m³; 0 leaves air out | 1.2 |
+| Air Half Height | Height over which the air's density halves; 0 keeps it the same at every height | 0 |
+| Sail Area / Sail Centre | Area of a sail for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
+| Buoyancy Mesh | Optional mesh used instead of the collision shapes; open meshes are closed for you | none |
+| Close Open Mesh | Cap the openings of an open buoyancy mesh (or wrap it in its hull); off to use it as given | on |
+| Curve Segments | Facets around cylinders and capsules (the volume is corrected to the exact value) | 16 |
+
+The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, **Splashes**, **Ripples** and **Splash Min Speed**, and, to use another water system's surface, **Surface Source**, **Surface Method**, **Surface Max Wave** and **Surface Acceleration Method** (or `height_function` and `acceleration_function` from code). From code, `height_at(p)` and `vertical_acceleration_at(p)` give the surface's height and the water's upward acceleration at a world point. The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
