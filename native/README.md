@@ -18,4 +18,4 @@ The kernel is a small GDExtension (`src/`) built with godot-cpp. The plugin work
 
        macos = "res://addons/bounded_buoyancy_native/bin/libbounded_buoyancy.macos.template_release.universal.dylib"
 
-The GitHub workflow in `.github/workflows/build_native.yml` does all of this for Windows, Linux and macOS whenever the native source changes (or when run by hand from the Actions tab), and attaches the libraries to the run. It also runs the plugin's checks on every push.
+The GitHub workflow in `.github/workflows/build_native.yml` does all of this for Windows, Linux and macOS whenever anything in `native/` changes (or when run by hand from the Actions tab), and attaches the libraries to the run; the macOS library in `addons/bounded_buoyancy_native/bin/` is taken from there, since it cannot be built anywhere but a Mac. It also runs the plugin's checks on every push.
