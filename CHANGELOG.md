@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.0 (unreleased)
+
+- Buoyancy meshes no longer have to be watertight. A hull with no deck, or a mesh with a hole in it, is closed for you: each opening is capped across (what a boat displaces until it floods), and a mesh too tangled to cap (triangles wound both ways, edges shared by three faces) is wrapped in its convex hull with a warning. **Close Open Mesh** turns this off to use the mesh exactly as given. Tests: an open-topped box, a box with a hole knocked through one side and a tangled box all give the box's volume.
+
 ## 2.5.3
 
 - Demo: the FISHING scene is dressed better. The fish are perch, trout and bass, each with its own shape, fins, eyes and markings (and trout dash hardest, bass pull hardest). The angler sits on a seat box on the jetty in a waxed jacket, a vest, wellingtons and a bucket hat, his hands on the rod and the reel's handle, which turns as he winds. The rod has a cork handle, a reel seat and whipped guides; the reel is a fixed-spool reel. The float has a bolder tip, the hook a worm on it, and an open tackle box of lures stands on the jetty. The water is clearer, the lake bed sandy, with stones and swaying weed. The fish, the tackle and the angler are drawn by demo/demo_tackle.gd.

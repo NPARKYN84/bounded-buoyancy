@@ -16,7 +16,7 @@ extends RigidBody3D
 ##
 ## Use: give a RigidBody3D one or more CollisionShape3D children (sphere, box, cylinder, capsule or
 ## convex polygon) and this script, set its density, and set the water level. For any other shape,
-## such as a detailed hull, set buoyancy_mesh to a closed mesh. The script sets the body's mass,
+## such as a detailed hull, set buoyancy_mesh to a mesh (open ones are closed for you). The script sets the body's mass,
 ## turns off its built-in gravity and damping, and applies weight, buoyancy, drag and the righting
 ## moment itself. Other forces (collisions, pushes) act as usual and are resisted by the full
 ## inertia, water included. Drag acts on the body's speed through the water and through the air, so
@@ -116,9 +116,14 @@ enum Model {
 @export var sail_centre: Vector3 = Vector3(0.0, 0.5, 0.0)
 
 @export_group("Shape")
-## Optional closed mesh used for buoyancy instead of the collision shapes, in the body's own
-## coordinates: for example a simplified, watertight hull of a boat. Leave empty to use the shapes.
+## Optional mesh used for buoyancy instead of the collision shapes, in the body's own coordinates:
+## for example a simplified hull of a boat. Leave empty to use the shapes. It need not be
+## watertight (see close_open_mesh).
 @export var buoyancy_mesh: Mesh
+## An open buoyancy mesh (a hull with no deck, a hole in the skin) is closed for you: each opening is
+## capped, which is right for a boat (it displaces water as if decked over), and a mesh that still
+## is not watertight is wrapped in its convex hull. Turn this off to use the mesh exactly as given.
+@export var close_open_mesh: bool = true
 ## Facets around the curve of cylinders, capsules and spheres that share a body with other
 ## shapes. The volume is corrected to the exact value, so a few facets are enough.
 @export_range(8, 64, 1) var curve_segments: int = 16
@@ -267,7 +272,7 @@ func _physics_process(dt: float) -> void:
 		if volume <= 0.0:
 			if not _warned:
 				_warned = true
-				push_warning("BoundedBuoyancyBody '%s': needs a CollisionShape3D child (sphere, box, cylinder, capsule or convex polygon) or a closed buoyancy_mesh." % name)
+				push_warning("BoundedBuoyancyBody '%s': needs a CollisionShape3D child (sphere, box, cylinder, capsule or convex polygon) or a buoyancy_mesh." % name)
 			return
 		_set_up_body()
 	if freeze:
@@ -957,7 +962,10 @@ func _build_shape() -> void:
 		_box_size = Vector3.ONE * 2.0 * _radius
 		return
 	if buoyancy_mesh != null:
-		_add_faces(buoyancy_mesh.get_faces(), Transform3D.IDENTITY, -1.0)
+		var faces := buoyancy_mesh.get_faces()
+		if close_open_mesh:
+			faces = _closed_faces(faces)
+		_add_faces(faces, Transform3D.IDENTITY, -1.0)
 	else:
 		for s in shapes:
 			var faces := PackedVector3Array()
@@ -1026,6 +1034,177 @@ func _build_shape() -> void:
 	var fill := clampf(volume / (size.x * size.y * size.z), 0.3, 1.0)
 	_face_area = Vector3(size.y * size.z, size.x * size.z, size.x * size.y) * fill
 	_area = _face_area.y
+
+
+## A watertight version of a set of triangles. A mesh with every edge shared by two triangles is
+## returned as it is. Otherwise each opening (a loop of edges with a triangle on one side only) is
+## capped with a fan from its centre, which is what buoyancy wants for a hull with no deck. If that
+## does not make it watertight (triangles wound both ways, edges shared by three faces, loops that
+## cannot be followed), the convex hull of its points is used instead.
+func _closed_faces(faces: PackedVector3Array) -> PackedVector3Array:
+	if faces.size() < 9:
+		return faces
+	# Weld the vertices, so edges match by position.
+	var index := {}
+	var verts := PackedVector3Array()
+	var tri := PackedInt32Array()
+	for v in faces:
+		var key := Vector3i(roundi(v.x * 1e4), roundi(v.y * 1e4), roundi(v.z * 1e4))
+		if not index.has(key):
+			index[key] = verts.size()
+			verts.append(v)
+		tri.append(index[key])
+	# Count the directed edges: a watertight, consistently wound mesh has each edge once each way.
+	var edges := {}
+	var degenerate := 0
+	for i in range(0, tri.size() - 2, 3):
+		var a := tri[i]
+		var b := tri[i + 1]
+		var c := tri[i + 2]
+		if a == b or b == c or a == c:
+			degenerate += 1
+			continue
+		for e in [[a, b], [b, c], [c, a]]:
+			var k := Vector2i(e[0], e[1])
+			edges[k] = edges.get(k, 0) + 1
+	var open: Dictionary = {}   # boundary edges a -> b (a triangle on one side only)
+	var tangled := false
+	for k in edges:
+		if edges[k] > 1 or (edges.has(Vector2i(k.y, k.x)) and edges[Vector2i(k.y, k.x)] > 1):
+			tangled = true
+		elif not edges.has(Vector2i(k.y, k.x)):
+			if open.has(k.x):
+				tangled = true   # two openings meet at one vertex: the loops cannot be followed
+			open[k.x] = k.y
+	if open.is_empty() and not tangled:
+		return faces   # closed already
+	if not tangled:
+		# Follow each loop of boundary edges and cap it with a fan from its centre, wound the opposite
+		# way to the triangles it closes.
+		var out := faces.duplicate()
+		var seen := {}
+		var loops := 0
+		for start in open:
+			if seen.has(start):
+				continue
+			var loop := PackedInt32Array()
+			var v: int = start
+			var ok := true
+			while true:
+				if seen.has(v):
+					ok = v == start
+					break
+				seen[v] = true
+				loop.append(v)
+				if not open.has(v):
+					ok = false
+					break
+				v = open[v]
+			if not ok or loop.size() < 3:
+				tangled = true
+				break
+			var centre := Vector3.ZERO
+			for j in loop:
+				centre += verts[j]
+			centre /= loop.size()
+			for j in loop.size():
+				var a: int = loop[j]
+				var b: int = loop[(j + 1) % loop.size()]
+				out.append(verts[b])
+				out.append(verts[a])
+				out.append(centre)
+			loops += 1
+		if not tangled:
+			print("BoundedBuoyancyBody '%s': the buoyancy mesh was open; closed across %d opening%s." % [name, loops, "" if loops == 1 else "s"])
+			return out
+	push_warning("BoundedBuoyancyBody '%s': the buoyancy mesh is not watertight and could not be capped; using the convex hull of its points instead (set close_open_mesh off to use it as given)." % name)
+	return _convex_hull_faces(verts)
+
+
+## The triangles of the convex hull of a set of points (outward wound), built by adding the points
+## one at a time: the faces that can see the new point are removed and the hole they leave is
+## fanned to it.
+func _convex_hull_faces(points: PackedVector3Array) -> PackedVector3Array:
+	var pts := PackedVector3Array()
+	var seen := {}
+	for p in points:
+		var key := Vector3i(roundi(p.x * 1e4), roundi(p.y * 1e4), roundi(p.z * 1e4))
+		if not seen.has(key):
+			seen[key] = true
+			pts.append(p)
+	var n := pts.size()
+	if n < 4:
+		return PackedVector3Array()
+	var extent := 0.0
+	for p in pts:
+		extent = maxf(extent, p.length())
+	var eps := maxf(1e-6, extent * 1e-5)
+	# A starting tetrahedron of four points not in one plane.
+	var i0 := 0
+	var i1 := -1
+	for i in range(1, n):
+		if pts[i].distance_to(pts[i0]) > eps:
+			i1 = i
+			break
+	if i1 < 0:
+		return PackedVector3Array()
+	var i2 := -1
+	var best := 0.0
+	for i in range(1, n):
+		var d := (pts[i1] - pts[i0]).cross(pts[i] - pts[i0]).length()
+		if d > best:
+			best = d
+			i2 = i
+	if i2 < 0 or best <= eps * eps:
+		return PackedVector3Array()
+	var i3 := -1
+	best = 0.0
+	var nrm := (pts[i1] - pts[i0]).cross(pts[i2] - pts[i0]).normalized()
+	for i in range(1, n):
+		var d := absf(nrm.dot(pts[i] - pts[i0]))
+		if d > best:
+			best = d
+			i3 = i
+	if i3 < 0 or best <= eps:
+		return PackedVector3Array()
+	var hull: Array = []   # faces as [a, b, c] indices, outward wound
+	var centre := (pts[i0] + pts[i1] + pts[i2] + pts[i3]) / 4.0
+	for f in [[i0, i1, i2], [i0, i2, i3], [i0, i3, i1], [i1, i3, i2]]:
+		var fn := (pts[f[1]] - pts[f[0]]).cross(pts[f[2]] - pts[f[0]])
+		if fn.dot(centre - pts[f[0]]) > 0.0:
+			hull.append([f[0], f[2], f[1]])
+		else:
+			hull.append(f)
+	for i in n:
+		if i == i0 or i == i1 or i == i2 or i == i3:
+			continue
+		var p := pts[i]
+		var keep: Array = []
+		var horizon := {}   # directed edges of the removed faces; an edge left unmatched is on the rim
+		var any := false
+		for f in hull:
+			var fn := (pts[f[1]] - pts[f[0]]).cross(pts[f[2]] - pts[f[0]])
+			if fn.dot(p - pts[f[0]]) > eps * fn.length():
+				any = true
+				for e in [[f[0], f[1]], [f[1], f[2]], [f[2], f[0]]]:
+					var back := Vector2i(e[1], e[0])
+					if horizon.has(back):
+						horizon.erase(back)   # shared by two removed faces: inside the hole
+					else:
+						horizon[Vector2i(e[0], e[1])] = true
+			else:
+				keep.append(f)
+		if not any:
+			continue
+		hull = keep
+		for e in horizon:
+			hull.append([e.x, e.y, i])
+	var out := PackedVector3Array()
+	for f in hull:
+		out.append(pts[f[0]])
+		out.append(pts[f[1]])
+		out.append(pts[f[2]])
+	return out
 
 
 ## Adds a closed set of triangles (shape coordinates) placed by `xf`. With `exact` > 0 the faceted

@@ -20,6 +20,44 @@ const R_TT := 0.0805721899  # table-tennis ball, 2.7 g, 40 mm
 var failures := 0
 
 
+## A box mesh with no top (a boat without a deck); with `holes` > 0 a hole is also knocked through
+## one side; `tangled` winds half its triangles the wrong way, so no capping can make sense of it.
+func _open_box(size: Vector3, holes: int, tangled: bool) -> ArrayMesh:
+	var h := size * 0.5
+	var v := [Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, -h.y, h.z), Vector3(-h.x, -h.y, h.z),
+		Vector3(-h.x, h.y, -h.z), Vector3(h.x, h.y, -h.z), Vector3(h.x, h.y, h.z), Vector3(-h.x, h.y, h.z)]
+	# Faces as quads, outward wound (counter-clockwise seen from outside): bottom, four sides; no top.
+	var quads := [[0, 3, 2, 1], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]
+	var faces := PackedVector3Array()
+	var k := 0
+	for q in quads:
+		if holes > 0 and k == 2:
+			# The side x = +h.x with a square hole in its middle: a ring of eight triangles.
+			var o := Vector3(h.x, 0, 0)
+			var ring := [v[1], v[2], v[6], v[5]]
+			var inner := []
+			for c in ring:
+				inner.append(o + (c - o) * 0.4)
+			for j in 4:
+				var a: Vector3 = ring[j]
+				var b: Vector3 = ring[(j + 1) % 4]
+				var ia: Vector3 = inner[j]
+				var ib: Vector3 = inner[(j + 1) % 4]
+				faces.append_array([a, b, ib, a, ib, ia])
+		else:
+			var flip := tangled and (k % 2 == 1)
+			if flip:
+				faces.append_array([v[q[0]], v[q[2]], v[q[1]], v[q[0]], v[q[3]], v[q[2]]])
+			else:
+				faces.append_array([v[q[0]], v[q[1]], v[q[2]], v[q[0]], v[q[2]], v[q[3]]])
+		k += 1
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for f in faces:
+		st.add_vertex(f)
+	return st.commit()
+
+
 func make_body(r: float, model: int, x: float, y: float) -> RigidBody3D:
 	var b := BB.new()
 	var cs := CollisionShape3D.new()
@@ -149,9 +187,34 @@ func run() -> void:
 	vmesh.buoyancy_mesh = bm
 	vmesh.density = 500.0
 	_place(vmesh, Vector3(5, 0, 0), 45.0)
+	# Open meshes, closed for the developer: a box with no top (a boat without a deck) is capped
+	# across the opening; a box with a hole knocked through one side has two openings capped; a mesh
+	# whose triangles are wound every which way cannot be capped and gets its convex hull.
+	var vopen := BB.new()
+	vopen.buoyancy_mesh = _open_box(Vector3(0.2, 0.1, 0.3), 0, false)
+	vopen.density = 500.0
+	_place(vopen, Vector3(6, 0, 0), 0.0)
+	var vholed := BB.new()
+	vholed.buoyancy_mesh = _open_box(Vector3(0.2, 0.1, 0.3), 2, false)
+	vholed.density = 500.0
+	_place(vholed, Vector3(7, 0, 0), 0.0)
+	var vtangled := BB.new()
+	vtangled.buoyancy_mesh = _open_box(Vector3(0.2, 0.1, 0.3), 0, true)
+	vtangled.density = 500.0
+	_place(vtangled, Vector3(8, 0, 0), 0.0)
+	var vasis := BB.new()
+	vasis.buoyancy_mesh = _open_box(Vector3(0.2, 0.1, 0.3), 0, false)
+	vasis.close_open_mesh = false
+	vasis.density = 500.0
+	_place(vasis, Vector3(9, 0, 0), 0.0)
 	await physics_frame
-	for b in [vbox, vcyl, vcylh, vcap, vhull, vmesh]:
+	for b in [vbox, vcyl, vcylh, vcap, vhull, vmesh, vopen, vholed, vtangled]:
 		b._immerse(b.global_transform, 0.0)
+	check("open-topped box, capped: volume (cm^3)", vopen.volume * 1e6, 0.2 * 0.1 * 0.3 * 1e6, 0.01)
+	check("open-topped box, capped: V_sub/V at the surface", vopen.submerged_volume / vopen.volume, 0.5, 1e-6)
+	check("box with a hole in its side, both openings capped: volume (cm^3)", vholed.volume * 1e6, 0.2 * 0.1 * 0.3 * 1e6, 0.01)
+	check("tangled mesh: its convex hull (cm^3)", vtangled.volume * 1e6, 0.2 * 0.1 * 0.3 * 1e6, 0.01)
+	check("the same mesh used as given (close_open_mesh off): the old, wrong volume (cm^3)", vasis.volume * 1e6, 5000.0, 1.0)
 	check("box at 45 deg, centre at surface: V_sub/V", vbox.submerged_volume / vbox.volume, 0.5, 1e-6)
 	check("cylinder volume (cm^3)", vcyl.volume * 1e6, PI * 0.05 * 0.05 * 0.3 * 1e6, 0.01)
 	check("cylinder fully under: V_sub/V", vcyl.submerged_volume / vcyl.volume, 1.0, 1e-9)
@@ -160,7 +223,7 @@ func run() -> void:
 	check("convex wedge volume (cm^3)", vhull.volume * 1e6, 0.5 * 0.2 * 0.1 * 0.2 * 1e6, 0.01)
 	check("buoyancy mesh = box shape: V_sub/V", vmesh.submerged_volume / vmesh.volume, 0.5, 1e-6)
 	check("box at 45 deg: centre of buoyancy below centre (cm)", -100.0 * (vbox.centre_of_buoyancy.y - vbox.global_position.y), 100.0 * _half_box_cb_depth(), 0.01)
-	for b in [vbox, vcyl, vcylh, vcap, vhull, vmesh]:
+	for b in [vbox, vcyl, vcylh, vcap, vhull, vmesh, vopen, vholed, vtangled, vasis]:
 		b.queue_free()
 
 	# Floating and righting, run in the engine at 60 Hz with no collisions.

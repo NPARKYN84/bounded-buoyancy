@@ -33,7 +33,7 @@ Buoyancy acts at the centre of the immersed volume, worked out exactly each step
 
 ![A raft, a tall block and a boat dropped into the water](docs/tilt.gif)
 
-Supported shapes: sphere, box, cylinder, capsule and convex polygon (including the shapes Godot makes with *Create Convex Collision Sibling*), alone or several in one body. For anything else, such as a detailed hull, set **Buoyancy Mesh** to a closed mesh.
+Supported shapes: sphere, box, cylinder, capsule and convex polygon (including the shapes Godot makes with *Create Convex Collision Sibling*), alone or several in one body. For anything else, such as a detailed hull, set **Buoyancy Mesh** to a mesh. It need not be watertight: a hull with no deck, or a mesh with a hole in it, is closed for you (each opening capped, which is what a boat displaces until it floods; a mesh too tangled to cap is wrapped in its convex hull, with a warning).
 
 ## Settling: the ripples a body makes
 
@@ -329,7 +329,8 @@ To give a boat ballast, set the body's **Center of Mass** to Custom and move it 
 | Air Density | Density of the air at height 0, kg/m³; 0 leaves air out | 1.2 |
 | Air Half Height | Height over which the air's density halves; 0 keeps it the same at every height | 0 |
 | Sail Area / Sail Centre | Area of a sail for the wind to push on, m², and where it pushes, in the body's coordinates | 0 / (0, 0.5, 0) |
-| Buoyancy Mesh | Optional closed mesh used instead of the collision shapes | none |
+| Buoyancy Mesh | Optional mesh used instead of the collision shapes; open meshes are closed for you | none |
+| Close Open Mesh | Cap the openings of an open buoyancy mesh (or wrap it in its hull); off to use it as given | on |
 | Curve Segments | Facets around cylinders and capsules (the volume is corrected to the exact value) | 16 |
 
 The water node has **Size**, **Density**, **Wave Height**, **Wave Length** and **Wave Direction**, **Current** and **Current Edge**, **Splashes**, **Ripples** and **Splash Min Speed**, and, to use another water system's surface, **Surface Source**, **Surface Method**, **Surface Max Wave** and **Surface Acceleration Method** (or `height_function` and `acceleration_function` from code). From code, `height_at(p)` and `vertical_acceleration_at(p)` give the surface's height and the water's upward acceleration at a world point. The wind node has **Velocity**, **Gust Strength**, **Gust Period**, **Direction Swing**, and **Everywhere** or a **Size** to fill.
@@ -350,7 +351,7 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 
 ## Limits
 
-- Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice, and a buoyancy mesh must be closed.
+- Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice, An open buoyancy mesh is closed by capping its openings, which is exact for a hull with no deck and a fair reading of most holes; a mesh too tangled to cap is replaced by its convex hull.
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
 - Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only. The energy a body's bobbing sends out as ripples is taken away (Wave Damping), but the ripples themselves do not move other bodies, a moving boat makes no wake to slow it, and splashes are drawn, not simulated. Wave damping acts on bobbing up and down; rolling and pitching are slowed by Angular Drag. It is worked out for deep water, from the volume under water and the depth of its centre, so two shapes that share those settle alike. The volume under a wave is accurate while the waves are long compared with the body.
