@@ -23,7 +23,8 @@ jobs:
         run: ./Godot_v4.4.1-stable_linux.x86_64 --headless --fixed-fps 60 --path . --script res://tests/run_tests.gd -- --gdscript
 
   native:
-    if: github.event_name == 'workflow_dispatch' || contains(join(github.event.commits.*.modified, ' '), 'native/')
+    # Builds when the kernel's source changes, when a commit message says [native], or when run by hand.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[native]') || contains(join(github.event.commits.*.modified, ' '), 'native/') || contains(join(github.event.commits.*.added, ' '), 'native/')
     strategy:
       fail-fast: false
       matrix:
