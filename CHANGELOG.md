@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.6.0 (unreleased)
+## 2.6.0
 
 - The README and the plugin's description open with the one-node version (add the node, set a density, done) and answer the question of why a plain upward force is not enough, before the list of what else it can do.
 - Buoyancy meshes no longer have to be watertight. A hull with no deck, or a mesh with a hole in it, is closed for you: each opening is capped across (what a boat displaces until it floods), and a mesh too tangled to cap (triangles wound both ways, edges shared by three faces) is wrapped in its convex hull with a warning. **Close Open Mesh** turns this off to use the mesh exactly as given. Tests: an open-topped box, a box with a hole knocked through one side and a tangled box all give the box's volume.
