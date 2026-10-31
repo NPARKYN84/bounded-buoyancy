@@ -92,7 +92,7 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 
 ## Limits
 
-- Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice, An open buoyancy mesh is closed by capping its openings, which is exact for a hull with no deck and a fair reading of most holes; a mesh too tangled to cap is replaced by its convex hull.
+- Submerged volumes are exact for every shape (cylinders, capsules and spheres in compound bodies to within the facets, corrected to the exact total). Overlapping shapes in one body are counted twice. An open buoyancy mesh is closed by capping its openings, which is exact for a hull with no deck and a fair reading of most holes; a mesh too tangled to cap is replaced by its convex hull.
 - One added-mass value per body, which is exact for spheres and for the vertical motion of other shapes. Direction-dependent added mass needs an engine that accepts a mass matrix.
 - Rotation uses the body's own inertia; the water's share in rolling and pitching is stood in for by Angular Drag.
 - Waves move the surface only. The energy a body's bobbing sends out as ripples is taken away (Wave Damping), but the ripples themselves do not move other bodies, a moving boat makes no wake to slow it, and splashes are drawn, not simulated. Wave damping acts on bobbing up and down; rolling and pitching are slowed by Angular Drag. It is worked out for deep water, from the volume under water and the depth of its centre, so two shapes that share those settle alike. The volume under a wave is accurate while the waves are long compared with the body.
