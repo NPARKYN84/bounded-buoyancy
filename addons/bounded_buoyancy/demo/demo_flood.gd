@@ -16,7 +16,6 @@ const COMPARTMENT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_com
 const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_cannons.tscn"
 
 const INK := Color(0.12, 0.14, 0.18)
-const HULL := Color(0.42, 0.27, 0.16)
 const DECK := Color(0.78, 0.66, 0.46)
 const HOLE_AREA := 0.25           # m², a ragged breach about 55 cm across
 const HOLE_AT := Vector3(1.0, -0.5, 0.3)    # in the ships' own coordinates: starboard, low below the waterline
@@ -61,6 +60,8 @@ func _ready() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 	_reset()
@@ -98,7 +99,7 @@ func _physics_process(dt: float) -> void:
 		elif absf(heel) > 45.0:
 			state = "capsized"
 		s[2].text = "%s\n%.1f t of water in, %+.0f° heel, %s" % [s[3], water, heel, state]
-		s[2].global_position = Vector3(body.global_position.x, maxf(body.global_position.y + 2.6, 2.0), body.global_position.z)
+		s[2].global_position = Vector3(body.global_position.x, maxf(body.global_position.y + 3.4, 2.8), body.global_position.z)
 		s[2].global_rotation = Vector3.ZERO
 		lines.append("%s: %.1f t of water in, heel %+.1f°, %s" % [s[3], water, heel, state])
 	_status.text = "   ".join(lines)
@@ -129,32 +130,40 @@ func _ship(at: Vector3, caption: String, rooms: Array) -> Array:
 	var cs := CollisionShape3D.new()
 	cs.shape = hull
 	b.add_child(cs)
+	# The look (the shape above is what floats): the hull painted as a ship's is, dark topsides, a
+	# white boot-top at the waterline and red below it; a deck cut to her outline with a rail round it;
+	# a wheelhouse with windows and a short mast.
 	var mi := MeshInstance3D.new()
 	mi.mesh = hull.get_debug_mesh()
-	var hm := StandardMaterial3D.new()
-	hm.albedo_color = HULL
-	hm.roughness = 0.9
-	mi.material_override = hm
+	mi.material_override = _hull_paint()
 	b.add_child(mi)
-	# Deck and a cabin, for show.
+	var outline := [Vector2(-1.1, -3.0), Vector2(1.1, -3.0), Vector2(1.1, 2.8), Vector2(0.0, 3.6), Vector2(-1.1, 2.8)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3.UP)
+	for k in range(1, outline.size() - 1):
+		for v in [outline[0], outline[k], outline[k + 1]]:
+			st.add_vertex(Vector3(v.x * 0.97, 0.615, v.y * 0.97))
 	var deck := MeshInstance3D.new()
-	var dm := BoxMesh.new()
-	dm.size = Vector3(2.15, 0.04, 5.75)
-	deck.mesh = dm
-	deck.position = Vector3(0, 0.6, -0.1)
-	var deck_mat := StandardMaterial3D.new()
-	deck_mat.albedo_color = DECK
-	deck.material_override = deck_mat
+	deck.mesh = st.commit()
+	deck.material_override = _mat(DECK, 0.85)
+	deck.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
 	b.add_child(deck)
-	var cabin := MeshInstance3D.new()
-	var cm := BoxMesh.new()
-	cm.size = Vector3(1.3, 0.8, 1.6)
-	cabin.mesh = cm
-	cabin.position = Vector3(0, 1.0, -1.6)
-	var cabin_mat := StandardMaterial3D.new()
-	cabin_mat.albedo_color = Color(0.92, 0.92, 0.88)
-	cabin.material_override = cabin_mat
-	b.add_child(cabin)
+	for k in outline.size():
+		var a: Vector2 = outline[k]
+		var c: Vector2 = outline[(k + 1) % outline.size()]
+		if a.y == c.y and a.y < 0.0:
+			continue   # no rail across the stern: her transom
+		_box(b, Vector3(0.5 * (a.x + c.x), 0.68, 0.5 * (a.y + c.y)), Vector3(0.07, 0.14, a.distance_to(c) + 0.04), INK.lightened(0.15), atan2(c.x - a.x, c.y - a.y))
+	var white := Color(0.93, 0.93, 0.9)
+	_box(b, Vector3(0, 1.0, -1.6), Vector3(1.3, 0.8, 1.6), white)
+	_box(b, Vector3(0, 1.43, -1.6), Vector3(1.42, 0.07, 1.72), INK.lightened(0.25))   # its roof
+	for side in [-1.0, 1.0]:
+		for z in [-2.05, -1.15]:
+			_box(b, Vector3(side * 0.655, 1.12, z), Vector3(0.02, 0.24, 0.42), Color(0.16, 0.22, 0.3))
+	_box(b, Vector3(0, 1.12, -0.795), Vector3(1.0, 0.26, 0.02), Color(0.16, 0.22, 0.3))   # the windows looking forward
+	_box(b, Vector3(0, 1.95, -1.9), Vector3(0.07, 1.0, 0.07), INK.lightened(0.15))       # a short mast
+	_box(b, Vector3(0, 2.2, -1.9), Vector3(0.6, 0.05, 0.05), INK.lightened(0.15))
 	b.density = 330.0
 	b.angular_drag = 2.0
 	b.position = at
@@ -175,8 +184,50 @@ func _ship(at: Vector3, caption: String, rooms: Array) -> Array:
 	label.outline_size = 8
 	label.outline_modulate = Color(1, 1, 1, 0.8)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# Drawn after the sea: the water's surface is see-through and, drawn after it, hid the label.
+	label.render_priority = 10
+	label.no_depth_test = true
 	add_child(label)
+	label.global_position = at + Vector3(0, 3.4, 0)   # over her from the first frame
 	return [b, comps, label, caption]
+
+
+## A ship's paint by height in her own frame: dark topsides, a white band at her waterline, red below.
+func _hull_paint() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = """shader_type spatial;
+uniform vec3 topsides : source_color = vec3(0.13, 0.17, 0.22);
+uniform vec3 boot : source_color = vec3(0.9, 0.9, 0.86);
+uniform vec3 bottom : source_color = vec3(0.55, 0.14, 0.1);
+uniform float waterline = -0.22;
+varying float height;
+void vertex() { height = VERTEX.y; }
+void fragment() {
+	ALBEDO = height > waterline + 0.1 ? topsides : (height > waterline ? boot : bottom);
+	ROUGHNESS = 0.75;
+}
+"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
+
+
+func _mat(colour: Color, rough := 0.7) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = colour
+	m.roughness = rough
+	return m
+
+
+func _box(parent: Node3D, at: Vector3, size: Vector3, colour: Color, yaw := 0.0) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = _mat(colour)
+	mi.position = at
+	mi.rotation = Vector3(0, yaw, 0)
+	parent.add_child(mi)
 
 
 ## The same hole in both ships: in whichever compartment is at that point.

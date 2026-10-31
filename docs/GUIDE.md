@@ -82,7 +82,7 @@ Add **BoundedBuoyancyFoil** nodes under a body for its keel, centreboard, rudder
 
 Like the buoyancy, their forces are bounded: each step a foil's force is worked out with the flow at the end of the step, against the inertia the body has at the foil, so it can stop the flow across the foil but never throw the body back the other way. A 10 m² foil on a 1 kg body moving across it at 10 m/s, which a plain force would fling back at thousands of metres a second in one step, just stops. A propeller brings a boat up to its speed and no further.
 
-![A dinghy beating into the wind and tacking; the sail lines up with the wind, then fills on the other side](docs/boats.gif)
+![The motorboat driven round while the dinghy beats into the wind and tacks; its sail lines up with the wind, then fills on the other side](docs/boats.gif)
 
 | Foil setting | Meaning | Default |
 | --- | --- | --- |

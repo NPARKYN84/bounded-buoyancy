@@ -153,29 +153,31 @@ static func make(parent: Node3D, long: float, radius: float) -> Dictionary:
 		hatch.material_override = grey
 		hatch.position = Vector3(0, radius + 0.02, z)
 		root.add_child(hatch)
-	# Round windows along both sides, lit from within, each in a dark rim.
-	var glow := _mat(Color(1.0, 0.82, 0.45), 0.3, 0.0, 3.0)
+	# Small round windows along both sides, lit from within, each in a dark rim, set high on the hull and
+	# nearly flush with it. (Larger, brighter and lower, at the waterline when she was surfaced, they
+	# looked like a row of little bombs.)
+	var glow := _mat(Color(1.0, 0.86, 0.6), 0.3, 0.0, 1.2)
 	for side in [-1.0, 1.0]:
 		for k in 7:
 			var z := -0.28 * long + k * 1.6
-			var a := deg_to_rad(28.0)
+			var a := deg_to_rad(48.0)
 			var r := hull_radius(z + 0.5 * long, long, radius)
 			var at := Vector3(side * cos(a) * r, sin(a) * r, z)
 			var n := Vector3(side * cos(a), sin(a), 0)
 			var rim := MeshInstance3D.new()
 			var rc := CylinderMesh.new()
-			rc.top_radius = 0.24
-			rc.bottom_radius = 0.24
-			rc.height = 0.08
+			rc.top_radius = 0.13
+			rc.bottom_radius = 0.13
+			rc.height = 0.03
 			rim.mesh = rc
 			rim.material_override = dark
 			root.add_child(rim)
 			_face(rim, at, n)
 			var pane := MeshInstance3D.new()
 			var pc := CylinderMesh.new()
-			pc.top_radius = 0.17
-			pc.bottom_radius = 0.17
-			pc.height = 0.1
+			pc.top_radius = 0.09
+			pc.bottom_radius = 0.09
+			pc.height = 0.04
 			pane.mesh = pc
 			pane.material_override = glow
 			root.add_child(pane)

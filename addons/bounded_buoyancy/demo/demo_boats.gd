@@ -4,7 +4,7 @@ extends Node3D
 ## the wind in tacks, then running back before it.
 ##   W / S       throttle up / down (astern below zero)
 ##   A / D       rudder to port / starboard (it centres itself when let go)
-##   C           camera: follow the motorboat, follow the dinghy, both boats, or look over the lake
+##   C           camera: both boats (to start with), look over the lake, follow the motorboat, or follow the dinghy
 ##   Space       run again
 ##   Tab         next scene
 ## Everything here is ordinary Bounded Buoyancy bodies with BoundedBuoyancyFoil and
@@ -38,7 +38,8 @@ var _d_rudder: Node3D
 var _sail: Node3D
 var _buoys: Array = []
 var _cam: Camera3D
-var _view := 0               # 0 motorboat, 1 dinghy, 2 both boats, 3 overview
+var _view := 2               # 0 motorboat, 1 dinghy, 2 both boats (the start: the dinghy is half the show), 3 overview
+var _snap := true            # put the camera straight where it should be (on a run again), not glide there
 var _status: Label
 var _d_status: Label
 var _throttle := 0.0
@@ -94,6 +95,8 @@ func _ready() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 	for arg in OS.get_cmdline_user_args():
@@ -130,8 +133,8 @@ func _reset() -> void:
 	_sailing_dinghy(Vector3(8, 0.05, 2), -45.0)
 	for at in [Vector3(-14, 0.2, -40), Vector3(14, 0.2, -40), Vector3(0, 0.2, -80)]:
 		_buoys.append(_buoy(at))
-	_cam.global_position = Vector3(-4, 4.5, 18)
-	_cam.look_at(Vector3(-4, 0, 8))
+	_snap = true
+	_aim_camera(0.0)   # in place before the first frame is drawn
 
 
 func _physics_process(dt: float) -> void:
@@ -176,6 +179,10 @@ func _keep_on_the_lake(b: RigidBody3D) -> void:
 
 
 func _process(dt: float) -> void:
+	_aim_camera(dt)
+
+
+func _aim_camera(dt: float) -> void:
 	if not _boat:
 		return
 	var target: RigidBody3D = _boat if _view == 0 else _dinghy
@@ -190,7 +197,7 @@ func _process(dt: float) -> void:
 		var b := _dinghy.global_position
 		var mid := 0.5 * (a + b)
 		var apart := maxf(Vector2(a.x - b.x, a.z - b.z).length(), 8.0)
-		want_pos = mid + Vector3(-0.35 * apart, 0.55 * apart + 3.0, 0.9 * apart + 6.0)
+		want_pos = mid + Vector3(-0.3 * apart, 0.3 * apart + 2.5, 0.75 * apart + 5.0)   # low enough that they are boats, not specks
 		look = mid + Vector3(0, 1.0, 0)
 	else:
 		var fwd := -target.global_transform.basis.z
@@ -199,7 +206,8 @@ func _process(dt: float) -> void:
 		var back := 11.0 if _view == 0 else 15.0
 		want_pos = target.global_position - fwd * back + Vector3(0, 5.0 if _view == 0 else 6.5, 0)
 		look = target.global_position + Vector3(0, 0.8, 0) + fwd * 3.0
-	var k := 1.0 - exp(-3.0 * dt)
+	var k := 1.0 if _snap else 1.0 - exp(-3.0 * dt)
+	_snap = false
 	_cam.global_position = _cam.global_position.lerp(want_pos, k)
 	var basis_now := _cam.global_transform.basis
 	var basis_want := Transform3D(Basis(), _cam.global_position).looking_at(look, Vector3.UP).basis
@@ -269,6 +277,41 @@ func _hull_mesh(points: PackedVector3Array, color: Color) -> MeshInstance3D:
 	return mi
 
 
+## A deck: a flat outline (x, z) at height `y`, pale against the hull.
+func _deck(outline: Array, y: float, color: Color) -> MeshInstance3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3.UP)
+	for k in range(1, outline.size() - 1):
+		for v in [outline[0], outline[k], outline[k + 1]]:
+			st.add_vertex(Vector3(v.x * 0.96, y, v.y * 0.97))
+	var m := _material(color, 0.8)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	st.set_material(m)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	return mi
+
+
+## The cloth of a sail on its foil (for show: the foil's area is what the wind pushes): a sail's shape,
+## along the mast from the boom to the head, out along the boom to the clew, narrowing to a small head.
+func _sail_cloth(span: float, chord: float) -> MeshInstance3D:
+	var h := 0.5 * span
+	var corners := [Vector3(0, -h, 0), Vector3(0, -h, chord), Vector3(0, h, 0.15 * chord), Vector3(0, h, 0)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3.RIGHT)
+	for t in [[0, 1, 2], [0, 2, 3]]:
+		for k in t:
+			st.add_vertex(corners[k])
+	var m := _material(CLOTH, 0.9)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	st.set_material(m)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	return mi
+
+
 ## A thin blade for a foil's mesh: span along Y, chord along Z from `from_z` aft.
 func _blade(foil: Node3D, color: Color, from_z: float, thickness := 0.03) -> void:
 	var mi := MeshInstance3D.new()
@@ -327,7 +370,7 @@ func _motorboat(at: Vector3) -> void:
 	_prop_mesh.mesh = disc
 	_prop_mesh.rotation_degrees = Vector3(90, 0, 0)
 	_prop.add_child(_prop_mesh)
-	# A windscreen and a seat, for show.
+	# A windscreen, for show.
 	var screen := MeshInstance3D.new()
 	var sm := BoxMesh.new()
 	sm.size = Vector3(0.8, 0.25, 0.03)
@@ -337,6 +380,19 @@ func _motorboat(at: Vector3) -> void:
 	screen.position = Vector3(0, 0.33, -0.4)
 	screen.rotation_degrees = Vector3(-20, 0, 0)
 	b.add_child(screen)
+	# A pale deck, a helm console and a seat, so that from above and behind she reads as a boat, not an
+	# orange shape. (For show: the hull above is what floats.)
+	for part in [[Vector3(0.82, 0.02, 2.25), Vector3(0, 0.21, 0.05), Color(0.93, 0.9, 0.82)],
+			[Vector3(0.34, 0.2, 0.22), Vector3(0, 0.31, -0.2), Color(0.93, 0.9, 0.82)],
+			[Vector3(0.62, 0.12, 0.32), Vector3(0, 0.27, 0.4), INK.lightened(0.25)],
+			[Vector3(0.62, 0.3, 0.06), Vector3(0, 0.36, 0.57), INK.lightened(0.25)]]:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = part[0]
+		bm.material = _material(part[2], 0.6)
+		mi.mesh = bm
+		mi.position = part[1]
+		b.add_child(mi)
 	b.position = at
 	add_child(b)
 	_boat = b
@@ -353,7 +409,8 @@ func _sailing_dinghy(at: Vector3, yaw_deg: float) -> void:
 	shape.points = points
 	cs.shape = shape
 	b.add_child(cs)
-	b.add_child(_hull_mesh(points, CLOTH.darkened(0.05)))
+	b.add_child(_hull_mesh(points, Color(0.15, 0.4, 0.62)))
+	b.add_child(_deck([Vector2(0, -1.9), Vector2(0.7, -1.4), Vector2(0.7, 1.7), Vector2(-0.7, 1.7), Vector2(-0.7, -1.4)], 0.255, CLOTH.darkened(0.04)))
 	b.density = 160.0
 	_boat_settings(b, 0.12)
 	b.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
@@ -364,7 +421,7 @@ func _sailing_dinghy(at: Vector3, yaw_deg: float) -> void:
 	_blade(_d_rudder, INK.lightened(0.25), 0.0, 0.025)
 	_sail = _foil(b, Vector3(0, 2.8, -0.6), 8.0, 2.5, 1, 0.6)
 	_sail.auto_trim = true
-	_blade(_sail, CLOTH, 0.0, 0.015)
+	_sail.add_child(_sail_cloth(_sail.span_length(), _sail.chord_length()))
 	var mast := MeshInstance3D.new()
 	var mm := CylinderMesh.new()
 	mm.top_radius = 0.035

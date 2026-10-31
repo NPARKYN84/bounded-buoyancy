@@ -222,7 +222,7 @@ func _reset() -> void:
 		_many_body(1, Vector3(-6.0, 0.3, 3.8), Vector3(0, 0, 90))
 		_wind_bodies.append(_tilt_rows.pop_back()[0])
 		for i in 3:
-			var bl := _balloon(BB.Model.BOUNDED, Vector3(-10.0 + 1.8 * i, 3.5, 2.0 - 1.5 * i))
+			var bl := _balloon(BB.Model.BOUNDED, Vector3(-8.0 + 1.8 * i, 3.5, 1.0 - 1.5 * i))
 			bl.air_half_height = 4.0
 			_wind_bodies.append(bl)
 		for b in _wind_bodies:
@@ -244,8 +244,8 @@ func _reset() -> void:
 		_temp = DAYS[_day][0] + 273.15
 		var u := _balloon(BB.Model.USUAL, Vector3(-6.8, 1.8, 0))
 		var b := _balloon(BB.Model.BOUNDED, Vector3(-2.2, 1.8, 0))
-		_rows.append(["foil helium balloon", u, b, _label3d("", Vector3(-6.8 * FRONT, -0.85, 3.05), INK, 28),
-			_label3d("", Vector3(-2.2 * FRONT, -0.85, 3.05), INK, 28)])
+		_rows.append(["foil helium balloon", u, b, _label3d("", Vector3(-6.8 * FRONT, -0.55, 3.05), INK, 28),
+			_label3d("", Vector3(-2.2 * FRONT, -0.55, 3.05), INK, 28)])
 		_hot_air_balloon(Vector3(4.8, 2.66, 0))
 	elif scene == Scene.RELEASE:
 		var x := 0.09
@@ -301,7 +301,12 @@ func _update_labels() -> void:
 				l.text = row[0] if not _first.has(b) else "%s\n%s g" % [row[0], ("%.1f" if _first[b] >= 10.0 else "%.2f") % _first[b]]
 			else:
 				var s: Array = _swing.get(b, [0.0, -1.0])
-				l.text = "dropped at 1 s" if s[1] < 0.0 else "still bobbing\n±%.1f mm" % (1000.0 * s[1])
+				if s[1] < 0.0:
+					l.text = "dropped at 1 s"
+				elif s[1] < 0.00005:   # under a twentieth of a millimetre over the last second
+					l.text = "settled"
+				else:
+					l.text = "still bobbing\n±%.1f mm" % (1000.0 * s[1])
 
 
 func _ball(r: float, model: int, at: Vector3, radius: float) -> RigidBody3D:
@@ -439,7 +444,8 @@ func _hot_air_balloon(at: Vector3) -> void:
 	b.position = at
 	add_child(b)
 	_hot = b
-	_hot_label = _label3d("burner off, air inside 20 °C", Vector3(at.x * FRONT, -0.85, 3.05), INK, 28)
+	_hot_label = _label3d("burner off, air inside 20 °C", Vector3(at.x * FRONT, -0.37, 3.05), INK, 28)
+	_hot_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP   # two lines grow downwards, clear of the title above
 
 
 ## Heat or cool the air in the hot-air balloon, and set the balloon's density from it and the real air
@@ -619,6 +625,8 @@ func _build_world() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 
@@ -672,6 +680,8 @@ func _build_sea() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 
@@ -729,9 +739,9 @@ func _build_sky() -> void:
 	add_child(line)
 	var level := _label3d("air as light\nas the balloons", line.position + Vector3(-4.7, 0, 0), Color(0.15, 0.4, 0.7), 28)
 	level.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_label3d("Usual engine buoyancy", Vector3(-6.8 * FRONT, -0.35, 3.05), ORANGE.darkened(0.2), 30)
-	_label3d("Bounded Buoyancy", Vector3(-2.2 * FRONT, -0.35, 3.05), TEAL.darkened(0.2), 30)
-	_label3d("Hot-air balloon", Vector3(4.8 * FRONT, -0.35, 3.05), Color(0.7, 0.25, 0.2), 30)
+	_label3d("Usual engine buoyancy", Vector3(-6.8 * FRONT, -0.1, 3.05), ORANGE.darkened(0.2), 30)
+	_label3d("Bounded Buoyancy", Vector3(-2.2 * FRONT, -0.1, 3.05), TEAL.darkened(0.2), 30)
+	_label3d("Hot-air balloon", Vector3(4.8 * FRONT, -0.1, 3.05), Color(0.7, 0.25, 0.2), 30)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
@@ -742,8 +752,15 @@ func _build_sky() -> void:
 	layer.add_child(title)
 	var keys := Label.new()
 	keys.text = "Space: run again     B: pilot holds the hot-air balloon up, or lets it down     D: colder or warmer day     G: gust     Tab: next scene"
-	keys.position = Vector2(24, 44)
+	# At the foot, as in the other scenes (up top the balloons rose through it), the names and read-outs
+	# on the ground raised to clear it.
+	keys.anchor_top = 1.0
+	keys.anchor_bottom = 1.0
+	keys.offset_left = 24
+	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 
@@ -854,7 +871,10 @@ func _wind_step() -> void:
 			var dir := _wind.global_transform.basis * Vector3.RIGHT
 			var side := Vector3(-dir.z, 0.0, dir.x)
 			var offset := side.dot(p) * 0.5
-			b.global_position = Vector3(0, p.y, 1.0) - dir * 9.0 + side * clampf(offset, -3.0, 3.0)
+			var q := Vector3(0, p.y, 1.0) - dir * 7.0 + side * clampf(offset, -3.0, 3.0)
+			# Never closer to the camera than the middle of the lake, nor out at its edges: put back right
+			# under the camera, a balloon filled the side of the picture.
+			b.global_position = Vector3(clampf(q.x, -8.0, 8.0), q.y, minf(q.z, 3.0))
 	for pair in _sails:
 		var boat: RigidBody3D = pair[0]
 		var feel: Vector3 = boat.wind_here - boat.linear_velocity
@@ -975,6 +995,8 @@ func _build_river() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 
@@ -1029,6 +1051,8 @@ func _build_wind() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 
@@ -1081,6 +1105,8 @@ func _build_many() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)
 

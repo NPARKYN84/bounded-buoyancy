@@ -446,13 +446,14 @@ func _process(dt: float) -> void:
 func _report() -> String:
 	var lines := []
 	for b in [_pirate, _navy]:
-		var load_text := ""
+		var loads := []
 		for side in [-1, 1]:
 			var ready := 0
 			for g in b.get_meta(&"guns")[side]:
 				if g.is_loaded():
 					ready += 1
-			load_text += "%s %d/%d  " % ["port" if side < 0 else "starboard", ready, GUNS]
+			loads.append("%s %d/%d" % ["port" if side < 0 else "starboard", ready, GUNS])
+		var load_text := " ".join(loads)
 		var heel := rad_to_deg(asin(clampf(b.global_transform.basis.x.normalized().y, -1.0, 1.0)))
 		lines.append("%s: %4.1f knots, heading %03d°, sails %d%%, heel %+4.1f°, guns loaded %s, hit %d times, %.1f t of water in" % [
 			"Pirate" if b == _pirate else "Navy  ", b.linear_velocity.length() * 1.944, roundi(_heading(b)),

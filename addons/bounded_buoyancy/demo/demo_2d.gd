@@ -204,5 +204,7 @@ func _build_world() -> void:
 	keys.offset_left = 24
 	keys.offset_top = -38
 	keys.add_theme_color_override("font_color", INK.lightened(0.35))
+	keys.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.75))   # a pale halo: it reads over the sea too
+	keys.add_theme_constant_override("outline_size", 6)
 	keys.add_theme_font_size_override("font_size", 16)
 	layer.add_child(keys)

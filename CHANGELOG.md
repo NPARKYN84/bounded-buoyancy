@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.6.1
+
+Demo scenes only: every scene was run from a fresh install of 2.6.0 and looked at, and these tidied. Checked on Godot 4.4.1 and on 4.7.2: the test suite passes (native and GDScript) and every demo scene runs without an error.
+
+- Light float: the Bounded Buoyancy ball, once still, said "still bobbing ±0.0 mm"; it now says "settled".
+- Boats: the camera starts with both boats in view (C still changes it); before, the sailing dinghy began at the edge of the picture and sailed out of it.
+- Sky: the key hints are at the foot, as in the other scenes (the balloons rose through them at the top), and the hot-air balloon's read-out no longer runs into its name.
+- Wind: a body carried back upwind comes back into the middle of the lake, not beside the camera, where a balloon filled the side of the picture; the balloons start further in.
+- Ship flooding: the names over the two ships were hidden by the sea; they show.
+- The key hints have a pale edge, so they read over the sea as well as the sky.
+- Pirate battle: a stray space before a comma in the read-out.
+- Submarine: its portholes are small, nearly flush and set higher on the hull; large, bright and at the waterline, they looked like a row of little bombs.
+- Boats: the motorboat has a pale deck, a helm console and a seat, so from behind it reads as a boat and not an orange shape; the dinghy has a blue hull, a white deck and a proper sail (along the mast and boom, narrowing to its head) in place of a grey slab; with both boats in view the camera keeps low and close enough that they read as boats.
+- Ship flooding: the two ships are painted as ships (dark topsides, a white band at the waterline, red below), with a deck cut to their shape, a rail, and a wheelhouse with windows and a short mast; their names are over them from the first frame.
+- The README's flooding animation, the guide's boats animation and the flooding store picture are new.
+
 ## 2.6.0
 
 - The README and the plugin's description open with the one-node version (add the node, set a density, done) and answer the question of why a plain upward force is not enough, before the list of what else it can do.
