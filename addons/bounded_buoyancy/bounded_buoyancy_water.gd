@@ -633,9 +633,15 @@ func splash(at: Vector3, speed: float, size: float) -> void:
 	size = clampf(size, 0.02, 20.0)
 	var l := to_local(at)
 	if ripples and speed > 0.05:
-		_add_ripple(l, size, clampf(speed / 3.0, 0.25, 1.0))
+		_add_ripple(l, size, clampf(speed / 3.0, 0.25, 1.0) * _small(size))
 	if splashes and speed >= splash_min_speed:
 		_add_splash(l, speed, size)
+
+
+## Things smaller than 10 cm across make smaller, fainter splashes and rings, down to a fifth for a pea:
+## a 1 cm pellet threw up drops bigger than itself and left rings as bold as a stone's (2.6.2).
+static func _small(size: float) -> float:
+	return clampf(size / 0.1, 0.2, 1.0)
 
 
 func _add_splash(l: Vector3, speed: float, size: float) -> void:
@@ -676,7 +682,8 @@ func _add_splash(l: Vector3, speed: float, size: float) -> void:
 	p.one_shot = true
 	p.explosiveness = 0.95
 	p.lifetime = clampf(0.25 * sqrt(speed), 0.5, 1.4)
-	p.amount = clampi(int(14.0 * speed * sqrt(size)), 16, 120)
+	var small := _small(size)
+	p.amount = maxi(4, int(clampi(int(14.0 * speed * sqrt(size)), 16, 120) * small))
 	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
 	p.emission_ring_axis = Vector3.UP
 	p.emission_ring_radius = 0.45 * size
@@ -689,8 +696,8 @@ func _add_splash(l: Vector3, speed: float, size: float) -> void:
 	p.initial_velocity_max = up
 	p.gravity = Vector3(0, -float(ProjectSettings.get_setting("physics/3d/default_gravity")), 0)
 	var drop := clampf(size, 0.1, 3.0)
-	p.scale_amount_min = 0.05 + 0.04 * drop
-	p.scale_amount_max = 0.1 + 0.08 * drop
+	p.scale_amount_min = (0.05 + 0.04 * drop) * small
+	p.scale_amount_max = (0.1 + 0.08 * drop) * small
 	p.position = Vector3(l.x, l.y + 0.02, l.z)
 	add_child(p, false, Node.INTERNAL_MODE_BACK)
 	p.emitting = true

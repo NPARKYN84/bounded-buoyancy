@@ -10,12 +10,15 @@ extends Node3D
 ##   E       strike (or right mouse button)
 ##   W/S     reel in / give line (or mouse wheel)
 ##   +/-     set the drag tighter or looser
-##   A       let the angler fish by itself
+##   F       catapult a pouch of loose feed (pellets) out round the float, to draw the fish in
+##   A       let the angler fish by himself
 ##   C       change the camera (following the float, on the jetty, under the water by the hook)
 ##   R       start again
 ##   Tab     next scene
 ## The float, the shot and the fish are ordinary Bounded Buoyancy bodies; the fish (perch, trout and
-## bass) are BoundedBuoyancyFish, the line BoundedBuoyancyLine (0.25 mm nylon, about 3 kg breaking
+## bass) are BoundedBuoyancyFish, the loose feed small sinking BoundedBuoyancyBody pellets in the group
+## "bounded_buoyancy_feed" (fish smell them from further off than the hook, eat them, then stay round the
+## spot keener to bite), the line BoundedBuoyancyLine (0.25 mm nylon, about 3 kg breaking
 ## strain). The rod is drawn bending with the pull on the line, and its tip moves with it; the angler's
 ## hands follow the rod and the reel's handle, which turns as line is wound in. The float is drawn
 ## twice as wide as it is, and the hook and worm half as big again, so that they can be seen. The
@@ -72,7 +75,9 @@ var _cast_out := false
 var _on: Node3D = null          # the hooked fish
 var _auto := false
 var _auto_wait := 0.0
-var _idle := 0.0
+var _aim := INF                 # where across he aims the next cast (INF: anywhere near straight out)
+var _pellets: Array = []        # loose feed in the water, each [body, seconds left]
+var _fed_ago := 999.0           # s since he last fed the swim (fishing by himself)
 var _tackle_gen := 0            # changes with each new tackle, so a late replacement of old tackle is let be
 var _caught := 0
 var _caught_kg := 0.0
@@ -131,6 +136,10 @@ func _reset() -> void:
 	_in_flight = false
 	_cast_out = false
 	_casting = false
+	for p in _pellets:
+		if is_instance_valid(p[0]):
+			p[0].queue_free()
+	_pellets.clear()
 	_pitch = REST_PITCH
 	_pitch_to = REST_PITCH
 	_bend = 0.0
@@ -354,6 +363,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.pressed and (event.keycode == KEY_MINUS or event.keycode == KEY_KP_SUBTRACT):
 			_drag = maxf(_drag - 2.0, 2.0)
 			_main.slip_tension = _drag
+		elif event.pressed and event.keycode == KEY_F:
+			_feed_swim()
 		elif event.pressed and event.keycode == KEY_A:
 			_auto = not _auto
 			_say("The angler fishes by itself." if _auto else "Over to you.", 2.0)
@@ -378,7 +389,9 @@ func _cast() -> void:
 	if _main.broken:
 		return
 	var speed := lerpf(6.0, 15.0, _power)
-	var aim := Vector3(_rng.randf_range(-0.12, 0.12), 0.55, -1.0).normalized()
+	var across := _aim if _aim != INF else _rng.randf_range(-0.12, 0.12)
+	_aim = INF
+	var aim := Vector3(across, 0.55, -1.0).normalized()
 	_float.linear_velocity = aim * speed
 	_hook.linear_velocity = aim * speed * 0.97
 	_pitch = 15.0
@@ -433,6 +446,8 @@ func _physics_process(dt: float) -> void:
 	if _main.broken and _on == null:
 		_cast_out = false
 	_land()
+	_age_pellets(dt)
+	_fed_ago += dt
 	if _auto:
 		_angle(dt)
 	_hud_update(dt)
@@ -471,35 +486,194 @@ func _new_tackle() -> void:
 	_make_tackle.call_deferred()
 
 
-## The angler fishing by itself: cast, watch, strike when the float goes under, play the fish on a
-## tight line and reel in as it tires.
+## The catapult: a pouch of loose feed, a dozen 10 mm soft pellets, fired out to land round the float (or
+## where he means to cast). Each is a little sinking body: it flies, splashes in, and sinks slowly through
+## the water, where the fish smell it from further off than the hook. Slow-sinking feed, as anglers
+## loose-feed with: hard pellets (1150 kg/m³) dropped through the fish's depths in 20 s, before most of
+## them had found it.
+const PELLETS := 12
+const PELLET_RADIUS := 0.005
+const PELLET_DENSITY := 1050.0
+const PELLET_LIFE := 60.0
+const LONG_AIM := 0.016        # aim this much further for each metre of the throw,
+const LONG_AIM_MORE := 0.0007  # and more again on a long throw, where the air has longer at it
+
+func _feed_swim() -> void:
+	var at: Vector3
+	if _cast_out and is_instance_valid(_float):
+		at = _float.global_position
+	else:
+		var power: float = SPOTS[_spot][0]
+		at = HAND + Vector3(SPOTS[_spot][1], 0.0, -1.0).normalized() * lerpf(5.0, 16.0, power)
+	at.y = _water.height_at(at)
+	var from := HAND + Vector3(0.1, 0.25, -0.2)
+	var g := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	for i in PELLETS:
+		var where := at + Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+		# Aimed long, as an angler learns to with a catapult, the more the further he throws: the air takes
+		# a light pellet's way, and aimed true it fell three metres short of a float fourteen metres out.
+		var d := where - from
+		var throw := Vector2(d.x, d.z).length()
+		var long_aim := 1.0 + throw * (LONG_AIM + LONG_AIM_MORE * throw)
+		d.x *= long_aim
+		d.z *= long_aim
+		var t := 0.8 + 0.035 * Vector2(d.x, d.z).length()   # a lob, as a catapult throws
+		var b := BB.new()
+		var cs := CollisionShape3D.new()
+		var sph := SphereShape3D.new()
+		sph.radius = PELLET_RADIUS
+		cs.shape = sph
+		b.add_child(cs)
+		b.density = PELLET_DENSITY
+		b.collision_layer = 0
+		b.collision_mask = 0
+		b.position = from
+		b.linear_velocity = Vector3(d.x / t, (d.y + 0.5 * g * t * t) / t, d.z / t)
+		TACKLE.ball(b, Vector3.ZERO, PELLET_RADIUS * 2.5, TACKLE.mat(Color(0.55, 0.34, 0.16), 0.8, 0.0))   # drawn bigger, to be seen
+		b.add_to_group(&"bounded_buoyancy_feed")
+		add_child(b)
+		_pellets.append([b, PELLET_LIFE, false])
+	_fed_ago = 0.0
+	_say("Feeding the swim: a pouch of pellets round the float.", 2.0)
+
+
+## Pellets not eaten sink out of reach and are gone after a while.
+func _age_pellets(dt: float) -> void:
+	for i in range(_pellets.size() - 1, -1, -1):
+		var p: Array = _pellets[i]
+		p[1] -= dt
+		if not is_instance_valid(p[0]):
+			_pellets.remove_at(i)
+			continue
+		var at: Vector3 = p[0].global_position
+		if not p[2] and at.y < _water.height_at(at):
+			p[2] = true                  # in: the water makes its own small plop and ring for it
+		if p[1] <= 0.0:
+			p[0].queue_free()
+			_pellets.remove_at(i)
+
+
+## The angler fishing by himself, as a good angler fishes: by what he can see and feel, never by what the
+## fish is up to. He casts to one of a few spots, lets the float settle, and winds in the slack so he is
+## in touch with it. A dip, even right under,
+## is a fish nibbling: he waits. The float sliding away across the water is a fish making off with the
+## bait, or the float pulled under and kept there: he strikes, a moment later, as a person reacts. With a fish on he plays it by the pull: lets the
+## drag give line while it pulls hard, reels while the pull eases, and reels steadily as it comes in
+## tired. He sets the drag firmer if a fish takes a lot of line, and lighter as it comes close, where a
+## last lunge on a short line could snap it. He feeds the swim with his catapult, a pouch of pellets round
+## the float little and often, to draw fish in and keep them keen. With nothing doing for a while he tries
+## another spot; with fish about (nibbles), he stays.
+const SPOTS := [[0.55, 0.0], [0.8, -0.09], [0.7, 0.1], [0.95, 0.04], [0.45, -0.05]]   # [cast power, aim across]
+const MOVING := 0.2          # m/s: the float going off across the water faster than this is being taken
+const SEEN_FOR := 0.15       # s it must keep going before he is sure (a nibble stirs it, never this fast)
+const HELD_UNDER := 0.9      # s: or the float pulled under and kept under this long (a nibble lets it up)
+const PATIENCE := 50.0       # s without a sign of a fish before he tries another spot
+const SETTLE := 3.0          # s for the float and line to settle after a cast or a strike before he reads it
+const FEED_EVERY := 40.0     # s: he catapults a pouch of feed round the float, little and often
+
+var _spot := 0
+var _settled := 0.0           # s since the float came to rest out there
+var _moving := 0.0            # s the float has been going away
+var _under := 0.0             # s the float has been under, running
+var _react := -1.0            # s until he strikes, once he has seen it go
+var _quiet := 0.0             # s since the last sign of a fish
+var _line_going := 0.0        # s a hooked fish has been taking line
+
+
 func _angle(dt: float) -> void:
 	_auto_wait -= dt
 	if not _cast_out and not _in_flight and not _casting and _auto_wait <= 0.0:
+		# Cast to the spot he is fishing, giving the line a moment to settle before he watches it.
 		_casting = true
 		_power = 0.0
+		_aim = SPOTS[_spot][1]
 		_auto_wait = 1.0
-		get_tree().create_timer(0.8, false, true).timeout.connect(func() -> void:
+		_settled = 0.0
+		_moving = 0.0
+		_react = -1.0
+		var power: float = SPOTS[_spot][0]
+		get_tree().create_timer(0.3 + 0.7 * power, false, true).timeout.connect(func() -> void:
 			if _casting:
+				_power = power
 				_cast())
 		return
 	if not _cast_out:
-		_idle = 0.0
 		return
 	if _on == null:
-		_idle += dt
-		for f in _fish:
-			if is_instance_valid(f) and f.state == FISH.State.TAKE and f._timer < f.take_time - 0.4 and _pitch_to == REST_PITCH:
-				_strike()
-				_idle = 0.0
-		# Nothing for a long while, or the float drifted in: reel in and cast again.
-		var fp := _float.global_position
-		if _idle > 60.0 or Vector2(fp.x - HAND.x, fp.z - HAND.z).length() < 4.0:
-			_main.length = maxf(_main.length - 2.0 * REEL_SPEED * dt, 1.0)
+		_watch(dt)
 		return
-	# Playing the fish: keep the line tight while it runs (the drag gives it line), reel when it tires.
-	if _on.state == FISH.State.TIRED or _main.tension < 0.2 * _drag:
-		_main.length = maxf(_main.length - REEL_SPEED * dt, 1.0)
+	_play(dt)
+
+
+## Watching the float.
+func _watch(dt: float) -> void:
+	var f := _float
+	var fp := f.global_position
+	# Nothing for a long while, or the float drifted in close: he winds in (moving the float himself, so
+	# he is not watching it for bites), and next time tries another spot.
+	if _quiet > PATIENCE or Vector2(fp.x - HAND.x, fp.z - HAND.z).length() < 4.0:
+		_main.length = maxf(_main.length - 2.0 * REEL_SPEED * dt, 1.0)
+		if _main.length <= 1.05:
+			_spot = (_spot + 1) % SPOTS.size()
+			_quiet = 0.0
+		return
+	var tip := fp + f.global_transform.basis.y * (0.5 * FLOAT_LONG)
+	# How fast the float goes off: away from him or across, not back towards him (as it does while the
+	# line settles after a cast or a strike, which is no bite).
+	var v := Vector3(f.linear_velocity.x, 0.0, f.linear_velocity.z)
+	var to_him := Vector3(HAND.x - fp.x, 0.0, HAND.z - fp.z).normalized()
+	var towards := v.dot(to_him)
+	var speed := (v - to_him * towards).length() if towards > 0.0 else v.length()
+	_settled += dt
+	_quiet += dt
+	var under: bool = tip.y < _water.height_at(tip) - 0.005
+	_under = _under + dt if under else 0.0
+	if _settled > SETTLE and under:
+		_quiet = 0.0                 # a dip: a fish is about
+	# In touch with the float: once it has settled he winds in the slack, so that a strike pulls the hook
+	# home and does not only straighten loose line.
+	if _settled > SETTLE:
+		var e: Array = _main.ends()
+		var span: float = (e[1] - e[0]).length()
+		if _main.length > span + 0.4:
+			_main.length = maxf(span + 0.3, _main.length - REEL_SPEED * dt)
+	if _settled > SETTLE and _fed_ago > FEED_EVERY and _react < 0.0:
+		_feed_swim()
+	if _react >= 0.0:
+		_react -= dt
+		if _react < 0.0:
+			_strike()
+			_settled = 0.0           # the strike jerks the float about: let it settle before watching again
+		return
+	if _settled > SETTLE and _pitch_to == REST_PITCH:
+		_moving = _moving + dt if speed > MOVING else 0.0
+		if _moving >= SEEN_FOR or _under >= HELD_UNDER:
+			_react = _rng.randf_range(0.2, 0.5)   # a person's reaction
+			_moving = 0.0
+			_under = 0.0
+			_quiet = 0.0
+
+
+## Playing a hooked fish by the pull on the line.
+func _play(dt: float) -> void:
+	var pull: float = _main.tension
+	var out: float = _main.length
+	if pull >= 0.85 * _drag:
+		_line_going += dt            # running: the drag gives it line, he holds the rod up and waits
+	else:
+		_line_going = 0.0
+		var rate := REEL_SPEED if pull < 0.5 * _drag else 0.5 * REEL_SPEED
+		_main.length = maxf(out - rate * dt, 1.0)
+	# The drag: firmer if it keeps taking line far out, lighter once it is close in.
+	var want := _drag
+	if _line_going > 3.0 and out > 20.0:
+		want = minf(_drag + 2.0, 0.6 * BREAKS)
+		_line_going = 0.0
+	elif out < 8.0:
+		want = minf(_drag, 0.35 * BREAKS)
+	if want != _drag:
+		_drag = want
+		_main.slip_tension = _drag
 
 
 # --- The view and the words --------------------------------------------------------------------
@@ -583,7 +757,7 @@ func _hud() -> void:
 	_drag_mark.color = Color(1, 0.85, 0.3)
 	layer.add_child(_drag_mark)
 	var keys := Label.new()
-	keys.text = "Space: hold and let go to cast     E: strike     W/S: reel in / give line     +/-: drag     A: fish by itself     C: camera     R: start again     Tab: next scene"
+	keys.text = "Space: hold and let go to cast     E: strike     W/S: reel in / give line     +/-: drag     F: catapult feed     A: fish by itself     C: camera     R: start again     Tab: next scene"
 	keys.anchor_top = 1.0
 	keys.anchor_bottom = 1.0
 	keys.offset_left = 24

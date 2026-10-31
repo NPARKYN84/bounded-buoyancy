@@ -13,18 +13,30 @@ namespace BoundedBuoyancy
     /// on its body. It turns itself to where it is going and keeps itself upright.</para>
     /// <para>It wanders near where it started, between Min Depth and Max Depth. Bait (its Bait, or else any Rigidbody with a
     /// Bounded Buoyancy Bait) within Sense Range may draw it: it comes up to it, nibbles at it (each nibble a small tug,
-    /// Bite Pull, which dips a float), and then takes it and swims off with it. Any Bounded Buoyancy Line tied to the bait
+    /// Bite Pull, which dips a float), and then takes it and makes off with it, down and away, briskly, so that a float
+    /// above it is drawn under and slides off: the bite an angler strikes at. Any Bounded Buoyancy Line tied to the bait
     /// is then tied to the fish's mouth. Strike (pull the line harder than Strike Pull) while it has the bait and it is
     /// hooked; wait too long and it drops the bait and keeps away from bait for a while.</para>
     /// <para>Hooked, it runs away from the pull, veering and diving, with all the strength it has. Fighting tires it
     /// (Endurance is how many seconds of full effort it has in it), resting brings some strength back, and a tired fish may
     /// make one more run. It throws the hook if the angler's line goes slack for Slack Escape seconds, and escapes if a
     /// line breaks.</para>
+    /// <para>Loose feed (any Rigidbody with a Bounded Buoyancy Feed: pellets or groundbait an angler throws or catapults
+    /// in) draws it from further off, Feed Range: it swims to a piece sinking through its depths, eats it, and for Feed
+    /// Time seconds after stays near where it fed and is Feed Keenness times as keen to go for bait. So an angler who
+    /// feeds his swim, little and often, gets bites sooner.</para>
     /// </summary>
     [AddComponentMenu("Physics/Bounded Buoyancy Fish")]
     public class BoundedBuoyancyFish : BoundedBuoyancyBody
     {
         public enum FishState { Wander, Approach, Nibble, Take, Hooked, Tired, Free }
+
+        // Making off with the bait: heading down (TakeDive m, within Max Depth) as it goes TakeRun m on, and faster than
+        // its cruise. Swimming off level, it only swung the hook length out under the float, and the float barely showed
+        // the take (2.6.2).
+        const float TakeRun = 1.5f;
+        const float TakeDive = 1.2f;
+        const float TakePace = 1.6f;
 
         [Header("Swimming")]
         [Tooltip("Its usual swimming speed, m/s.")]
@@ -79,6 +91,15 @@ namespace BoundedBuoyancy
         [Tooltip("Seconds it keeps away from bait after dropping it.")]
         [Min(0f)] public float waryTime = 15f;
 
+        [Tooltip("How far it smells loose feed (any Rigidbody with a Bounded Buoyancy Feed) from, m.")]
+        [Min(0f)] public float feedRange = 10f;
+
+        [Tooltip("Seconds it stays near where it fed, and keener for bait.")]
+        [Min(0f)] public float feedTime = 90f;
+
+        [Tooltip("How many times as keen for bait it is while fed.")]
+        [Min(1f)] public float feedKeenness = 4f;
+
         [Header("Fighting")]
         [Tooltip("Seconds of full effort it has in it, hooked. Resting, it gets a quarter of that back in as long again.")]
         [Min(0.1f)] public float endurance = 20f;
@@ -104,6 +125,8 @@ namespace BoundedBuoyancy
         public UnityEvent tired = new UnityEvent();
         [Tooltip("It has thrown the hook, or the line has broken.")]
         public UnityEvent escaped = new UnityEvent();
+        [Tooltip("It has eaten a piece of loose feed.")]
+        public UnityEvent<Rigidbody> fed = new UnityEvent<Rigidbody>();
 
         /// <summary>What it is doing.</summary>
         public FishState State { get { return state; } }
@@ -138,6 +161,12 @@ namespace BoundedBuoyancy
         readonly List<BoundedBuoyancyLine> lines = new List<BoundedBuoyancyLine>();   // lines tied to the bait it holds
         readonly List<Vector3> lineOffsets = new List<Vector3>();                    // and where each was tied on the bait
         float patience;            // seconds left to get the bait before it gives up
+        BoundedBuoyancyFeed feedTarget;   // the piece of loose feed it is going for
+        float fedLeft;             // seconds left of feeding keenly where it fed
+        float feedLook;            // seconds until it next looks round for feed
+
+        /// <summary>Seconds left of feeding keenly where it fed (0: not fed lately).</summary>
+        public float FedLeft { get { return fedLeft; } }
         readonly List<BoundedBuoyancyLine> chain = new List<BoundedBuoyancyLine>();   // and back from its mouth to the angler
         bool baitDetected;
 
@@ -237,12 +266,14 @@ namespace BoundedBuoyancy
                 {
                     speed = cruiseSpeed;
                     goalTime -= dt;
+                    fedLeft = Mathf.Max(fedLeft - dt, 0f);
                     if (goalTime <= 0f || (here - goal).magnitude < 0.5f)
                         NewGoal();
+                    GoForFeed(dt);
                     if (wary <= 0f)
                     {
                         Rigidbody b = FindBait();
-                        if (b != null && rng.NextDouble() < appetite * dt)
+                        if (b != null && rng.NextDouble() < appetite * (fedLeft > 0f ? feedKeenness : 1f) * dt)
                         {
                             targetBait = b;
                             nibblesLeft = nibbles > 0 ? rng.Next(1, Mathf.Max(nibbles, 1) + 1) : 0;
@@ -325,9 +356,9 @@ namespace BoundedBuoyancy
                 {
                     timer -= dt;
                     HoldHook();
-                    speed = cruiseSpeed;
+                    speed = TakePace * cruiseSpeed;
                     if ((here - goal).magnitude < 0.4f)
-                        goal = here + Turned(Flat(Forward), RandomRange(-1f, 1f)) * 3f;
+                        goal = here + Turned(Flat(Forward), RandomRange(-1f, 1f)) * TakeRun + Vector3.down * TakeDive;
                     // Struck: the angler's line pulled hard (or the fish ran against a tight one).
                     for (int i = 0; i < lines.Count; i++)
                     {
@@ -472,11 +503,62 @@ namespace BoundedBuoyancy
         void NewGoal()
         {
             float a = (float)rng.NextDouble() * 2f * Mathf.PI;
-            float r = Mathf.Sqrt((float)rng.NextDouble()) * homeRange;
+            float r = Mathf.Sqrt((float)rng.NextDouble()) * homeRange * (fedLeft > 0f ? 0.3f : 1f);   // fed, it keeps close
             float surface = Water != null ? Water.HeightAt(home) : home.y;
             goal = home + new Vector3(Mathf.Cos(a) * r, 0f, Mathf.Sin(a) * r);
             goal.y = surface - RandomRange(minDepth, maxDepth);
             goalTime = RandomRange(4f, 10f);
+        }
+
+        // Loose feed: it looks round for a piece now and then, swims to it, and eats it when its mouth is at it. Fed, it
+        // stays round where it ate, keener for bait.
+        void GoForFeed(float dt)
+        {
+            if (feedTarget != null && !(feedTarget.isActiveAndEnabled && InReachDepth(feedTarget.Body.position)))
+                feedTarget = null;
+            feedLook -= dt;
+            if (feedTarget == null && feedLook <= 0f)
+            {
+                feedLook = 0.5f;
+                float near = feedRange;
+                Vector3 me = Body.position;
+                IReadOnlyList<BoundedBuoyancyFeed> all = BoundedBuoyancyFeed.Active;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    BoundedBuoyancyFeed f = all[i];
+                    if (f == null || !InReachDepth(f.Body.position))
+                        continue;
+                    float d = (f.Body.position - me).magnitude;
+                    if (d < near)
+                    {
+                        near = d;
+                        feedTarget = f;
+                    }
+                }
+            }
+            if (feedTarget == null)
+                return;
+            Vector3 at = feedTarget.Body.position;
+            goal = at;
+            goalTime = 1f;
+            speed = cruiseSpeed * 1.3f;
+            if ((MouthPosition - at).magnitude < Mathf.Max(Reach(), 0.3f))
+            {
+                home = new Vector3(at.x, home.y, at.z);
+                fedLeft = feedTime;
+                Rigidbody eaten = feedTarget.Body;
+                feedTarget.enabled = false;
+                feedTarget = null;
+                fed.Invoke(eaten);
+                Destroy(eaten.gameObject);
+            }
+        }
+
+        // Under the water and within the depths it swims at.
+        bool InReachDepth(Vector3 p)
+        {
+            float surface = Water != null ? Water.HeightAt(p) : p.y + minDepth;
+            return p.y < surface && p.y >= surface - maxDepth - 0.3f;
         }
 
         Rigidbody FindBait()
@@ -543,7 +625,7 @@ namespace BoundedBuoyancy
             targetBait.isKinematic = true;
             baitDetected = targetBait.detectCollisions;
             targetBait.detectCollisions = false;
-            goal = Body.position + Flat(Forward) * 3f;
+            goal = Body.position + Flat(Forward) * TakeRun + Vector3.down * TakeDive;
             tookBait.Invoke(targetBait);
         }
 

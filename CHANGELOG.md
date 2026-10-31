@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.6.2
+
+- Loose feed: fish smell loose feed (any body in the new group `bounded_buoyancy_feed`) from further off than bait (**Feed Range**, 10 m), swim to a piece sinking through their depths and eat it (signal `fed`); for **Feed Time** (90 s) after, a fish stays round where it ate and is **Feed Keenness** (4) times as keen for bait. Tests: a fish swims to a pellet 4 m off and eats it, is then keener, and stays round the spot. The same in Unity, with a **Bounded Buoyancy Feed** component.
+- Splashes: things smaller than 10 cm across make smaller, fainter splashes and rings, down to a fifth for a pea. A 1 cm pellet threw up drops bigger than itself and left rings as bold as a stone's.
+- Fishing demo: a catapult. **F** fires a pouch of a dozen slow-sinking soft pellets out round the float (aimed long, more so the further out, as the air takes a light pellet's way); the angler fishing by himself feeds his swim with it little and often. Over half an hour he had about a quarter more bites than without (33 against 26); hard pellets, sinking through the fish's depths in 20 s, were mostly gone before the fish found them.
+- Fish: a fish that takes the bait now makes off with it down and away, faster than it cruises, so a float above it goes under and slides off: the bite an angler strikes at. Before, it swam off level at its cruising pace, which only swung the hook length out under the float, and many takes barely showed on it. New test: a take draws the float under. The same in Unity.
+- Fishing demo: the angler fishing by himself (**A**) now fishes as a good angler does, by what he can see and feel, never by what the fish is up to. He casts to one of a few spots, lets the float settle, and winds in the slack so that he is in touch with it. A dip is a fish nibbling, so he waits; the float going off across the water, or pulled under and kept under, is a take, and he strikes a moment later, as a person reacts. Playing a fish, he lets the drag give line while it pulls hard and reels while the pull eases, sets the drag firmer if it takes a lot of line and lighter as it comes close; with nothing doing for a while he tries another spot. Over half an hour he hooks about two bites in three and lands nearly all he hooks; before, he struck the instant a fish took the bait and reeled the moment it tired, by knowing what the fish was doing, and never missed.
+
 ## 2.6.1
 
 Demo scenes only: every scene was run from a fresh install of 2.6.0 and looked at, and these tidied. Checked on Godot 4.4.1 and on 4.7.2: the test suite passes (native and GDScript) and every demo scene runs without an error.

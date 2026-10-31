@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.6.2] - 2026-10-31
+
+- Splashes: things smaller than 10 cm across make smaller, fainter splashes and rings, down to a fifth for a pea. As in the Godot plugin.
+- Loose feed: **Bounded Buoyancy Feed**, a component that marks a Rigidbody as loose feed (pellets, groundbait). Fish smell it from further off than bait (**Feed Range**), swim to a piece sinking through their depths and eat it (event `fed`; the object is destroyed); for **Feed Time** after, a fish stays round where it ate and is **Feed Keenness** times as keen for bait (`FedLeft`). As in the Godot plugin.
+- Fish: a fish that takes the bait now makes off with it down and away, faster than it cruises, so a float above it goes under and slides off: the bite an angler strikes at. Before, it swam off level at its cruising pace, which only swung the hook length out under the float, and many takes barely showed on it. As in the Godot plugin.
+
 ## [2.6.0] - 2026-10-30
 
 - Buoyancy meshes no longer have to be watertight. A hull with no deck, or a mesh with a hole in it, is closed for you: each opening is capped across (what a boat displaces until it floods), and a mesh too tangled to cap (triangles wound both ways, edges shared by three faces) is wrapped in its convex hull with a warning. **Close Open Mesh** turns this off to use the mesh exactly as given (`MeshClosing.Close` in the core; `ShapeBuilder3D.AddMesh` takes `closeOpen` and reports `Openings`). Edit-mode tests: an open-topped box, a box with a hole knocked through one side and a tangled box all give the box's volume; a closed mesh is left alone.

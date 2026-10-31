@@ -10,8 +10,9 @@ extends BoundedBuoyancyBody
 ##
 ## It wanders near where it started, between min_depth and max_depth. Bait (a body in the group
 ## "bounded_buoyancy_bait", or the one set as bait) within sense_range may draw it: it comes up to it,
-## nibbles at it (each nibble a small tug, bite_pull, which dips a float), and then takes it and swims
-## off with it. Any BoundedBuoyancyLine tied to the bait is then tied to the fish's mouth. Strike (pull
+## nibbles at it (each nibble a small tug, bite_pull, which dips a float), and then takes it and makes
+## off with it, down and away, briskly, so that a float above it is drawn under and slides off: the bite
+## an angler strikes at. Any BoundedBuoyancyLine tied to the bait is then tied to the fish's mouth. Strike (pull
 ## the line harder than strike_pull) while it has the bait and it is hooked; wait too long and it drops
 ## the bait and keeps away from bait for a while.
 ##
@@ -19,6 +20,11 @@ extends BoundedBuoyancyBody
 ## it (endurance is how many seconds of full effort it has in it), resting brings some strength back,
 ## and a tired fish may make one more run. It throws the hook if the line goes slack for slack_escape
 ## seconds, and escapes if the line breaks.
+##
+## Loose feed (bodies in the group "bounded_buoyancy_feed": pellets or groundbait an angler throws or
+## catapults in) draws it from further off, feed_range: it swims to a piece sinking through its depth,
+## eats it, and for feed_time seconds after stays near where it fed and is feed_keenness times as keen to
+## go for bait. So an angler who feeds his swim, little and often, gets bites sooner.
 
 signal noticed_bait(bait: Node3D)
 signal nibbled(bait: Node3D)
@@ -27,8 +33,16 @@ signal dropped_bait(bait: Node3D)
 signal hooked
 signal tired
 signal escaped
+signal fed(feed: Node3D)
 
 enum State { WANDER, APPROACH, NIBBLE, TAKE, HOOKED, TIRED, FREE }
+
+## Making off with the bait: heading down (TAKE_DIVE m, within max_depth) as it goes TAKE_RUN m on, and
+## faster than its cruise. Swimming off level, it only swung the hook length out under the float, and
+## the float barely showed the take (2.6.2).
+const TAKE_RUN := 1.5
+const TAKE_DIVE := 1.2
+const TAKE_PACE := 1.6
 
 @export_group("Swimming")
 ## Its usual swimming speed, in m/s.
@@ -67,6 +81,12 @@ enum State { WANDER, APPROACH, NIBBLE, TAKE, HOOKED, TIRED, FREE }
 @export_range(0.0, 1000.0, 0.01, "or_greater", "suffix:N") var strike_pull: float = 2.0
 ## Seconds it keeps away from bait after dropping it.
 @export_range(0.0, 600.0, 0.1, "or_greater", "suffix:s") var wary_time: float = 15.0
+## How far it smells loose feed from, in metres (feed spreads its scent further than one bait).
+@export_range(0.0, 100.0, 0.1, "or_greater", "suffix:m") var feed_range: float = 10.0
+## Seconds it stays near where it fed, and keener for bait.
+@export_range(0.0, 3600.0, 0.1, "or_greater", "suffix:s") var feed_time: float = 90.0
+## How many times as keen for bait it is while fed.
+@export_range(1.0, 100.0, 0.1, "or_greater") var feed_keenness: float = 4.0
 
 @export_group("Fighting")
 ## Seconds of full effort it has in it, hooked. Resting, it gets a quarter of that back in as long again.
@@ -105,6 +125,9 @@ var _target_bait: RigidBody3D = null
 var _lines: Array = []          # lines tied to the bait it holds, each [line, where it was tied on the bait]
 var _patience := 0.0            # seconds left to get the bait before it gives up
 var _hook_layers := Vector2i.ZERO
+var _feed: RigidBody3D = null   # the piece of loose feed it is going for
+var _fed := 0.0                 # seconds left of feeding keenly where it fed
+var _feed_look := 0.0           # seconds until it next looks round for feed
 
 
 func _ready() -> void:
@@ -176,11 +199,13 @@ func _think(dt: float) -> void:
 		State.WANDER:
 			_speed = cruise_speed
 			_goal_time -= dt
+			_fed = maxf(_fed - dt, 0.0)
 			if _goal_time <= 0.0 or here.distance_to(_goal) < 0.5:
 				_new_goal()
+			_go_for_feed(dt)
 			if _wary <= 0.0:
 				var b := _find_bait()
-				if b and _rng.randf() < appetite * dt:
+				if b and _rng.randf() < appetite * (feed_keenness if _fed > 0.0 else 1.0) * dt:
 					_target_bait = b
 					_nibbles_left = _rng.randi_range(1, maxi(nibbles, 1)) if nibbles > 0 else 0
 					_patience = 40.0
@@ -233,9 +258,9 @@ func _think(dt: float) -> void:
 		State.TAKE:
 			_timer -= dt
 			_hold_hook()
-			_speed = cruise_speed
+			_speed = TAKE_PACE * cruise_speed
 			if here.distance_to(_goal) < 0.4:
-				_goal = here + _flat(-global_transform.basis.z).rotated(Vector3.UP, _rng.randf_range(-1.0, 1.0)) * 3.0
+				_goal = here + _flat(-global_transform.basis.z).rotated(Vector3.UP, _rng.randf_range(-1.0, 1.0)) * TAKE_RUN + Vector3.DOWN * TAKE_DIVE
 			# Struck: the angler's line pulled hard (or the fish ran against a tight one).
 			for held in _lines:
 				var l: Node3D = held[0]
@@ -326,11 +351,47 @@ func _reach() -> float:
 
 func _new_goal() -> void:
 	var a := _rng.randf() * TAU
-	var r := sqrt(_rng.randf()) * home_range
+	var r := sqrt(_rng.randf()) * home_range * (0.3 if _fed > 0.0 else 1.0)   # fed, it keeps close
 	var surface: float = water.height_at(_home) if water else _home.y
 	_goal = _home + Vector3(cos(a) * r, 0.0, sin(a) * r)
 	_goal.y = surface - _rng.randf_range(min_depth, max_depth)
 	_goal_time = _rng.randf_range(4.0, 10.0)
+
+
+## Loose feed: it looks round for a piece now and then, swims to it, and eats it when its mouth is at it.
+## Fed, it stays round where it ate, keener for bait.
+func _go_for_feed(dt: float) -> void:
+	if _feed and not (is_instance_valid(_feed) and _feed.is_inside_tree() and _in_reach_depth(_feed.global_position)):
+		_feed = null
+	_feed_look -= dt
+	if _feed == null and _feed_look <= 0.0:
+		_feed_look = 0.5
+		var near := feed_range
+		for f in get_tree().get_nodes_in_group(&"bounded_buoyancy_feed"):
+			if f is RigidBody3D and is_instance_valid(f) and f.is_inside_tree() and _in_reach_depth(f.global_position):
+				var d := global_position.distance_to(f.global_position)
+				if d < near:
+					near = d
+					_feed = f
+	if _feed == null:
+		return
+	var at := _feed.global_position
+	_goal = at
+	_goal_time = 1.0
+	_speed = cruise_speed * 1.3
+	if mouth_position().distance_to(at) < maxf(_reach(), 0.3):
+		_home = Vector3(at.x, _home.y, at.z)
+		_fed = feed_time
+		fed.emit(_feed)
+		_feed.remove_from_group(&"bounded_buoyancy_feed")
+		_feed.queue_free()
+		_feed = null
+
+
+## Under the water and within the depths it swims at.
+func _in_reach_depth(p: Vector3) -> bool:
+	var surface: float = water.height_at(p) if water else p.y + min_depth
+	return p.y < surface and p.y >= surface - max_depth - 0.3
 
 
 func _find_bait() -> RigidBody3D:
@@ -370,7 +431,7 @@ func _take() -> void:
 	_hook_layers = Vector2i(_target_bait.collision_layer, _target_bait.collision_mask)
 	_target_bait.collision_layer = 0
 	_target_bait.collision_mask = 0
-	_goal = global_position + _flat(-global_transform.basis.z) * 3.0
+	_goal = global_position + _flat(-global_transform.basis.z) * TAKE_RUN + Vector3.DOWN * TAKE_DIVE
 	took_bait.emit(_target_bait)
 
 

@@ -1998,11 +1998,14 @@ func run() -> void:
 			if not seen20.has(sig):
 				seen20[sig] = Engine.get_physics_frames())
 	var dip20 := 0.0
+	var take_dip20 := 0.0
 	var dropped_after20 := -1.0
 	for i20 in 60 * 400:
 		await physics_frame
 		if fish20.state == FISH.State.NIBBLE:
 			dip20 = maxf(dip20, rest20 - (flt20.global_transform * Vector3(0, 0.06, 0)).y)
+		if fish20.state == FISH.State.TAKE and not seen20.has("dropped_bait"):
+			take_dip20 = maxf(take_dip20, rest20 - (flt20.global_transform * Vector3(0, 0.06, 0)).y)
 		if seen20.has("dropped_bait") and dropped_after20 < 0.0:
 			dropped_after20 = (seen20["dropped_bait"] - seen20["took_bait"]) / 60.0
 		# The second time it takes the bait, strike: sweep the rod back, taking in a metre of line.
@@ -2012,6 +2015,7 @@ func run() -> void:
 		if fish20.state == FISH.State.HOOKED:
 			break
 	check("  a nibble dips the float (cm), 1 to 30", dip20 * 100.0, 15.5, 14.5)
+	check("  taking it, it makes off down and away and draws the float under (cm), 3 to 100", take_dip20 * 100.0, 51.5, 48.5)
 	check("  not struck, it drops the bait (s)", dropped_after20, fish20.take_time, 0.05)
 	check("  struck, it is hooked", 1.0 if fish20.state == FISH.State.HOOKED else 0.0, 1.0, 0.0)
 	# Hooked, it fights; held on a line that gives no more, it tires.
@@ -2027,6 +2031,29 @@ func run() -> void:
 		await physics_frame
 		slack20 += 1.0 / 60.0
 	check("  given slack line, it throws the hook within (s)", slack20, 0.5 * (fish20.slack_escape + 4.0), 0.5 * (fish20.slack_escape + 4.0))
+	# Loose feed: a pellet hanging in the water 4 m off, within its feed range but outside its sense of
+	# the hook. It swims to it and eats it, and is then keener for bait and stays round the spot.
+	var feeder20: RigidBody3D = _fish20(Vector3(-28, -1.5, -790), 0.3)
+	feeder20.sense_range = 1.0
+	var pellet20 := make_shape_body(_sphere(0.005), 1000.0, Vector3(-24, -1.5, -790), 0.0)
+	pellet20.collision_layer = 0
+	pellet20.collision_mask = 0
+	pellet20.add_to_group(&"bounded_buoyancy_feed")
+	var ate20 := [-1.0]   # (a lambda gets a copy of a plain local; an array it shares)
+	feeder20.fed.connect(func(_f: Node3D) -> void: ate20[0] = Engine.get_physics_frames())
+	var start20 := Engine.get_physics_frames()
+	for i20 in 60 * 40:
+		await physics_frame
+		if ate20[0] >= 0.0:
+			break
+	check("feed: a fish swims to loose feed 4 m off and eats it (s), within 30", (ate20[0] - start20) / 60.0 if ate20[0] >= 0.0 else 99.0, 15.0, 15.0)
+	check("  fed, it is keener for bait (times)", (feeder20.feed_keenness if feeder20._fed > 0.0 else 1.0), feeder20.feed_keenness, 0.0)
+	var round20 := 0.0
+	for i20 in 60 * 30:
+		await physics_frame
+		round20 = maxf(round20, Vector2(feeder20.global_position.x + 24.0, feeder20.global_position.z + 790.0).length())
+	check("  and stays round where it fed (m), within its home range", round20, 0.5 * feeder20.home_range, 0.5 * feeder20.home_range)
+	feeder20.queue_free()
 	for n20 in rig20:
 		n20.queue_free()
 	fish20.queue_free()

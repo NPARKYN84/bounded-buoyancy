@@ -354,9 +354,16 @@ namespace BoundedBuoyancy
             across = Mathf.Clamp(across, 0.02f, 20f);
             Vector3 l = Quaternion.Inverse(transform.rotation) * (at - transform.position);
             if (ripples && speed > 0.05f)
-                AddRipple(new Vector2(l.x, l.z), across, Mathf.Clamp(speed / 3f, 0.25f, 1f));
+                AddRipple(new Vector2(l.x, l.z), across, Mathf.Clamp(speed / 3f, 0.25f, 1f) * Small(across));
             if (splashes && speed >= splashMinSpeed)
                 AddSplash(l, speed, across);
+        }
+
+        // Things smaller than 10 cm across make smaller, fainter splashes and rings, down to a fifth for a pea: a 1 cm
+        // pellet threw up drops bigger than itself and left rings as bold as a stone's (2.6.2).
+        static float Small(float across)
+        {
+            return Mathf.Clamp(across / 0.1f, 0.2f, 1f);
         }
 
         void Update()
@@ -580,7 +587,8 @@ namespace BoundedBuoyancy
             ParticleSystem.MainModule m = splashSystem.main;
             m.startLifetime = Mathf.Clamp(0.25f * Mathf.Sqrt(speed), 0.5f, 1.4f);
             m.startSpeed = new ParticleSystem.MinMaxCurve(0.5f * up, up);
-            m.startSize = new ParticleSystem.MinMaxCurve(0.04f + 0.04f * drop, 0.08f + 0.08f * drop);
+            float small = Small(across);
+            m.startSize = new ParticleSystem.MinMaxCurve((0.04f + 0.04f * drop) * small, (0.08f + 0.08f * drop) * small);
             m.startColor = splashColor;
             ParticleSystem.ShapeModule sh = splashSystem.shape;
             sh.radius = 0.45f * across;
@@ -591,7 +599,7 @@ namespace BoundedBuoyancy
                 position = transform.position + transform.rotation * new Vector3(local.x, local.y + 0.02f, local.z),
                 applyShapeToPosition = true,
             };
-            splashSystem.Emit(at, Mathf.Clamp((int)(14f * speed * Mathf.Sqrt(across)), 16, 120));
+            splashSystem.Emit(at, Mathf.Max(4, (int)(Mathf.Clamp((int)(14f * speed * Mathf.Sqrt(across)), 16, 120) * small)));
         }
 
         void AddRipple(Vector2 centre, float across, float strength)
