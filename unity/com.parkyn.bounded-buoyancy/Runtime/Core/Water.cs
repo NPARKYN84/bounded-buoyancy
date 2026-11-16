@@ -65,19 +65,73 @@ namespace BoundedBuoyancy.Core
         public double MaxWave { get { return Height * (1.0 + SecondHeight); } }
 
         /// <summary>Upward acceleration of the water at (lx, lz) in the water's frame, `y` metres above the water's
-        /// average level, at time t (m/s²): for each wave, minus its height x its frequency² x the sine of its phase,
-        /// dying away with depth as e^(k z), z the average height of the water that is there now (MeanHeight). Water
-        /// under a crest is slowing as it rises, so it accelerates downwards. Each wave's part is multiplied by
-        /// `average1` or `average2`, for an average over a footprint.</summary>
+        /// average level, at time t (m/s²). The water goes round in circles as the waves pass, so what is there now is the
+        /// water whose circle's centre is that point less how far the waves have carried it (MeanPlace); for each wave its
+        /// acceleration is minus the wave's height x its frequency² x the sine of the phase there, dying away with depth as
+        /// e^(k z), z that centre's depth. Water under a crest is slowing as it rises, so it accelerates downwards. Each
+        /// wave's part is multiplied by `average1` or `average2`, for an average over a footprint.</summary>
         public double VerticalAcceleration(double lx, double y, double lz, double t, double average1 = 1.0, double average2 = 1.0)
         {
             if (Height <= 0.0)
                 return 0.0;
+            double cx, cz, z, ph1, ph2;
+            MeanPlace(lx, y, lz, t, out cx, out cz, out z, out ph1, out ph2);
             double k1 = Math.Sqrt(K1x * K1x + K1z * K1z), k2 = Math.Sqrt(K2x * K2x + K2z * K2z);
-            double h1 = Height * Math.Sin(K1x * lx + K1z * lz - W1 * t);
-            double h2 = Height * SecondHeight * Math.Sin(K2x * lx + K2z * lz - W2 * t + SecondPhase);
-            double z = MeanHeight(y, h1, k1, h2, k2);
-            return -(W1 * W1 * h1 * average1 * Math.Exp(k1 * z) + W2 * W2 * h2 * average2 * Math.Exp(k2 * z));
+            return -(W1 * W1 * Height * Math.Sin(ph1) * average1 * Math.Exp(k1 * z)
+                + W2 * W2 * Height * SecondHeight * Math.Sin(ph2) * average2 * Math.Exp(k2 * z));
+        }
+
+        /// <summary>The water's motion at (lx, lz) in the water's frame, `y` metres above its average level, at time t,
+        /// in the water's frame: its velocity in full and its level acceleration (the upward part is
+        /// VerticalAcceleration's). For each wave the water goes forwards under a crest and back under a trough, as far
+        /// and as fast as it rises and falls (height x frequency x the sine of the phase; up and down, minus the cosine),
+        /// with acceleration minus height x frequency² x the cosine of the phase, dying away as e^(k z); and its circles do
+        /// not quite close, so it creeps the way the wave runs at Stokes's drift, height² x frequency x wave number x
+        /// e^(2 k z). All for the water whose circle passes through the point now (MeanPlace). Each wave's swing (not its
+        /// drift) is multiplied by `average1` or `average2`, for an average over a footprint.</summary>
+        public void Motion(double lx, double y, double lz, double t, out V3 velocity, out V3 acceleration, double average1 = 1.0, double average2 = 1.0)
+        {
+            velocity = V3.Zero;
+            acceleration = V3.Zero;
+            if (Height <= 0.0)
+                return;
+            double cx, cz, z, ph1, ph2;
+            MeanPlace(lx, y, lz, t, out cx, out cz, out z, out ph1, out ph2);
+            double k1 = Math.Sqrt(K1x * K1x + K1z * K1z), k2 = Math.Sqrt(K2x * K2x + K2z * K2z);
+            double e1 = Height * Math.Exp(k1 * z), e2 = Height * SecondHeight * Math.Exp(k2 * z);
+            double drift1 = e1 * e1 * W1 * k1, drift2 = e2 * e2 * W2 * k2;
+            e1 *= average1;
+            e2 *= average2;
+            double u1 = e1 * W1 * Math.Sin(ph1) + drift1, u2 = e2 * W2 * Math.Sin(ph2) + drift2;
+            double a1 = -e1 * W1 * W1 * Math.Cos(ph1), a2 = -e2 * W2 * W2 * Math.Cos(ph2);
+            velocity = new V3(K1x / k1 * u1 + K2x / k2 * u2, -e1 * W1 * Math.Cos(ph1) - e2 * W2 * Math.Cos(ph2), K1z / k1 * u1 + K2z / k2 * u2);
+            acceleration = new V3(K1x / k1 * a1 + K2x / k2 * a2, 0.0, K1z / k1 * a1 + K2z / k2 * a2);
+        }
+
+        /// <summary>Where the water now at (lx, lz), `y` metres above the average level, sits on average at time t: the
+        /// centre of its circle (cx, cz) in the water's frame, that centre's depth z (no more than 0), and the two waves'
+        /// phases there. What is at the point now is the water whose centre is the point less how far the waves have carried
+        /// it: forwards and up by height x e^(k z) x (cos, sin) of the phase, for each wave. Found by ten rounds of putting
+        /// the answer back in (each wave's height x wave number, its steepness, is well under 1 for waves that do not
+        /// break). A body that moves with the water keeps the same centre, so it feels the same strength and turn of the
+        /// waves as the water round it.</summary>
+        public void MeanPlace(double lx, double y, double lz, double t, out double cx, out double cz, out double z, out double ph1, out double ph2)
+        {
+            double k1 = Math.Sqrt(K1x * K1x + K1z * K1z), k2 = Math.Sqrt(K2x * K2x + K2z * K2z);
+            cx = lx;
+            cz = lz;
+            z = Math.Min(y, 0.0);
+            for (int i = 0; i < 10; i++)
+            {
+                ph1 = K1x * cx + K1z * cz - W1 * t;
+                ph2 = K2x * cx + K2z * cz - W2 * t + SecondPhase;
+                double e1 = Height * Math.Exp(k1 * z), e2 = Height * SecondHeight * Math.Exp(k2 * z);
+                cx = lx - K1x / k1 * e1 * Math.Cos(ph1) - K2x / k2 * e2 * Math.Cos(ph2);
+                cz = lz - K1z / k1 * e1 * Math.Cos(ph1) - K2z / k2 * e2 * Math.Cos(ph2);
+                z = Math.Min(y - e1 * Math.Sin(ph1) - e2 * Math.Sin(ph2), 0.0);
+            }
+            ph1 = K1x * cx + K1z * cz - W1 * t;
+            ph2 = K2x * cx + K2z * cz - W2 * t + SecondPhase;
         }
 
         /// <summary>
@@ -139,6 +193,19 @@ namespace BoundedBuoyancy.Core
         /// far the waves have lifted that water, no more than 0 (WaveSet.MeanHeight works it out for two waves). A
         /// footprint can be averaged at the four points p ± (across, along) / (2√3).</summary>
         bool VerticalAccelerationAt(V3 p, double across, double along, out double acceleration);
+    }
+
+    /// <summary>
+    /// A water system that also knows how its water moves to and fro in its waves. An ISurfaceHeights that implements this
+    /// sways bodies with the waves and lets them drift, as the water volume's own waves do; without it, bodies on it only
+    /// rise and fall.
+    /// </summary>
+    public interface ISurfaceSway
+    {
+        /// <summary>The water's velocity (in full) and level acceleration (y = 0) at the world point p, averaged over a
+        /// footprint `across` (world X) by `along` (world Z) metres centred on p; false if not known. For waves made of
+        /// sines, see WaveSet.Motion.</summary>
+        bool MotionAt(V3 p, double across, double along, out V3 velocity, out V3 acceleration);
     }
 
     /// <summary>The water surface a body is measured against: flat at Level, with waves, or another water system's
@@ -204,6 +271,36 @@ namespace BoundedBuoyancy.Core
             V3 k1 = Frame.Basis.Mul(new V3(Waves.K1x, 0.0, Waves.K1z)), k2 = Frame.Basis.Mul(new V3(Waves.K2x, 0.0, Waves.K2z));
             return Waves.VerticalAcceleration(l.x, p.y - Level, l.z, Time,
                 Math.Cos(k1.x * hx) * Math.Cos(k1.z * hz), Math.Cos(k2.x * hx) * Math.Cos(k2.z * hz));
+        }
+
+        /// <summary>The water's motion in the waves at the world point p (world frame): its velocity in full and its level
+        /// acceleration (WaveSet.Motion), averaged over a footprint as VerticalAccelerationAt is; from another water system
+        /// if it says (ISurfaceSway), otherwise none.</summary>
+        public void MotionAt(V3 p, double across, double along, out V3 velocity, out V3 acceleration)
+        {
+            velocity = V3.Zero;
+            acceleration = V3.Zero;
+            if (Source != null)
+            {
+                var sway = Source as ISurfaceSway;
+                if (sway == null || !sway.MotionAt(p, across, along, out velocity, out acceleration))
+                {
+                    velocity = V3.Zero;
+                    acceleration = V3.Zero;
+                }
+                return;
+            }
+            if (Waves.Height <= 0.0)
+                return;
+            double hx = across / (2.0 * Math.Sqrt(3.0)), hz = along / (2.0 * Math.Sqrt(3.0));
+            V3 l = Frame.Inverse(p);
+            V3 k1 = Frame.Basis.Mul(new V3(Waves.K1x, 0.0, Waves.K1z)), k2 = Frame.Basis.Mul(new V3(Waves.K2x, 0.0, Waves.K2z));
+            V3 lv, la;
+            Waves.Motion(l.x, p.y - Level, l.z, Time, out lv, out la,
+                Math.Cos(k1.x * hx) * Math.Cos(k1.z * hz), Math.Cos(k2.x * hx) * Math.Cos(k2.z * hz));
+            velocity = Frame.Basis.Mul(lv);
+            acceleration = Frame.Basis.Mul(la);
+            acceleration = new V3(acceleration.x, 0.0, acceleration.z);
         }
     }
 

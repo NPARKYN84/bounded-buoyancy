@@ -177,6 +177,25 @@ namespace BoundedBuoyancy.Samples
             for (int i = 0; i < 5; i++)
                 Ball(0.3f, 300f, new Vector3(-4f + 2f * i, 0.5f, -5f), Shade(i + 2));
             Log(0.25f, 3f, 550f, new Vector3(0f, 0.5f, 0f), new Color(0.55f, 0.36f, 0.2f));
+            // The waves carry floating things slowly along the way they run, so each is moored to the bottom on a slack
+            // line, as buoys are: it rides, sways and tugs at it, but stays in view. Slack enough for the waves, and
+            // anchored a little up-wave, so that where the drift takes them is about where they started.
+            float bottom = -sea.size.y + 0.05f, rope = -bottom + 1.4f * sea.waveHeight + 0.1f;
+            float reach = Mathf.Sqrt(rope * rope - bottom * bottom);
+            float turn = sea.waveDirection * Mathf.Deg2Rad;
+            Vector3 upWave = -new Vector3(Mathf.Cos(turn), 0f, Mathf.Sin(turn)) * (0.8f * reach);
+            foreach (var b in root.GetComponentsInChildren<BoundedBuoyancyBody>())
+            {
+                var anchor = new GameObject("Mooring");
+                anchor.transform.SetParent(root, false);
+                anchor.transform.position = new Vector3(b.transform.position.x, bottom, b.transform.position.z) + upWave;
+                var line = anchor.AddComponent<BoundedBuoyancyLine>();
+                line.body = b.GetComponent<Rigidbody>();
+                line.length = rope;
+                line.diameter = 0.008f;
+                line.stiffness = 1f;
+                line.damping = 0.6f;
+            }
             Frame(Vector3.zero, 16f, 22f, -30f);
         }
 

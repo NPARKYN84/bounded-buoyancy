@@ -1,3 +1,4 @@
+@tool
 @icon("res://addons/bounded_buoyancy/icon.svg")
 class_name BoundedBuoyancyBody2D
 extends RigidBody2D
@@ -41,10 +42,12 @@ enum Model {
 ## Added-mass coefficient C of the shape in 2D: 1 for a circle, more for a flat plate moving face-on.
 ## Buoyancy-driven rising is capped at g/C.
 @export_range(0.0, 5.0, 0.01) var added_mass_coefficient: float = 1.0
+@export_group("Water")
 ## Height (y, in pixels) of a flat water surface, used when the scene has no BoundedBuoyancyWater2D.
 @export var water_level: float = 0.0
 ## Density of the water (a BoundedBuoyancyWater2D uses its own).
 @export_range(1.0, 20000.0, 1.0, "or_greater", "suffix:kg/m³") var water_density: float = 1000.0
+@export_group("Drag and settling")
 ## Quadratic drag coefficient, in the water and in the air (about 1 for a circle in 2D).
 @export_range(0.0, 3.0, 0.01) var drag_coefficient: float = 1.0
 ## Damping of spin in the water, per second when fully submerged; in air, in proportion to how light
@@ -130,10 +133,33 @@ var _prev_frame := -1                    # and which physics frame that was
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
+		# In the editor: keep the warning on the node up to date as shapes are added and taken away.
+		child_entered_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
+		child_exiting_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
 		return
 	_build_shape()
 	if area > 0.0:
 		_set_up_body()
+
+
+## Warnings shown on the node in the editor: what it needs to float.
+func _get_configuration_warnings() -> PackedStringArray:
+	var w := PackedStringArray()
+	var usable := 0
+	var other := 0
+	for c in get_children():
+		if c is CollisionShape2D and c.shape != null and not c.disabled:
+			if c.shape is RectangleShape2D or c.shape is CircleShape2D or c.shape is CapsuleShape2D or c.shape is ConvexPolygonShape2D:
+				usable += 1
+			else:
+				other += 1
+		elif c is CollisionPolygon2D and not c.disabled and c.polygon.size() >= 3:
+			usable += 1
+	if usable == 0 and other == 0:
+		w.append("Add a CollisionShape2D (rectangle, circle, capsule or convex polygon) or a CollisionPolygon2D child: the body floats by the shape of what it is.")
+	elif other > 0:
+		w.append("Only rectangles, circles, capsules and convex polygons (and CollisionPolygon2D) are floated: other shapes are left out.")
+	return w
 
 
 ## Re-read the body's collision shapes. Call it after adding, removing or resizing shapes while the

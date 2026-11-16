@@ -49,6 +49,7 @@ const _Ball := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonbal
 			shot_diameter = s[1] * INCH
 			charge_mass = shot_mass / 3.0
 			notify_property_list_changed()
+@export_group("Shot")
 ## Diameter of the shot, in metres.
 @export_range(0.005, 1.0, 0.0001, "or_greater", "suffix:m") var shot_diameter: float = 5.55 * INCH
 ## Mass of the shot, in kg.
@@ -57,12 +58,14 @@ const _Ball := preload("res://addons/bounded_buoyancy/bounded_buoyancy_cannonbal
 @export_range(1.0, 2000.0, 0.1, "or_greater", "suffix:m/s") var muzzle_speed: float = 488.0
 ## Mass of the powder charge, in kg. Its gas adds to the recoil.
 @export_range(0.0, 500.0, 0.001, "or_greater", "suffix:kg") var charge_mass: float = 8.0 * POUND
+@export_group("Firing")
 ## Seconds between shots.
 @export_range(0.0, 600.0, 0.01, "or_greater", "suffix:s") var reload_time: float = 3.0
 ## Scatter: shots leave up to this many degrees off the line the gun points along.
 @export_range(0.0, 10.0, 0.01, "suffix:°") var spread: float = 0.3
 ## Push the ship back as the gun fires.
 @export var recoil: bool = true
+@export_group("Shots in the scene")
 ## Seconds each shot lasts before it removes itself. 0 keeps them.
 @export_range(0.0, 3600.0, 0.1, "or_greater", "suffix:s") var shot_lifetime: float = 30.0
 ## Where the shots go in the scene. Empty: beside the ship, or in the current scene.

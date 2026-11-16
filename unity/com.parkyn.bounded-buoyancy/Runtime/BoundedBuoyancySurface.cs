@@ -70,6 +70,21 @@ namespace BoundedBuoyancy
             return true;
         }
 
+        /// <summary>The water's motion in its waves at `worldPoint`, averaged over a footprint `across` (world X) by
+        /// `along` (world Z) metres, if this water system knows it: return true and set its velocity in full and its level
+        /// acceleration (y = 0). Bodies then sway to and fro with the waves and drift slowly the way they run, as on a
+        /// Bounded Buoyancy Water's own waves. False (the default): they only rise and fall. For waves made of sines, each
+        /// wave moves the water forwards and back by height × ω × sin(phase) × e^(k z), up and down by −height × ω ×
+        /// cos(phase) × e^(k z), with level acceleration −height × ω² × cos(phase) × e^(k z), and creeps it the way the
+        /// wave runs at height² × ω × k × e^(2 k z) (Stokes's drift), all for the water whose circle passes through the
+        /// point now (see the core's WaveSet.Motion).</summary>
+        public virtual bool MotionAt(Vector3 worldPoint, float across, float along, out Vector3 velocity, out Vector3 acceleration)
+        {
+            velocity = Vector3.zero;
+            acceleration = Vector3.zero;
+            return false;
+        }
+
         /// <summary>Called when the component is added: links it to the Bounded Buoyancy Water on the same object.</summary>
         protected virtual void Reset()
         {
@@ -100,7 +115,7 @@ namespace BoundedBuoyancy
     }
 
     /// <summary>A BoundedBuoyancySurface as the engine-free core sees it.</summary>
-    internal sealed class SurfaceLink : ISurfaceHeights, ISurfaceFlow, ISurfaceMotion
+    internal sealed class SurfaceLink : ISurfaceHeights, ISurfaceFlow, ISurfaceMotion, ISurfaceSway
     {
         internal BoundedBuoyancySurface Target;
         Vector3[] points = new Vector3[0];
@@ -141,6 +156,20 @@ namespace BoundedBuoyancy
                 : Target.VerticalAccelerationOver(Bridge.U(p), (float)across, (float)along, out a);
             acceleration = known ? a : 0.0;
             return known;
+        }
+
+        public bool MotionAt(V3 p, double across, double along, out V3 velocity, out V3 acceleration)
+        {
+            Vector3 v, a;
+            if (Target.MotionAt(Bridge.U(p), (float)across, (float)along, out v, out a))
+            {
+                velocity = Bridge.V(v);
+                acceleration = Bridge.V(a);
+                return true;
+            }
+            velocity = V3.Zero;
+            acceleration = V3.Zero;
+            return false;
         }
     }
 }

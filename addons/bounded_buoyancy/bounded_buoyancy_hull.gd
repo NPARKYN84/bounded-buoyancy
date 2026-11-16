@@ -36,6 +36,7 @@ signal holed(at: Vector3, area: float, compartment: Node)
 @export_range(0.0, 1000.0, 0.01, "or_greater", "suffix:MPa") var strength: float = 15.0
 ## Size of a shot hole, as a multiple of the shot's own cross-section.
 @export_range(0.0, 10.0, 0.01, "or_greater") var hole_size: float = 1.0
+@export_group("Splinters")
 ## Splinters thrown off each time shot goes in or out, made of the wood it punches out. 0 for none.
 @export_range(0, 32, 1) var splinters: int = 4
 ## Seconds the splinters last. 0 keeps them.

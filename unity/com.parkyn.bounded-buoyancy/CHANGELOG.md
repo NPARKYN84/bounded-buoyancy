@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.7.0] - 2026-11-16
+
+- Waves move things to and fro as well as up and down: the water goes round in circles as waves pass, so floating things sway with it and drift slowly the way the waves run (Stokes's drift). A Bounded Buoyancy Surface can give its water's motion too (**MotionAt**); the water's **WaveMotionAt** gives it from code. The Waves demo's bodies are moored on slack lines so the drift does not carry them out of the picture. As in the Godot plugin.
+
 ## [2.6.2] - 2026-10-31
 
 - Splashes: things smaller than 10 cm across make smaller, fainter splashes and rings, down to a fifth for a pea. As in the Godot plugin.

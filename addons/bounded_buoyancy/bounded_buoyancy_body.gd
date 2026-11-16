@@ -1,3 +1,4 @@
+@tool
 @icon("res://addons/bounded_buoyancy/icon.svg")
 class_name BoundedBuoyancyBody
 extends RigidBody3D
@@ -65,6 +66,7 @@ enum Model {
 ## Added-mass coefficient C of the shape: 0.5 for a sphere, about 1 for a long cylinder
 ## moving side-on. Buoyancy-driven rising is capped at g/C.
 @export_range(0.0, 5.0, 0.01) var added_mass_coefficient: float = 0.5
+@export_group("Water")
 ## Height of a flat water surface, in world units. Used when the scene has no BoundedBuoyancyWater
 ## and water_surface is not set.
 @export var water_level: float = 0.0
@@ -73,6 +75,7 @@ enum Model {
 @export var water_surface: Node3D
 ## Density of the water (or other liquid). A BoundedBuoyancyWater uses its own density instead.
 @export_range(1.0, 20000.0, 1.0, "or_greater", "suffix:kg/m³") var water_density: float = 1000.0
+@export_group("Drag and settling")
 ## Quadratic drag coefficient (0.47 for a sphere), in the water and in the air.
 @export_range(0.0, 3.0, 0.01) var drag_coefficient: float = 0.47
 ## Damping of spin in the water, per second when fully submerged; it scales with the submerged
@@ -119,7 +122,11 @@ enum Model {
 ## Optional mesh used for buoyancy instead of the collision shapes, in the body's own coordinates:
 ## for example a simplified hull of a boat. Leave empty to use the shapes. It need not be
 ## watertight (see close_open_mesh).
-@export var buoyancy_mesh: Mesh
+@export var buoyancy_mesh: Mesh:
+	set(value):
+		buoyancy_mesh = value
+		if Engine.is_editor_hint():
+			update_configuration_warnings()
 ## An open buoyancy mesh (a hull with no deck, a hole in the skin) is closed for you: each opening is
 ## capped, which is right for a boat (it displaces water as if decked over), and a mesh that still
 ## is not watertight is wrapped in its convex hull. Turn this off to use the mesh exactly as given.
@@ -150,6 +157,11 @@ var water: Node3D = null
 var heave_damping: float = 0.0
 ## Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.
 var wave_acceleration: float = 0.0
+## The water's own motion in the waves where the body is (m/s), set each step: the body's drag is against
+## it.
+var wave_flow := Vector3.ZERO
+## The water's level acceleration in the waves that pushes the body (m/s²), set each step.
+var wave_sway_acceleration := Vector3.ZERO
 ## Mass of the water inside the body's compartments this step (kg).
 var flood_mass: float = 0.0
 ## Mean density of the water the body displaces this step, kg/m³ (the water's own, or, where it
@@ -212,6 +224,9 @@ var _flood_torque := Vector3.ZERO             # the flood water's weight about t
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
+		# In the editor: keep the warning on the node up to date as shapes are added and taken away.
+		child_entered_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
+		child_exiting_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
 		return
 	if not _kernel_checked:
 		_kernel_checked = true
@@ -221,6 +236,26 @@ func _ready() -> void:
 	_build_shape()
 	if volume > 0.0:
 		_set_up_body()
+
+
+## Warnings shown on the node in the editor: what it needs to float.
+func _get_configuration_warnings() -> PackedStringArray:
+	var w := PackedStringArray()
+	if buoyancy_mesh == null:
+		var usable := 0
+		var other := 0
+		for c in get_children():
+			if c is CollisionShape3D and c.shape != null and not c.disabled:
+				if c.shape is SphereShape3D or c.shape is BoxShape3D or c.shape is CylinderShape3D \
+						or c.shape is CapsuleShape3D or c.shape is ConvexPolygonShape3D:
+					usable += 1
+				else:
+					other += 1
+		if usable == 0 and other == 0:
+			w.append("Add a CollisionShape3D child (sphere, box, cylinder, capsule or convex polygon), or set a Buoyancy Mesh: the body floats by the shape of what it is.")
+		elif other > 0:
+			w.append("Only spheres, boxes, cylinders, capsules and convex polygons are floated: a concave, height-map or other shape is left out. Use a convex shape, or set a Buoyancy Mesh.")
+	return w
 
 
 ## Re-read the body's collision shapes or buoyancy mesh. Call it after adding, removing or resizing
@@ -356,6 +391,8 @@ func _physics_process(dt: float) -> void:
 	# little further, and a body under water moves up and down with the water round it. Water under a
 	# real wave never accelerates faster than about half of g (steeper waves break), so a is held to that.
 	wave_acceleration = 0.0
+	wave_flow = Vector3.ZERO
+	wave_sway_acceleration = Vector3.ZERO
 	if model == Model.BOUNDED and submerged_volume > 0.0 and water and (water.wave_height > 0.0 or water.surface_source or water.height_function.is_valid()):
 		var b := xf.basis
 		var across := absf(b.x.x) * _box_size.x + absf(b.y.x) * _box_size.y + absf(b.z.x) * _box_size.z
@@ -363,6 +400,18 @@ func _physics_process(dt: float) -> void:
 		var a: float = water.vertical_acceleration_at(centre_of_buoyancy, across, along)
 		wave_acceleration = clampf(a, -0.5 * g, 0.5 * g)
 		drive += Vector3.UP * (1.0 + added_mass_coefficient) * rho * submerged_volume * wave_acceleration
+		# And to and fro: the water goes round in circles as the waves pass, so it pushes the body forwards
+		# and back in the same way ((1 + C) rho V a, a its level acceleration), and the body's drag is
+		# against the water's own motion. So floating things sway with the waves, and creep slowly the way
+		# they run, as flotsam does.
+		var swing: Array = water.horizontal_wave_motion_at(centre_of_buoyancy, across, along)
+		wave_flow = swing[0]
+		var ah: Vector3 = swing[1]
+		if ah.length() > 0.5 * g:
+			ah = ah.normalized() * 0.5 * g
+		wave_sway_acceleration = ah
+		flow += wave_flow
+		drive += (1.0 + added_mass_coefficient) * rho * submerged_volume * ah
 	var wind := _Wind.total_at(cw, _world) if not (_Wind.instances.is_empty() and BoundedBuoyancyThermal.instances.is_empty()) else Vector3.ZERO
 	wind_here = wind
 	var through_water := v - flow

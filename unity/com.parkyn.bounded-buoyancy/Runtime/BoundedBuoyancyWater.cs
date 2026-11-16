@@ -336,6 +336,18 @@ namespace BoundedBuoyancy
             return (float)core.Surface.VerticalAccelerationAt(Bridge.V(p), across, along);
         }
 
+        /// <summary>The water's motion in the waves at the world point p: its velocity in full (the to-and-fro swing, the
+        /// rise and fall, and the slow drift the way the waves run) and its level acceleration, which sways bodies with it.
+        /// From this water's waves, or from its Surface Source if that gives it. With `across` and `along` (world X and Z,
+        /// m), averaged over that footprint centred on p.</summary>
+        public void WaveMotionAt(Vector3 p, out Vector3 velocity, out Vector3 acceleration, float across = 0f, float along = 0f)
+        {
+            V3 v, a;
+            core.Surface.MotionAt(Bridge.V(p), across, along, out v, out a);
+            velocity = Bridge.U(v);
+            acceleration = Bridge.U(a);
+        }
+
         /// <summary>Velocity of the water at the world point p (world frame).</summary>
         public Vector3 CurrentAt(Vector3 p) { return Bridge.U(core.CurrentAt(Bridge.V(p))); }
 

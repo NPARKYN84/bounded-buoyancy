@@ -91,6 +91,7 @@ const BWIND := preload("res://addons/bounded_buoyancy/bounded_buoyancy_wind.gd")
 var _wind: Node3D
 var _wind_label: Label
 var _wind_bodies: Array = []
+var _moorings: Array = []     # WAVES, OCEAN: the lines that hold each body to the bottom
 var _sails: Array = []        # [boat, sail mesh]: the sail is turned to face the wind the boat feels
 var _frame_start := 0
 var _cost_sum := 0.0
@@ -212,6 +213,9 @@ func _reset() -> void:
 	for b in _wind_bodies:
 		b.queue_free()
 	_wind_bodies.clear()
+	for m in _moorings:
+		m.queue_free()
+	_moorings.clear()
 	_sails.clear()
 	if scene == Scene.WIND:
 		for i in 3:
@@ -276,6 +280,25 @@ func _reset() -> void:
 		var ball := SphereShape3D.new()
 		ball.radius = 0.09
 		_tilt_body("", ball, 120.0, Vector3(1.4, 0.5, 0.4), 0.0, Vector3.ZERO, false)
+		# The waves carry floating things slowly along the way they run, so each is moored to the bottom
+		# on a slack line, as buoys are: it rides, sways and tugs at it, but stays in view.
+		# A little slack (in rough waves they tug at it on the crests, as moored buoys do); anchored a little up-wave, so that where the drift takes
+		# them to is about where they started.
+		var bottom: float = _sea.position.y - _sea.size.y + 0.02
+		var rope: float = _sea.position.y - bottom + 0.12
+		var reach: float = sqrt(rope * rope - (_sea.position.y - bottom) * (_sea.position.y - bottom))
+		var up_wave: Vector3 = -Vector3(cos(deg_to_rad(20.0)), 0.0, sin(deg_to_rad(20.0))) * 0.8 * reach
+		for row in _tilt_rows:
+			var b: RigidBody3D = row[0]
+			var line := BoundedBuoyancyLine.new()
+			line.position = Vector3(b.position.x, bottom, b.position.z) + up_wave
+			line.body = b
+			line.length = rope
+			line.diameter = 0.003
+			line.stiffness = 1.0
+			line.damping = 0.6
+			add_child(line)
+			_moorings.append(line)
 	elif scene == Scene.FLOAT:
 		var u := _ball(0.05, BB.Model.USUAL, Vector3(-0.3, 0.1, 0), 0.1)
 		var b := _ball(0.05, BB.Model.BOUNDED, Vector3(0.3, 0.1, 0), 0.1)
@@ -658,6 +681,7 @@ func _build_sea() -> void:
 		_sea.surface_source = _ocean
 		_sea.surface_method = &"get_height"
 		_sea.surface_acceleration_method = &"get_vertical_acceleration"
+		_sea.surface_motion_method = &"get_motion"
 		_sea.surface_max_wave = _ocean.max_wave()
 	else:
 		_sea.wave_height = 0.06
@@ -667,7 +691,7 @@ func _build_sea() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
-	title.text = "A water node with waves: each body rides and rocks with the surface it sits on" if scene == Scene.WAVES \
+	title.text = "A water node with waves: each body rides, rocks and sways with the water, moored so it stays in view" if scene == Scene.WAVES \
 		else "Another water system's waves: the sea is drawn by its own shader, and Bounded Buoyancy does the physics"
 	title.position = Vector2(24, 14)
 	title.add_theme_color_override("font_color", INK)

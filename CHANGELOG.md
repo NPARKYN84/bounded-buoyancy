@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.0
+
+- Waves now move things to and fro as well as up and down. The water goes round in circles as waves pass, forwards under a crest and back under a trough, and floating things sway with it; the circles do not quite close, so the water creeps slowly the way the waves run (Stokes's drift), and floating things drift with it as flotsam does. Before, only the water's up-and-down motion pushed bodies, so things on waves stayed where they were. Each body is pushed by the water whose circle passes through it now, so up-and-down and to-and-fro stay in step; and its drag is against the water's own motion, up and down included. New tests: a ball as dense as water 1 m under 12 m waves sways as far as the water there and in step with it (as well as rising and falling with it), and a float let go at rest on the surface drifts at Stokes's drift (6.5 cm/s against 6.0 on 20 cm waves). Another water system's surface can give its water's motion too (**Surface Motion Method**); the example ocean does, so bodies on it sway and drift as well.
+- Waves and Ocean demos: the waves' drift would carry the five bodies out of the picture in a few minutes, so each is moored to the bottom on a slack line, as buoys are: it rides, sways and tugs at it, and stays in view.
+- Warnings in the editor: a BoundedBuoyancyBody (or Body2D) with no collision shape it can float, or with only shapes it cannot (concave, height map), shows the warning triangle on the node straight away, saying what to add, instead of a warning only when the game runs.
+- The inspector: the body's water settings and its drag and settling settings are in their own sections (Water, Drag and settling), as Air and Shape already were; the cannon's in Shot, Firing and Shots in the scene; the hull's splinters in Splinters.
+- README: the demo scenes are a numbered list, one scene to a line, in place of one long paragraph.
+- Unity: the same, with **WaveMotionAt** on the water, **MotionAt** on a Bounded Buoyancy Surface for another water system, and the Waves demo's bodies moored.
+
 ## 2.6.2
 
 - Loose feed: fish smell loose feed (any body in the new group `bounded_buoyancy_feed`) from further off than bait (**Feed Range**, 10 m), swim to a piece sinking through their depths and eat it (signal `fed`); for **Feed Time** (90 s) after, a fish stays round where it ate and is **Feed Keenness** (4) times as keen for bait. Tests: a fish swims to a pellet 4 m off and eats it, is then keener, and stays round the spot. The same in Unity, with a **Bounded Buoyancy Feed** component.

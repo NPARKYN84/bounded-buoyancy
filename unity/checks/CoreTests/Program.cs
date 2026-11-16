@@ -221,7 +221,7 @@ namespace BoundedBuoyancy.Checks
 
         /// <summary>Another water system's surface for the checks: a water volume's waves, moved by `offset`, with how its
         /// water moves in them.</summary>
-        sealed class CopiedSurface : ISurfaceHeights, ISurfaceMotion
+        sealed class CopiedSurface : ISurfaceHeights, ISurfaceMotion, ISurfaceSway
         {
             readonly WaterVolume from;
             readonly V3 offset;
@@ -247,6 +247,12 @@ namespace BoundedBuoyancy.Checks
             public bool VerticalAccelerationAt(V3 p, double across, double along, out double acceleration)
             {
                 acceleration = from.Surface.VerticalAccelerationAt(p - offset, across, along);
+                return true;
+            }
+
+            public bool MotionAt(V3 p, double across, double along, out V3 velocity, out V3 acceleration)
+            {
+                from.Surface.MotionAt(p - offset, across, along, out velocity, out acceleration);
                 return true;
             }
         }

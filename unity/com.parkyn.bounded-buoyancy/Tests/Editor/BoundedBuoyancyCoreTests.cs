@@ -351,19 +351,23 @@ namespace BoundedBuoyancy.Tests
         [Test]
         public void WaterAccelerationIsTheSurfacesSecondDerivative()
         {
-            // At the surface the water's upward acceleration is the second time derivative of the surface's height;
-            // well below, the waves' motion has died away.
+            // The water at the surface goes round in a circle as the waves pass: its upward acceleration is the second time
+            // derivative of the surface's height over the centre of its circle. Well below, the waves' motion has died away.
             var sea = new WaterVolume { Position = new V3(3, 0.5, -2), Size = new V3(100, 20, 100) };
             sea.SetWaves(0.3, 8.0, 20.0, 9.81);
             var p = new V3(1, 0, 2);
             double h = 1e-3, t = 2.1;
-            sea.Time = t + h;
-            double up = sea.HeightAt(p);
-            sea.Time = t - h;
-            double down = sea.HeightAt(p);
             sea.Time = t;
             double here = sea.HeightAt(p);
-            double fd = (up - 2.0 * here + down) / (h * h);
+            double cx, cz, z, ph1, ph2;
+            sea.Waves.MeanPlace(p.x - sea.Position.x, here - sea.Position.y, p.z - sea.Position.z, t, out cx, out cz, out z, out ph1, out ph2);
+            var centre = new V3(sea.Position.x + cx, 0.0, sea.Position.z + cz);
+            sea.Time = t + h;
+            double up = sea.HeightAt(centre);
+            sea.Time = t - h;
+            double down = sea.HeightAt(centre);
+            sea.Time = t;
+            double fd = (up - 2.0 * sea.HeightAt(centre) + down) / (h * h);
             Assert.AreEqual(fd, sea.Surface.VerticalAccelerationAt(new V3(p.x, here, p.z)), 1e-3, "at the surface");
             Assert.AreEqual(0.0, sea.Surface.VerticalAccelerationAt(new V3(p.x, -49.5, p.z)), 1e-9, "50 m down");
         }

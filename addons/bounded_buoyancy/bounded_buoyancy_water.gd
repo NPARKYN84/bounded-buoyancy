@@ -93,6 +93,7 @@ extends Node3D
 @export_range(0.0, 5.0, 0.001, "or_greater", "suffix:m") var wave_height: float = 0.0:
 	set(value):
 		wave_height = value
+		_place_time = NAN
 		_update_surface()
 ## Distance from one crest to the next, in metres.
 @export_range(0.05, 200.0, 0.01, "or_greater", "suffix:m") var wave_length: float = 4.0:
@@ -182,6 +183,11 @@ extends Node3D
 ## Bodies ask for the average over their footprint at four points; a method that also takes
 ## `across` and `along` (world X and Z, metres) is asked once for that average instead.
 @export var surface_acceleration_method: StringName = &""
+## Optional, with surface_source: the name of a method on it that returns the water's level motion in its
+## waves at a world point, as horizontal_wave_motion_at does ([velocity, acceleration], Vector3s, the
+## acceleration level; it is called with the point and the footprint's two widths). With it, bodies sway to and fro and
+## drift with the waves; without it, they only rise and fall with them.
+@export var surface_motion_method: StringName = &""
 
 ## Set from code instead of surface_source: a Callable that takes a world point (Vector3) and returns
 ## the height (world Y) of the surface there. Takes priority over surface_source.
@@ -325,6 +331,9 @@ var _k2 := Vector2.ZERO
 var _w1 := 0.0
 var _w2 := 0.0
 var _inv := Transform3D.IDENTITY
+var _place_at := Vector3(INF, INF, INF)   # the last point _mean_place was asked about,
+var _place_time := NAN                     # when,
+var _place: Array = []                     # and its answer
 var _kw := Vector4.ZERO                 # wave vectors in world X and Z (first wave x, z, second wave x, z)
 var _k1_len := 0.0
 var _level := 0.0                       # height of the water's middle (its average level), this frame
@@ -577,23 +586,93 @@ func vertical_acceleration_at(p: Vector3, across := 0.0, along := 0.0) -> float:
 			+ float(call.call(p + Vector3(-hx, 0.0, hz))) + float(call.call(p + Vector3(hx, 0.0, hz))))
 	if wave_height <= 0.0:
 		return 0.0
-	var inv := _inverse()
-	var l := inv * p
-	var h1 := wave_height * sin(_k1.x * l.x + _k1.y * l.z - _w1 * time)
-	var h2 := wave_height * SECOND_HEIGHT * sin(_k2.x * l.x + _k2.y * l.z - _w2 * time + 1.3)
-	# The average height of the water now at p (mean_height, two steps of Newton's method inline).
-	var y := p.y - _level
-	var z := minf(y - h1 - h2, 0.0)
-	for i in 2:
-		var e1 := h1 * exp(_k1_len * z)
-		var e2 := h2 * exp(_k2_len * z)
-		z = minf(z - (z - y + e1 + e2) / maxf(1.0 + _k1_len * e1 + _k2_len * e2, 0.2), 0.0)
-	var a1 := _w1 * _w1 * h1 * exp(_k1_len * z)
-	var a2 := _w2 * _w2 * h2 * exp(_k2_len * z)
+	var m := _mean_place(p)
+	var z: float = m[2]
+	var a1: float = _w1 * _w1 * wave_height * sin(m[3]) * exp(_k1_len * z)
+	var a2: float = _w2 * _w2 * wave_height * SECOND_HEIGHT * sin(m[4]) * exp(_k2_len * z)
 	if hx != 0.0 or hz != 0.0:
 		a1 *= cos(_kw.x * hx) * cos(_kw.y * hz)
 		a2 *= cos(_kw.z * hx) * cos(_kw.w * hz)
 	return -(a1 + a2)
+
+
+## The water's motion in this node's waves at the world point `p` (world frame): returns [velocity,
+## acceleration]: the velocity in full (up and down too, -height x frequency x the cosine of the phase,
+## so a body's drag is against the water's own motion), the acceleration level (y = 0: the upward part
+## is vertical_acceleration_at's). In a wave the water goes round in a circle as the wave
+## passes, forwards (the way the wave runs) under a crest and back under a trough, as far and as fast as
+## it rises and falls: for each wave, height x frequency x the sine of the phase, dying away with depth as
+## exp(k z); its acceleration is -height x frequency² x the cosine of the phase. The circles do not quite
+## close: water is a little further forward under a crest than back under a trough, so it creeps the way
+## the waves run, at Stokes's drift (height² x frequency x wave number x exp(2 k z) for each wave), and the
+## velocity includes it. All of it is for the water whose circle passes through `p` now (_mean_place), as
+## the up-and-down acceleration is. `across` and `along` average it over the body's footprint as
+## vertical_acceleration_at does. Zero for still water; for another water system's surface, from its
+## surface_motion_method if it has one, else zero (its waves give only their height).
+func horizontal_wave_motion_at(p: Vector3, across := 0.0, along := 0.0) -> Array:
+	if outside_height().is_valid():
+		if surface_motion_method != &"" and surface_source != null and is_instance_valid(surface_source) \
+				and surface_source.has_method(surface_motion_method):
+			return surface_source.call(surface_motion_method, p, across, along)
+		return [Vector3.ZERO, Vector3.ZERO]
+	if wave_height <= 0.0:
+		return [Vector3.ZERO, Vector3.ZERO]
+	var m := _mean_place(p)
+	var z: float = m[2]
+	var e1 := wave_height * exp(_k1_len * z)
+	var e2 := wave_height * SECOND_HEIGHT * exp(_k2_len * z)
+	var drift1 := e1 * e1 * _w1 * _k1_len
+	var drift2 := e2 * e2 * _w2 * _k2_len
+	if across != 0.0 or along != 0.0:
+		var hx := across * 0.28867513459481287
+		var hz := along * 0.28867513459481287
+		e1 *= cos(_kw.x * hx) * cos(_kw.y * hz)
+		e2 *= cos(_kw.z * hx) * cos(_kw.w * hz)
+	var d1 := _k1 / maxf(_k1_len, 1e-9)
+	var d2 := _k2 / maxf(_k2_len, 1e-9)
+	var u := d1 * (e1 * _w1 * sin(m[3]) + drift1) + d2 * (e2 * _w2 * sin(m[4]) + drift2)
+	var a := d1 * (-e1 * _w1 * _w1 * cos(m[3])) + d2 * (-e2 * _w2 * _w2 * cos(m[4]))
+	var up := -e1 * _w1 * cos(m[3]) - e2 * _w2 * cos(m[4])
+	var b := global_transform.basis.orthonormalized()
+	var vel := b * Vector3(u.x, 0.0, u.y)
+	var acc := b * Vector3(a.x, 0.0, a.y)
+	vel.y = up
+	acc.y = 0.0
+	return [vel, acc]
+
+
+## Where the water now at the world point `p` sits on average in this node's waves: [x, z (local, level
+## position), its average height (no more than 0), the two waves' phases there]. The water goes round
+## in circles as the waves pass, so what is at p now is the water whose circle's centre is p less how far
+## the waves have carried it: forwards and up by height x exp(k z) x (cos, sin) of the phase, for each
+## wave. Found by ten rounds of putting the answer back in (each wave's height x wave number, its
+## steepness, is well under 1 for waves that do not break). A body that moves with the water keeps the
+## same average place, so it feels the same strength and turn of the waves as the water round it.
+func _mean_place(p: Vector3) -> Array:
+	# The body asks for its up-and-down and its to-and-fro motion at the same point in the same step.
+	if p == _place_at and time == _place_time:
+		return _place
+	var l := _inverse() * p
+	var y := p.y - _level
+	var x0 := Vector2(l.x, l.z)
+	var z := minf(y, 0.0)
+	var d1 := _k1 / maxf(_k1_len, 1e-9)
+	var d2 := _k2 / maxf(_k2_len, 1e-9)
+	var ph1 := 0.0
+	var ph2 := 0.0
+	for i in 10:
+		ph1 = _k1.dot(x0) - _w1 * time
+		ph2 = _k2.dot(x0) - _w2 * time + 1.3
+		var e1 := wave_height * exp(_k1_len * z)
+		var e2 := wave_height * SECOND_HEIGHT * exp(_k2_len * z)
+		x0 = Vector2(l.x, l.z) - d1 * (e1 * cos(ph1)) - d2 * (e2 * cos(ph2))
+		z = minf(y - e1 * sin(ph1) - e2 * sin(ph2), 0.0)
+	ph1 = _k1.dot(x0) - _w1 * time
+	ph2 = _k2.dot(x0) - _w2 * time + 1.3
+	_place_at = p
+	_place_time = time
+	_place = [x0.x, x0.y, z, ph1, ph2]
+	return _place
 
 
 ## The average height z (no more than 0) of the water that is `y` metres above the average level now,
@@ -833,6 +912,7 @@ func _inverse() -> Transform3D:
 		var xf := global_transform
 		_inv = xf.affine_inverse()
 		_inv_frame = frame
+		_place_time = NAN
 		_level = xf.origin.y
 		# The waves' wave vectors in world X and Z, for averaging over a footprint.
 		var b := xf.basis.orthonormalized()
@@ -854,6 +934,7 @@ func _update_waves() -> void:
 	_k1_len = n1
 	_k2_len = n2
 	_inv_frame = -1
+	_place_time = NAN
 	_w1 = sqrt(g * n1)   # deep-water waves: frequency = sqrt(g x wave number)
 	_w2 = sqrt(g * n2)
 

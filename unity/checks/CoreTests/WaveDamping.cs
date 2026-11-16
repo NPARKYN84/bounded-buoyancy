@@ -303,12 +303,20 @@ namespace BoundedBuoyancy.Checks
                 foreach (var p in new[] { new V3(1, 0, 2), new V3(-7, 0, 4.5), new V3(12, 0, -9) })
                     foreach (double t in new[] { 0.3, 2.1, 5.7 })
                     {
-                        Func<double, double> at = tt => { sea.Time = tt; return sea.HeightAt(p); };
+                        // The water at the surface over p goes round in a circle as the waves pass: its height is the
+                        // surface's height over the circle's centre, and its acceleration that height's second derivative.
+                        sea.Time = t;
+                        var top = new V3(p.x, sea.HeightAt(p), p.z);
+                        V3 l = sea.Rotation.MulT(top - sea.Position);
+                        double cx, cz, cz0, ph1, ph2;
+                        sea.Waves.MeanPlace(l.x, top.y - sea.Position.y, l.z, t, out cx, out cz, out cz0, out ph1, out ph2);
+                        V3 centre = sea.Position + sea.Rotation.Mul(new V3(cx, 0.0, cz));
+                        Func<double, double> at = tt => { sea.Time = tt; return sea.HeightAt(centre); };
                         double fd = (at(t + h) - 2.0 * at(t) + at(t - h)) / (h * h);
                         sea.Time = t;
-                        worst = Math.Max(worst, Math.Abs(sea.Surface.VerticalAccelerationAt(new V3(p.x, sea.HeightAt(p), p.z)) - fd));
+                        worst = Math.Max(worst, Math.Abs(sea.Surface.VerticalAccelerationAt(top) - fd));
                     }
-                Check("water's acceleration at the surface = surface height's second derivative (m/s^2)", worst, 0.0, 1e-3);
+                Check("water's acceleration at the surface = its height's second derivative, at its circle's centre (m/s^2)", worst, 0.0, 1e-3);
                 sea.Time = 1.0;
                 Check("  50 m down, the waves' acceleration is gone (m/s^2)", Math.Abs(sea.Surface.VerticalAccelerationAt(new V3(1, -49.5, 2))), 0.0, 1e-9);
                 var sea2 = new WaterVolume2D { Position = new V2(4, 0.5), Size = new V2(100, 20) };
@@ -344,53 +352,104 @@ namespace BoundedBuoyancy.Checks
                 Check("  footprint average against a fine grid (m/s^2)", footprint - grid, 0.0, 0.01 * Math.Abs(one) + 1e-6);
             }
 
-            // A ball as dense as the water, 1 m under long waves, moves up and down with the water round it: as far as the
-            // water there does (each wave's height x e^(-k x 1 m)), in step with it. Before, it stayed put. It is let go
-            // moving with the water there (any difference would stay with it as a steady drift, as nothing here slows it).
+            // A ball as dense as the water, 1 m under 12 m waves, goes round with the water round it: up and down and to and
+            // fro, as far as the water there does (each wave's height x e^(k z), z its average depth), in step with it. It is
+            // let go moving with the water there. Nothing holds a ball as dense as the water to one depth or place, so it
+            // wanders slowly; the water it is compared with is the water at its own average place and depth, and the
+            // straight lines that best fit its height and position are taken out first. (What little it was let go out of
+            // step with the water stays with it as a wobble in its circle of a centimetre or two, so its rise and fall is
+            // checked to within 8%.)
             {
                 var w = new SimWorld();
                 var sea = Water(w, new V3(0, 0, 1400), new V3(80, 10, 80));
                 sea.SetWaves(0.2, 12.0, 0.0, w.G);
                 var ball = Body(w, Sphere(0.1), 1000.0, new V3(0, -1.0, 1400));
-                ball.Core.DragCoefficient = 0.0;
                 WaveSet ws = sea.Waves;
                 double k1 = Math.Sqrt(ws.K1x * ws.K1x + ws.K1z * ws.K1z), k2 = Math.Sqrt(ws.K2x * ws.K2x + ws.K2z * ws.K2z);
-                // The water's upward speed 1 m down, half a step in (the first step's middle).
+                double d2x = ws.K2x / k2, d2z = ws.K2z / k2;
+                double a1 = ws.Height, a2 = ws.Height * WaveSet.SecondHeight;
+                // The water's velocity 1 m down, half a step in (the first step's middle), its drift included.
                 double t0 = 0.5 * dt, e1 = Math.Exp(-k1), e2 = Math.Exp(-k2);
-                ball.V = new V3(0, -ws.Height * (ws.W1 * Math.Cos(-ws.W1 * t0) * e1
-                    + WaveSet.SecondHeight * ws.W2 * Math.Cos(-ws.W2 * t0 + WaveSet.SecondPhase) * e2), 0);
+                double u1 = a1 * ws.W1 * (Math.Sin(-ws.W1 * t0) * e1 + a1 * k1 * e1 * e1);
+                double u2 = a2 * ws.W2 * (Math.Sin(-ws.W2 * t0 + WaveSet.SecondPhase) * e2 + a2 * k2 * e2 * e2);
+                ball.V = new V3(u1 + d2x * u2, -(a1 * ws.W1 * Math.Cos(-ws.W1 * t0) * e1 + a2 * ws.W2 * Math.Cos(-ws.W2 * t0 + WaveSet.SecondPhase) * e2), d2z * u2);
+                V3 start = ball.Position;
                 var ts = new List<double>();
+                var xs = new List<double>();
                 var ys = new List<double>();
-                var rises = new List<double>();
+                var zs = new List<double>();
+                var st = new List<double>();
                 Run(w, 20.0, t =>
                 {
-                    rises.Add(ws.Height * (Math.Sin(-ws.W1 * sea.Time) * e1 + WaveSet.SecondHeight * Math.Sin(-ws.W2 * sea.Time + WaveSet.SecondPhase) * e2));
                     ts.Add(t);
+                    xs.Add(ball.Position.x - start.x);
                     ys.Add(ball.Position.y);
+                    zs.Add(ball.Position.z - start.z);
+                    st.Add(sea.Time);
                 });
                 int n = ts.Count;
-                double tm = ts.Average(), ym = ys.Average(), stt = 0.0, sty = 0.0;
+                double tm = ts.Average(), stt = 0.0;
                 for (int i = 0; i < n; i++)
-                {
                     stt += (ts[i] - tm) * (ts[i] - tm);
-                    sty += (ts[i] - tm) * (ys[i] - ym);
-                }
-                double slope = sty / stt;
-                var bob = new List<double>();
-                for (int i = 0; i < n; i++)
-                    bob.Add(ys[i] - ym - slope * (ts[i] - tm));
-                double range = bob.Max() - bob.Min(), waterRange = rises.Max() - rises.Min();
-                double rm = rises.Average(), bm = bob.Average(), cov = 0.0, vb = 0.0, vr = 0.0;
+                Func<List<double>, double> trend = list =>
+                {
+                    double m = list.Average(), s2 = 0.0;
+                    for (int i = 0; i < n; i++)
+                        s2 += (ts[i] - tm) * (list[i] - m);
+                    return s2 / stt;
+                };
+                double xm = xs.Average(), ym = ys.Average(), zm = zs.Average();
+                double sx = trend(xs), sy = trend(ys), sz = trend(zs);
+                var rises = new List<double>();
+                var swings = new List<double>();
                 for (int i = 0; i < n; i++)
                 {
-                    cov += (bob[i] - bm) * (rises[i] - rm);
-                    vb += (bob[i] - bm) * (bob[i] - bm);
-                    vr += (rises[i] - rm) * (rises[i] - rm);
+                    double xa = xm + sx * (ts[i] - tm), za = zm + sz * (ts[i] - tm), depth = ym + sy * (ts[i] - tm);
+                    double p1 = k1 * xa - ws.W1 * st[i];
+                    double p2 = k2 * (d2x * xa + d2z * za) - ws.W2 * st[i] + WaveSet.SecondPhase;
+                    double f1 = a1 * Math.Exp(k1 * depth), f2 = a2 * Math.Exp(k2 * depth);
+                    rises.Add(f1 * Math.Sin(p1) + f2 * Math.Sin(p2));
+                    swings.Add(f1 * Math.Cos(p1) + d2x * f2 * Math.Cos(p2));
                 }
-                Console.WriteLine("  ball as dense as water, 1 m under 12 m waves: rises and falls {0:F1} cm, the water there {1:F1} cm (drift {2:F2} m/s)",
-                    100.0 * range, 100.0 * waterRange, slope);
-                Check("ball as dense as water under waves: rises and falls, of the water there", range / waterRange, 1.0, 0.05);
-                Check("  in step with it (correlation)", cov / Math.Sqrt(vb * vr), 1.0, 0.01);
+                Func<List<double>, List<double>, double[]> follows = (body, water) =>
+                {
+                    double bmean = body.Average(), slope = trend(body);
+                    var bob = new List<double>();
+                    for (int i = 0; i < n; i++)
+                        bob.Add(body[i] - bmean - slope * (ts[i] - tm));
+                    double wm = water.Average(), bm = bob.Average(), cov = 0.0, vb = 0.0, vw = 0.0;
+                    for (int i = 0; i < n; i++)
+                    {
+                        cov += (bob[i] - bm) * (water[i] - wm);
+                        vb += (bob[i] - bm) * (bob[i] - bm);
+                        vw += (water[i] - wm) * (water[i] - wm);
+                    }
+                    return new[] { (bob.Max() - bob.Min()) / (water.Max() - water.Min()), cov / Math.Sqrt(vb * vw) };
+                };
+                double[] up = follows(ys, rises), across = follows(xs, swings);
+                Console.WriteLine("  ball as dense as water, 1 m under 12 m waves: rises and falls {0:F2} times as far as the water there, correlation {1:F4}; sways {2:F2} times as far, correlation {3:F4}",
+                    up[0], up[1], across[0], across[1]);
+                Check("ball as dense as water under waves: rises and falls, of the water there", up[0], 1.0, 0.08);
+                Check("  in step with it (correlation)", up[1], 1.0, 0.02);
+                Check("  sways to and fro, of the water there", across[0], 1.0, 0.05);
+                Check("  in step with it (correlation)", across[1], 1.0, 0.01);
+
+                // A light float let go at rest on the surface is carried to and fro by the water round it, and its drag takes
+                // it along at the water's slow creep the way the waves run: Stokes's drift, each wave's height² x frequency x
+                // wave number at the surface.
+                var f = Body(w, Sphere(0.1), 300.0, new V3(10, 0.0, 1400));
+                Run(w, 20.0, t => { });
+                double fx0 = f.Position.x, lo = 1e9, hi = -1e9;
+                Run(w, 40.0, t =>
+                {
+                    lo = Math.Min(lo, f.Position.x);
+                    hi = Math.Max(hi, f.Position.x);
+                });
+                double drift = (f.Position.x - fx0) / 40.0;
+                double stokes = a1 * a1 * ws.W1 * k1 + d2x * a2 * a2 * ws.W2 * k2;
+                Console.WriteLine("  float on the surface: sways {0:F2} m, drifts {1:F4} m/s the way the waves run (Stokes's drift at the surface {2:F4})", hi - lo, drift, stokes);
+                Check("float on waves sways to and fro (m, about the waves' height and more)", Math.Min(hi - lo, 0.4), 0.4, 0.1);
+                Check("  and drifts the way they run, at Stokes's drift (m/s)", drift, stokes, 0.2 * stokes);
             }
 
             // The same in a side view: a 2D ball as dense as water, 1 m under long waves.

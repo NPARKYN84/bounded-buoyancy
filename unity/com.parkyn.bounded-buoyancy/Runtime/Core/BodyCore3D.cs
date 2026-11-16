@@ -63,6 +63,11 @@ namespace BoundedBuoyancy.Core
         public double HeaveDamping;
         /// <summary>Upward acceleration of the water in the waves at the body this step (m/s²), which pushes it.</summary>
         public double WaveAcceleration;
+        /// <summary>The water's own motion in the waves where the body is (m/s), set each step: the body's drag is against
+        /// it.</summary>
+        public V3 WaveFlow;
+        /// <summary>The water's level acceleration in the waves that pushes the body (m/s²), set each step.</summary>
+        public V3 WaveSwayAcceleration;
         public Crossing Crossing;
         public double CrossingSpeed;
         public V3 CrossingPoint;
@@ -251,6 +256,8 @@ namespace BoundedBuoyancy.Core
             // never accelerates faster than about half of g (steeper waves break), so a is held to that. Like the buoyancy,
             // it is taken over the body's footprint, not at one point.
             WaveAcceleration = 0.0;
+            WaveFlow = V3.Zero;
+            WaveSwayAcceleration = V3.Zero;
             if (Bounded && SubmergedVolume > 0.0)
             {
                 M3 b = pose.Basis;
@@ -259,6 +266,18 @@ namespace BoundedBuoyancy.Core
                 double a = water.Surface.VerticalAccelerationAt(CentreOfBuoyancy, across, along);
                 WaveAcceleration = Math.Max(-0.5 * g, Math.Min(0.5 * g, a));
                 drive += V3.Up * ((1.0 + AddedMassCoefficient) * rho * SubmergedVolume * WaveAcceleration);
+                // And to and fro: the water goes round in circles as the waves pass, so it pushes the body forwards and back
+                // in the same way ((1 + C) ρ V a, a its level acceleration), and the body's drag is against the water's own
+                // motion. So floating things sway with the waves, and creep slowly the way they run, as flotsam does.
+                V3 swing, ah;
+                water.Surface.MotionAt(CentreOfBuoyancy, across, along, out swing, out ah);
+                double ahn = ah.Length;
+                if (ahn > 0.5 * g)
+                    ah = ah * (0.5 * g / ahn);
+                WaveFlow = swing;
+                WaveSwayAcceleration = ah;
+                flow += swing;
+                drive += ah * ((1.0 + AddedMassCoefficient) * rho * SubmergedVolume);
             }
             WindHere = wind;
             V3 throughWater = v - flow;

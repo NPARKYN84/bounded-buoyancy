@@ -26,5 +26,11 @@ namespace BoundedBuoyancy.Tests
             acceleration = from.VerticalAccelerationAt(worldPoint - shift, across, along);
             return true;
         }
+
+        public override bool MotionAt(Vector3 worldPoint, float across, float along, out Vector3 velocity, out Vector3 acceleration)
+        {
+            from.WaveMotionAt(worldPoint - shift, out velocity, out acceleration, across, along);
+            return true;
+        }
     }
 }

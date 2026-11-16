@@ -612,7 +612,8 @@ func run() -> void:
 	var ocean_script := GDScript.new()
 	ocean_script.source_code = "extends Node3D\nvar target: Node3D\nvar offset := Vector3.ZERO\nvar calls := 0\n" \
 		+ "func get_height(p: Vector3) -> float:\n\tcalls += 1\n\treturn target.height_at(p - offset)\n" \
-		+ "func get_acceleration(p: Vector3, across := 0.0, along := 0.0) -> float:\n\treturn target.vertical_acceleration_at(p - offset, across, along)\n"
+		+ "func get_acceleration(p: Vector3, across := 0.0, along := 0.0) -> float:\n\treturn target.vertical_acceleration_at(p - offset, across, along)\n" \
+		+ "func get_motion(p: Vector3, across := 0.0, along := 0.0) -> Array:\n\treturn target.horizontal_wave_motion_at(p - offset, across, along)\n"
 	ocean_script.reload()
 	var ocean := Node3D.new()
 	ocean.set_script(ocean_script)
@@ -627,6 +628,7 @@ func run() -> void:
 	outside_water.surface_method = &"get_height"
 	outside_water.surface_max_wave = 0.12
 	outside_water.surface_acceleration_method = &"get_acceleration"
+	outside_water.surface_motion_method = &"get_motion"
 	root.add_child(outside_water)
 	var twins := []
 	var ki := 0
@@ -1191,25 +1193,35 @@ func run() -> void:
 	var h16 := 1e-3
 	for p16 in [Vector3(1, 0, 4000), Vector3(-7, 0, 4004.5), Vector3(12, 0, 3989)]:
 		for t16 in [0.3, 2.1, 5.7]:
+			# The water at the surface over p16 goes round in a circle as the waves pass: its height is the
+			# surface's height over the centre of its circle (its average place), and its acceleration that
+			# height's second derivative.
+			sea16.time = t16
+			var top16 := Vector3(p16.x, sea16.height_at(p16), p16.z)
+			var m16: Array = sea16._mean_place(top16)
+			var c16: Vector3 = sea16.global_transform * Vector3(m16[0], 0.0, m16[1])
 			var f1 := func(time_now: float) -> float:
 				sea16.time = time_now
-				return sea16.height_at(p16)
+				return sea16.height_at(c16)
 			var fd1: float = (f1.call(t16 + h16) - 2.0 * f1.call(t16) + f1.call(t16 - h16)) / (h16 * h16)
 			sea16.time = t16
-			worst16[0] = maxf(worst16[0], absf(sea16.vertical_acceleration_at(Vector3(p16.x, sea16.height_at(p16), p16.z)) - fd1))
+			worst16[0] = maxf(worst16[0], absf(sea16.vertical_acceleration_at(top16) - fd1))
 			var f2 := func(time_now: float) -> float:
 				sea16_2d.time = time_now
 				return sea16_2d.height_at(p16.x * 100.0)
 			var fd2: float = (f2.call(t16 + h16) - 2.0 * f2.call(t16) + f2.call(t16 - h16)) / (h16 * h16)
 			sea16_2d.time = t16
 			worst16[1] = maxf(worst16[1], absf(sea16_2d.vertical_acceleration_at(Vector2(p16.x * 100.0, sea16_2d.height_at(p16.x * 100.0))) - fd2))
+			ocean16.time = t16
+			var otop := Vector3(p16.x, ocean16.get_height(p16), p16.z)
+			var oc: Vector3 = ocean16.mean_place(otop)[0]
 			var f3 := func(time_now: float) -> float:
 				ocean16.time = time_now
-				return ocean16.get_height(p16)
+				return ocean16.get_height(Vector3(oc.x, 0.0, oc.z))
 			var fd3: float = (f3.call(t16 + h16) - 2.0 * f3.call(t16) + f3.call(t16 - h16)) / (h16 * h16)
 			ocean16.time = t16
-			worst16[2] = maxf(worst16[2], absf(ocean16.get_vertical_acceleration(Vector3(p16.x, ocean16.get_height(p16), p16.z)) - fd3))
-	check("water's acceleration at the surface = surface height's 2nd derivative (m/s^2)", worst16[0], 0.0, 1e-3)
+			worst16[2] = maxf(worst16[2], absf(ocean16.get_vertical_acceleration(otop) - fd3))
+	check("water's acceleration at the surface = its height's 2nd derivative, at its circle's centre (m/s^2)", worst16[0], 0.0, 1e-3)
 	check("  2D (px/s^2)", worst16[1], 0.0, 0.1)
 	check("  the ocean example (m/s^2)", worst16[2], 0.0, 1e-3)
 	check("  50 m down, gone: water node, 2D, ocean example", absf(sea16.vertical_acceleration_at(Vector3(1, -49.5, 4000)))
@@ -1246,41 +1258,109 @@ func run() -> void:
 	check("  in step with it (correlation)", fit2d.y, 1.0, 0.01)
 	deep2d.queue_free()
 	sea16_2d.queue_free()
-	# A ball as dense as the water, 1 m under 12 m waves, moves up and down with the water round it, as
-	# far as the water there does (each wave's height x exp(-k x 1 m)). Before, it stayed put. It is let
-	# go moving with the water there; any difference left stays with it as a steady drift (nothing here
-	# slows it), so the straight line that best fits its height is taken out first.
+	# A ball as dense as the water, 1 m under 12 m waves, goes round with the water round it: up and down
+	# and to and fro, as far as the water there does (each wave's height x exp(k z), z its average depth),
+	# in step with it. Before, it only rose and fell. It is let go moving with the water there. A ball as
+	# dense as the water has nothing to hold it to one depth or place, so it wanders slowly; the water it
+	# is compared with is the water at its own average place and depth, and the straight lines that best
+	# fit its height and its position along the waves are taken out first.
 	sea16.time = 0.0
 	sea16.wave_height = 0.2
 	sea16.wave_length = 12.0
 	sea16.wave_direction = 0.0
 	sea16.rotation_degrees = Vector3.ZERO
 	var deep16 := make_shape_body(_sphere(0.1), 1000.0, Vector3(3, -0.5, 3998), 0.0)
-	deep16.drag_coefficient = 0.0
 	await physics_frame
 	deep16.freeze = false
 	var k16a := TAU / 12.0
 	var k16b := TAU / (12.0 * 0.63)
+	var wa16 := sqrt(G * k16a)
+	var wb16 := sqrt(G * k16b)
+	var db16 := Vector3(cos(deg_to_rad(35.0)), 0.0, sin(deg_to_rad(35.0)))
 	var t0_16 := sea16.time + 0.5 * dt
-	deep16.linear_velocity = Vector3(0, -0.2 * (sqrt(G * k16a) * cos(-sqrt(G * k16a) * t0_16) * exp(-k16a)
-		+ 0.4 * sqrt(G * k16b) * cos(-sqrt(G * k16b) * t0_16 + 1.3) * exp(-k16b)), 0)
+	deep16.linear_velocity = Vector3(0, -0.2 * (wa16 * cos(-wa16 * t0_16) * exp(-k16a) + 0.4 * wb16 * cos(-wb16 * t0_16 + 1.3) * exp(-k16b)), 0) \
+		+ Vector3.RIGHT * 0.2 * wa16 * (sin(-wa16 * t0_16) * exp(-k16a) + 0.2 * k16a * exp(-2.0 * k16a)) \
+		+ db16 * 0.08 * wb16 * (sin(-wb16 * t0_16 + 1.3) * exp(-k16b) + 0.08 * k16b * exp(-2.0 * k16b))
+	var x0_16 := deep16.global_position.x
+	var zz0_16 := deep16.global_position.z
+	var zs16 := []
 	var ts16 := []
 	var ys16 := []
-	var water16 := []
+	var xs16 := []
+	var st16 := []
 	t15 = 0.0
 	while t15 < 20.0:
 		await physics_frame
 		t15 += dt
 		ts16.append(t15)
 		ys16.append(deep16.global_position.y)
-		var wa := sqrt(G * k16a)
-		var wb := sqrt(G * k16b)
-		water16.append(0.2 * (sin(-wa * sea16.time) * exp(-k16a) + 0.4 * sin(-wb * sea16.time + 1.3) * exp(-k16b)))
+		xs16.append(deep16.global_position.x - x0_16)
+		zs16.append(deep16.global_position.z - zz0_16)
+		st16.append(sea16.time)
+	# Its average place along the waves, and its average depth, as they change.
+	var tm16 := 0.0
+	var xm16 := 0.0
+	var ym16 := 0.0
+	for i16 in ts16.size():
+		tm16 += ts16[i16] / ts16.size()
+		xm16 += xs16[i16] / ts16.size()
+		ym16 += ys16[i16] / ts16.size()
+	var stt16 := 0.0
+	var stx16 := 0.0
+	var sty16 := 0.0
+	var stz16 := 0.0
+	var zm16 := 0.0
+	for i16 in ts16.size():
+		zm16 += zs16[i16] / ts16.size()
+	for i16 in ts16.size():
+		stz16 += (ts16[i16] - tm16) * (zs16[i16] - zm16)
+		stt16 += (ts16[i16] - tm16) * (ts16[i16] - tm16)
+		stx16 += (ts16[i16] - tm16) * (xs16[i16] - xm16)
+		sty16 += (ts16[i16] - tm16) * (ys16[i16] - ym16)
+	var drift16 := stx16 / stt16
+	var water16 := []
+	var waterx16 := []
+	for i16 in ts16.size():
+		var xa: float = xm16 + drift16 * (ts16[i16] - tm16)
+		var z16: float = ym16 + sty16 / stt16 * (ts16[i16] - tm16) - 0.5
+		var pa: float = k16a * xa - wa16 * st16[i16]
+		var za: float = zm16 + stz16 / stt16 * (ts16[i16] - tm16)
+		var pb: float = k16b * (db16.x * xa + db16.z * za) - wb16 * st16[i16] + 1.3
+		water16.append(0.2 * (sin(pa) * exp(k16a * z16) + 0.4 * sin(pb) * exp(k16b * z16)))
+		waterx16.append(0.2 * (cos(pa) * exp(k16a * z16) + 0.4 * db16.x * cos(pb) * exp(k16b * z16)))
 	var fit16 := _follows(ts16, ys16, water16)
-	print("  ball as dense as water, 1 m under 12 m waves: rises and falls %.2f times as far as the water there, correlation %.4f" % [fit16.x, fit16.y])
-	check("ball as dense as water under waves: rises and falls, of the water there", fit16.x, 1.0, 0.05)
-	check("  in step with it (correlation)", fit16.y, 1.0, 0.01)
+	var fitx16 := _follows(ts16, xs16, waterx16)
+	print("  ball as dense as water, 1 m under 12 m waves: rises and falls %.2f times as far as the water there, correlation %.4f; sways %.2f times as far, correlation %.4f" % [fit16.x, fit16.y, fitx16.x, fitx16.y])
+	# (Going round with the water, it is no longer held at one place along the waves, and nothing holds
+	# it to its depth either: what little it was let go out of step with the water stays with it as a
+	# wobble in its circle of a centimetre or two, so its rise and fall is checked to within 8%.)
+	check("ball as dense as water under waves: rises and falls, of the water there", fit16.x, 1.0, 0.08)
+	check("  in step with it (correlation)", fit16.y, 1.0, 0.02)
+	check("  sways to and fro, of the water there", fitx16.x, 1.0, 0.05)
+	check("  in step with it (correlation)", fitx16.y, 1.0, 0.01)
 	deep16.queue_free()
+	# A light float let go at rest on the surface is carried to and fro by the water round it, and its
+	# drag takes it along at the water's slow creep the way the waves run: Stokes's drift, each wave's
+	# height² x frequency x wave number at the surface.
+	var float16 := make_shape_body(_sphere(0.1), 300.0, Vector3(3, 0.5, 3998), 0.0)
+	await physics_frame
+	float16.freeze = false
+	await _wait(20.0)
+	var fx0 := float16.global_position.x
+	var flo := 1e9
+	var fhi := -1e9
+	t15 = 0.0
+	while t15 < 40.0:
+		await physics_frame
+		t15 += dt
+		flo = minf(flo, float16.global_position.x)
+		fhi = maxf(fhi, float16.global_position.x)
+	var fdrift := (float16.global_position.x - fx0) / t15
+	var stokes0 := 0.04 * wa16 * k16a + db16.x * 0.0064 * wb16 * k16b
+	print("  float on the surface: sways %.2f m, drifts %.4f m/s the way the waves run (Stokes's drift at the surface %.4f)" % [fhi - flo, fdrift, stokes0])
+	check("float on waves sways to and fro (m, about the waves' height and more)", minf(fhi - flo, 0.4), 0.4, 0.1)
+	check("  and drifts the way they run, at Stokes's drift (m/s)", fdrift, stokes0, 0.2 * stokes0)
+	float16.queue_free()
 	# Waves too steep to be real (1 m high, 2 m long): the water's acceleration is held to half of g.
 	sea16.wave_height = 1.0
 	sea16.wave_length = 2.0
