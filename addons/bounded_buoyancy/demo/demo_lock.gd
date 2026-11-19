@@ -41,9 +41,9 @@ func _ready() -> void:
 	_build_lock()
 	var cam := Camera3D.new()
 	cam.fov = 55.0
-	cam.position = Vector3(7.5, 5.5, 10.5)
+	cam.position = Vector3(3.4, 6.0, 10.0)
 	add_child(cam)
-	cam.look_at(Vector3(0.0, 0.0, 0.0))
+	cam.look_at(Vector3(0.0, 0.3, -1.5))
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
@@ -170,9 +170,17 @@ func _build_lock() -> void:
 	var timber := _paint(Color(0.35, 0.25, 0.17))
 	var floor_y := -4.0
 	_wall(Vector3(0, floor_y - 0.25, 0), Vector3(WIDTH + 2.0, 0.5, LENGTH + 2.0), stone)
+	# Walls from the floor up to the ground, 2.5 m above where the water starts.
+	var h := 2.5 - floor_y
+	var mid := 0.5 * (2.5 + floor_y)
 	for side in [-1.0, 1.0]:
-		_wall(Vector3(side * (0.5 * WIDTH + 0.5), 0.0, 0), Vector3(1.0, 8.5, LENGTH + 2.0), stone)
-		_wall(Vector3(0, 0.0, side * (0.5 * LENGTH + 0.3)), Vector3(WIDTH, 8.5, 0.6), timber)
+		_wall(Vector3(side * (0.5 * WIDTH + 0.5), mid, 0), Vector3(1.0, h, LENGTH + 2.0), stone)
+		_wall(Vector3(0, mid, side * (0.5 * LENGTH + 0.3)), Vector3(WIDTH, h, 0.6), timber)
+	# The ground round it: grass, its top level with the walls.
+	var grass := _paint(Color(0.33, 0.45, 0.24))
+	for side in [-1.0, 1.0]:
+		_wall(Vector3(side * 21.5, 2.0, 0), Vector3(37.0, 1.0, 80.0), grass)
+		_wall(Vector3(0, 2.0, side * 24.0), Vector3(6.0, 1.0, 32.0), grass)
 
 
 func _wall(at: Vector3, size: Vector3, paint: Material) -> void:
