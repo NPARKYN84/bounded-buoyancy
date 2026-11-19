@@ -105,6 +105,8 @@ var area: float = 0.0
 var submerged_area: float = 0.0
 ## Added mass of the water and air taken along this step (kg).
 var added_mass: float = 0.0
+## Mass of water in the body's compartments (BoundedBuoyancyCompartment2D), kg: weight it carries.
+var flood_mass: float = 0.0
 ## Acceleration from weight, buoyancy and drag in the last step (px/s²).
 var last_acceleration: Vector2 = Vector2.ZERO
 ## Centre of the area under water this step, in global coordinates.
@@ -137,6 +139,10 @@ var _auto_inertia := false
 var _from_material := false                 # density being set from Made Of
 var _unit_inertia := 0.0
 var _turning_added := 0.0               # the water's share in turning (engine units), eased
+var _compartments: Array = []           # BoundedBuoyancyCompartment2D under it
+var _flood_inertia := 0.0               # the flood water's share of the inertia (engine units), this step
+var _flood_torque := 0.0                # the flood water's weight about the centre of mass, this step
+var _prev_flood := 0.0
 var _extra_on := false                  # the inertia includes it
 var _dry_inertia := 0.0                 # the inertia without it, when set by hand
 var _wet_inertia := 0.0                 # the inertia as last set with it
@@ -237,6 +243,7 @@ func _physics_process(dt: float) -> void:
 		_set_up_body()
 	if freeze:
 		_prev_added_mass = -1.0
+		_prev_flood = 0.0
 		_prev_surface = NAN
 		last_acceleration = Vector2.ZERO
 		return
@@ -261,8 +268,14 @@ func _physics_process(dt: float) -> void:
 	var air_area := area - submerged_area
 	var displaced := (rho * submerged_area + rho_air * air_area) * _kg   # kg of water and air displaced
 	added_mass = added_mass_coefficient * displaced
+	# Water in the compartments: weight the body carries, at the water's own centre.
+	flood_mass = _flood(xf, rho, g, dt) if not _compartments.is_empty() else 0.0
+	if _compartments.is_empty():
+		_flood_inertia = 0.0
+		_flood_torque = 0.0
 	if _prev_added_mass < 0.0:
 		_prev_added_mass = added_mass
+		_prev_flood = flood_mass
 	var in_water := submerged_area > 0.0
 	if _first_step:
 		_was_in_water = in_water
@@ -271,14 +284,19 @@ func _physics_process(dt: float) -> void:
 		_was_in_water = in_water
 		_report_crossing(in_water, cw, flow)
 
-	var inertial_mass := own_mass + added_mass if model == Model.BOUNDED else own_mass
+	var carried := own_mass + flood_mass   # what the body weighs: itself and the water inside it
+	var inertial_mass := carried + added_mass if model == Model.BOUNDED else carried
 	var v := linear_velocity
-	if model == Model.BOUNDED and keep_momentum_on_entry and added_mass > _prev_added_mass:
-		v = flow + (v - flow) * ((own_mass + _prev_added_mass) / inertial_mass)
+	if model == Model.BOUNDED and keep_momentum_on_entry:
+		# Water taken along, or let in, starts with the water's own velocity, so momentum is shared
+		# relative to the water.
+		var grown := maxf(added_mass - _prev_added_mass, 0.0) + maxf(flood_mass - _prev_flood, 0.0)
+		if grown > 0.0:
+			v = flow + (v - flow) * ((inertial_mass - grown) / inertial_mass)
 
 	# Density-state drive (weight minus buoyancy; y points down), then drag on the speed through the
 	# water and through the air, applied implicitly.
-	var drive := Vector2(0.0, (own_mass - displaced) * g)
+	var drive := Vector2(0.0, (carried - displaced) * g)
 	# The water's own motion in waves pushes the body with it, as in BoundedBuoyancyBody, averaged
 	# across the body (two Gauss points across its bounding box).
 	wave_acceleration = 0.0
@@ -343,6 +361,8 @@ func _physics_process(dt: float) -> void:
 	if displaced > 0.0:
 		var centre := ((rho - rho_air) * submerged_area * centre_of_buoyancy + rho_air * area * cw) * _kg / displaced
 		apply_torque((centre - com).cross(Vector2(0.0, -displaced * g)))
+	if flood_mass > 0.0:
+		apply_torque(_flood_torque)
 	var damp := angular_drag * (submerged_area + air_area * minf(1.0, rho_air / density)) / area
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
@@ -350,8 +370,52 @@ func _physics_process(dt: float) -> void:
 	# a second, so that it does not flicker with each wave).
 	var turning_now := _added_turning_inertia(xf, rho) if model == Model.BOUNDED and submerged_area > 0.0 and added_turning else 0.0
 	_turning_added = turning_now if turning_now == 0.0 else lerpf(_turning_added, turning_now, 1.0 - exp(-dt / 0.5))
-	_set_extra_inertia(_turning_added)
+	_set_extra_inertia(_turning_added + _flood_inertia)
 	_prev_added_mass = added_mass
+	_prev_flood = flood_mass
+
+
+## The compartments for one step: moves water through their holes and pumps, and puts the water's
+## weight on the body, as BoundedBuoyancyBody does: weight carried at the water's own centre, which
+## stays level in its compartment as the body leans, applied as a weight on the body plus its turning
+## moment about the body's centre of mass. The water does not turn with the body, so it adds to the
+## inertia only as weight at its centre. Returns the water's mass (kg).
+func _flood(xf: Transform2D, rho: float, g: float, dt: float) -> float:
+	var w: Node2D = water
+	var have_water := _world_has_water
+	var level := water_level
+	var surface := func(p: Vector2) -> float:
+		var here: Node2D = w if w and w.contains(p) else (_find_water(p) if have_water else null)
+		if here:
+			return here.height_at(p.x)
+		return NAN if have_water else level
+	var com := xf * center_of_mass
+	var total := 0.0
+	var torque := 0.0
+	var spin := 0.0
+	for comp in _compartments:
+		if not is_instance_valid(comp) or not comp.is_inside_tree():
+			continue
+		var r: Array = comp.flood_step(comp.global_transform, surface, rho, g, dt, pixels_per_metre, thickness)
+		var m: float = r[0]
+		if m <= 0.0:
+			continue
+		var arm: Vector2 = r[1] - com
+		total += m
+		torque += arm.cross(Vector2(0.0, m * g))
+		spin += m * arm.length_squared()
+	_flood_torque = torque
+	_flood_inertia = spin
+	return total
+
+
+func _add_compartment(c: Node) -> void:
+	if not _compartments.has(c):
+		_compartments.append(c)
+
+
+func _remove_compartment(c: Node) -> void:
+	_compartments.erase(c)
 
 
 ## Sets the body's inertia to its own plus `extra`.

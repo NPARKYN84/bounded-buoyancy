@@ -85,6 +85,15 @@ namespace BoundedBuoyancy
 #endif
         }
 
+        internal static void SetVelocity(Rigidbody2D rb, Vector2 v)
+        {
+#if UNITY_6000_0_OR_NEWER
+            rb.linearVelocity = v;
+#else
+            rb.velocity = v;
+#endif
+        }
+
         internal static float GetLinearDamping(Rigidbody2D rb)
         {
 #if UNITY_6000_0_OR_NEWER

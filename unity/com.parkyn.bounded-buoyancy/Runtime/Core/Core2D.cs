@@ -501,6 +501,17 @@ namespace BoundedBuoyancy.Core
         /// <summary>Wave-making damping (Bounded model): 1 is the physics (see WaveDampingRatio), 0 leaves it out, other
         /// values scale it.</summary>
         public double WaveDamping = 1.0;
+        /// <summary>Spaces inside the body that can flood (see Compartment2D).</summary>
+        public readonly List<Compartment2D> Compartments = new List<Compartment2D>();
+        /// <summary>Turning moves water too: whether the water's share in the body's turning is added (TurningInertia).</summary>
+        public bool AddedTurning = true;
+
+        /// <summary>Water in the compartments this step (kg): weight the body carries.</summary>
+        public double FloodMass;
+        /// <summary>The flood water's share of the inertia about the centre of mass (kg m²), as weight at its centre.</summary>
+        public double FloodInertia;
+        /// <summary>The water's share in turning (kg m²), eased in and out (AddedTurningInertia).</summary>
+        public double TurningInertia;
 
         public double SubmergedArea;
         public V2 CentreOfBuoyancy;
@@ -528,6 +539,14 @@ namespace BoundedBuoyancy.Core
         object prevWater;
         double prevLevel;
         V2 prevCom;
+        double prevFlood;
+        WaterSample2D floodWater;
+        readonly Func<V2, double> floodSurface;
+
+        public BodyCore2D()
+        {
+            floodSurface = p => floodWater.HasWater ? floodWater.Surface.HeightAt(p.x) : double.NaN;
+        }
 
         public double OwnMass { get { return Density * Shape.Area * Thickness; } }
 
@@ -597,8 +616,24 @@ namespace BoundedBuoyancy.Core
             double kg = Thickness;
             double displaced = (rho * SubmergedArea + AirDensityHere * airArea) * kg;
             AddedMass = AddedMassCoefficient * displaced;
+            // Water in the compartments: weight the body carries, at the water's own centre.
+            double floodTorque = 0.0;
+            if (Compartments.Count > 0)
+            {
+                floodTorque = Flood(pose, comWorld, water, rho, g, dt);
+            }
+            else
+            {
+                FloodMass = 0.0;
+                FloodInertia = 0.0;
+            }
+            double turningNow = Bounded && AddedTurning && SubmergedArea > 0.0 ? AddedTurningInertia(pose, rho) : 0.0;
+            TurningInertia = turningNow == 0.0 ? 0.0 : TurningInertia + (turningNow - TurningInertia) * (1.0 - Math.Exp(-dt / 0.5));
             if (prevAddedMass < 0.0)
+            {
                 prevAddedMass = AddedMass;
+                prevFlood = FloodMass;
+            }
 
             bool inWater = SubmergedArea > 0.0;
             Crossing = Crossing.None;
@@ -616,13 +651,19 @@ namespace BoundedBuoyancy.Core
             }
 
             double own = OwnMass;
-            InertialMass = Bounded ? own + AddedMass : own;
+            double carried = own + FloodMass;   // what the body weighs: itself and the water inside it
+            InertialMass = Bounded ? carried + AddedMass : carried;
             V2 v = velocity;
-            if (Bounded && KeepMomentumOnEntry && AddedMass > prevAddedMass)
-                v = flow + (v - flow) * ((own + prevAddedMass) / InertialMass);
+            if (Bounded && KeepMomentumOnEntry)
+            {
+                // Water taken along, or let in, starts with the water's own velocity, so momentum is shared relative to it.
+                double grown = Math.Max(AddedMass - prevAddedMass, 0.0) + Math.Max(FloodMass - prevFlood, 0.0);
+                if (grown > 0.0)
+                    v = flow + (v - flow) * ((InertialMass - grown) / InertialMass);
+            }
 
             double m = InertialMass;
-            V2 drive = new V2(0.0, (displaced - own) * g);
+            V2 drive = new V2(0.0, (displaced - carried) * g);
             // The water's own motion in waves pushes the body with it, as in BodyCore3D, averaged across the body (two
             // Gauss points across its bounding box).
             WaveAcceleration = 0.0;
@@ -656,8 +697,10 @@ namespace BoundedBuoyancy.Core
                 V2 centre = ((rho - AirDensityHere) * SubmergedArea * CentreOfBuoyancy + AirDensityHere * areaAll * cw) * kg / displaced;
                 Torque += (centre - comWorld).Cross(new V2(0.0, displaced * g));
             }
+            Torque += floodTorque;
             AngularDamp = AngularDrag * (SubmergedArea + airArea * Math.Min(1.0, AirDensityHere / Density)) / areaAll;
             prevAddedMass = AddedMass;
+            prevFlood = FloodMass;
 
             // Wave-making damping of bobbing relative to the surface under the body, as in BodyCore3D.
             HeaveDamping = 0.0;
@@ -691,5 +734,51 @@ namespace BoundedBuoyancy.Core
         }
 
         const double TeleportDistance = 0.1;
+
+        /// <summary>The compartments for one step: moves water through their holes and pumps, and sets FloodMass and
+        /// FloodInertia, as BodyCore3D does. Returns the water's weight's turning moment about the centre of mass.</summary>
+        double Flood(BodyPose2D pose, V2 comWorld, WaterSample2D water, double rho, double g, double dt)
+        {
+            floodWater = water;
+            FloodMass = 0.0;
+            FloodInertia = 0.0;
+            double torque = 0.0;
+            for (int k = 0; k < Compartments.Count; k++)
+            {
+                Compartment2D c = Compartments[k];
+                double m = c.Step(c.WorldPose(pose), floodSurface, rho, g, dt, Thickness);
+                if (m <= 0.0)
+                    continue;
+                V2 arm = c.WaterCentre - comWorld;
+                FloodMass += m;
+                torque += arm.Cross(new V2(0.0, -m * g));
+                FloodInertia += m * arm.LengthSquared;
+            }
+            floodWater = default(WaterSample2D);
+            return torque;
+        }
+
+        /// <summary>The water's share in the body's turning (kg m²). Turning a body that is not round pushes water aside,
+        /// as moving it does; a circle moves none. It is Lamb's for an elliptic cylinder, π/8 ρ (a² − b²)² per metre of
+        /// thickness, a and b half its width and height. At the surface the water above is missing and the surface acts as
+        /// a mirror, so the height is twice the draft and the share is halved.</summary>
+        public double AddedTurningInertia(BodyPose2D pose, double rho)
+        {
+            if (Shape.Circle || Shape.Area <= 0.0)
+                return 0.0;
+            double share = Math.Max(0.0, Math.Min(1.0, SubmergedArea / Shape.Area));
+            double hx = 0.5 * Shape.Box.x, hy = 0.5 * Shape.Box.y;
+            bool floating = share < 0.999;
+            if (floating)
+            {
+                // The body's axis nearest upright: its height under water, doubled by the mirror.
+                if (Math.Abs(pose.Cos) >= Math.Abs(pose.Sin))
+                    hy *= Math.Min(2.0 * share, 1.0);
+                else
+                    hx *= Math.Min(2.0 * share, 1.0);
+            }
+            double d = hx * hx - hy * hy;
+            return Math.PI / 8.0 * rho * d * d * Thickness * (floating ? 0.5 : 1.0);
+        }
     }
 }

@@ -431,7 +431,7 @@ namespace BoundedBuoyancy.Checks
                 if (b.Core.Crossing != Crossing.None)
                     b.Fire(b.Core.Crossing, b.Core.CrossingSpeed, b.Core.CrossingPoint);
                 b.V = b.Core.VelocityTarget;
-                b.W += b.Core.Torque / b.Inertia * Dt;
+                b.W += b.Core.Torque / (b.Inertia + b.Core.FloodInertia + b.Core.TurningInertia) * Dt;
                 b.W *= Math.Max(0.0, 1.0 - b.Core.AngularDamp * Dt);
                 b.Com += b.V * Dt;
                 b.Angle += b.W * Dt;

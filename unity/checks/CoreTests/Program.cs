@@ -721,6 +721,114 @@ namespace BoundedBuoyancy.Checks
                 Check("2D ball dropped 1 m: water entered speed (m/s)", hits.Count > 0 ? hits[0] : 0.0, Math.Sqrt(2.0 * g * 1.0), 0.08);
             }
 
+            // 2D flooding, as the Godot checks: a boat 4 x 1 m at 200 kg/m³ with two holds, holed low in the fore one,
+            // takes in water to the sea's level there, trims by the bow and stays afloat with the aft hold dry; patched and
+            // pumped dry, it comes back level and as high as before. A barge at 300 kg/m³ with one hold the length of it
+            // (more water than its reserve of buoyancy) sinks.
+            {
+                var w = new SimWorld2();
+                w.Waters.Add(new WaterVolume2D { Position = V2.Zero, Size = new V2(40, 20) });
+                Func<double, double, BuoyancyShape2D> rect = (x, y) => { var b = new ShapeBuilder2D(); b.AddPolygon(new[] { new V2(-x / 2, -y / 2), new V2(x / 2, -y / 2), new V2(x / 2, y / 2), new V2(-x / 2, y / 2) }); return b.Build(); };
+                Func<double, V2, SimBody2> add = (d, at) =>
+                {
+                    var b = new SimBody2();
+                    b.Core.AirDensity = 0.0;
+                    b.Core.Thickness = 0.2;
+                    b.SetUp(rect(4.0, 1.0), d, at, 0.0);
+                    return w.Add(b);
+                };
+                var holds = add(200.0, new V2(-6, 0.3));
+                var aft = new Compartment2D { Position = new V2(-0.95, -0.2), Size = new V2(1.8, 0.5) };
+                var fore = new Compartment2D { Position = new V2(0.95, -0.2), Size = new V2(1.8, 0.5) };
+                holds.Core.Compartments.Add(aft);
+                holds.Core.Compartments.Add(fore);
+                var barge = add(300.0, new V2(6, 0.2));
+                var hold = new Compartment2D { Size = new V2(3.8, 0.9) };
+                barge.Core.Compartments.Add(hold);
+                for (int k = 0; k < 120; k++)
+                    w.Step();
+                double restY = holds.Position.y;
+                fore.AddHole(fore.WorldPose(holds.BodyPose), holds.BodyPose.Apply(new V2(1.8, -0.44)), 0.01);
+                hold.AddHole(hold.WorldPose(barge.BodyPose), barge.BodyPose.Apply(new V2(0, -0.45)), 0.01);
+                for (int k = 0; k < 3600; k++)
+                    w.Step();
+                V2 holeAt = fore.WorldPose(holds.BodyPose).Apply(fore.Holes[0].Position);
+                Console.WriteLine(string.Format("  2D holds, fore hold holed: {0:F0} kg of water in, trimmed {1:F1} deg by the bow", holds.Core.FloodMass, -holds.Angle * 180.0 / Math.PI));
+                Check("2D boat holed in its fore hold: water inside at the sea's level (m)", fore.WaterLevel, 0.0, 0.02);
+                Check("  trims by the bow (bow down)", -holds.Angle * 180.0 / Math.PI > 1.0 ? 1 : 0, 1, 0);
+                Check("  stays afloat (centre above -0.5 m)", holds.Position.y > -0.5 ? 1 : 0, 1, 0);
+                Check("  the aft hold stays dry (m³)", aft.FloodVolume, 0.0, 0.0);
+                Check("2D barge with one hold the length of it, holed: sinks", barge.Position.y < -2.0 ? 1 : 0, 1, 0);
+                fore.Holes.Clear();
+                fore.PumpRate = 0.05;
+                for (int k = 0; k < 1200; k++)
+                    w.Step();
+                Check("  patched and pumped dry: level again (deg)", Math.Abs(holds.Angle * 180.0 / Math.PI), 0.0, 0.5);
+                Check("  and as high as before (m)", holds.Position.y, restY, 0.01);
+            }
+
+            // 2D round shot: a 24-pounder at 5 degrees from 3 m first grazes the sea where the drag law worked through in
+            // steps of 0.1 ms puts it; iron shot at 100 m/s skips at 4 degrees and goes in at 10.
+            {
+                double g2 = 9.80665;
+                Func<V2, WaterSample2D> sea = p => WaterSample2D.Flat(0.0, 1000.0);
+                double d24 = 5.55 * 0.0254, m24 = 24.0 * 0.45359237;
+                var shot = new BallFlight2D { Radius = 0.5 * d24, Mass = m24, AirDensity = 1.2 };
+                double deg = 5.0 * Math.PI / 180.0;
+                V2 x = new V2(0, 3), v = new V2(Math.Cos(deg), Math.Sin(deg)) * 488.0;
+                double t = 0.0, graze = double.NaN, grazeT = 0.0;
+                while (t < 15.0 && double.IsNaN(graze))
+                {
+                    double tt = 0.0;
+                    while (tt < dt - 1e-12)
+                    {
+                        tt += shot.Advance(ref x, ref v, sea, g2, dt - tt);
+                        if (shot.Touches.Count > 0 && double.IsNaN(graze))
+                        {
+                            graze = shot.Touches[0].Point.x;
+                            grazeT = t + tt;
+                        }
+                    }
+                    t += dt;
+                }
+                // The reference: midpoint steps of 0.1 ms in air of 1.2 kg/m³, to the first touch.
+                double vol = Math.PI / 6.0 * d24 * d24 * d24, area = Math.PI * 0.25 * d24 * d24, a = 0.5 * d24;
+                V2 p = new V2(0, 3), u = new V2(Math.Cos(deg), Math.Sin(deg)) * 488.0;
+                double mi = m24 + 0.5 * 1.2 * vol, up = (1.2 * vol - m24) * g2 / mi, rt = 0.0, rx = 0.0, step = 1e-4;
+                while (rt < 20.0)
+                {
+                    Func<V2, V2> acc = q => q * (-0.5 * SphereDrag.CoefficientAt(q.Length, d24, 1.2, 343.0) * 1.2 * area * q.Length / mi) + new V2(0, up);
+                    V2 vm = u + acc(u) * (0.5 * step);
+                    V2 prev = p;
+                    p += vm * step;
+                    u += acc(vm) * step;
+                    rt += step;
+                    if (p.y - a <= 0.0)
+                    {
+                        double f = (prev.y - a) / (prev.y - p.y);
+                        rx = prev.x + f * (p.x - prev.x);
+                        rt = rt - step + f * step;
+                        break;
+                    }
+                }
+                Console.WriteLine(string.Format("  2D 24-pounder at 5 degrees: grazes at {0:F1} m after {1:F2} s (worked through: {2:F1} m, {3:F2} s)", graze, grazeT, rx, rt));
+                Check("2D 24-pounder at 5 degrees: first graze (m)", graze, rx, 0.01 * rx);
+                Check("  time of flight (s)", grazeT, rt, 0.05);
+                foreach (var c in new[] { Tuple.Create(4.0, 1), Tuple.Create(10.0, 0) })
+                {
+                    var ball = new BallFlight2D { Radius = 0.07, Mass = 7200.0 * 4.0 / 3.0 * Math.PI * 0.07 * 0.07 * 0.07, AirDensity = 0.0 };
+                    double r = c.Item1 * Math.PI / 180.0;
+                    V2 bx = new V2(0, 0.07 + 1e-4), bv = new V2(Math.Cos(r), -Math.Sin(r)) * 100.0;
+                    for (int k = 0; k < 90 && ball.Skips == 0 && bx.y > -0.07; k++)
+                    {
+                        double tt = 0.0;
+                        while (tt < dt - 1e-12)
+                            tt += ball.Advance(ref bx, ref bv, sea, g2, dt - tt);
+                    }
+                    Check(string.Format("2D iron shot at 100 m/s, {0:F0} degrees: {1}", c.Item1, c.Item2 == 1 ? "skips" : "goes in"), ball.Skips > 0 ? 1 : 0, c.Item2, 0);
+                }
+            }
+
             Console.WriteLine("B13 Other water systems");
             {
                 // A stand-in "ocean" gives the same waves as a water volume 40 m away, so bodies on it must move

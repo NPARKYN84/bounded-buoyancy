@@ -239,6 +239,18 @@ In the checks, the air's density at 0, 1000, 5000, 11 000, 15 000 and 20 000 m m
 
 `BoundedBuoyancyBody2D`, `BoundedBuoyancyWater2D` and `BoundedBuoyancyWind2D` do the same in a side view, for `RigidBody2D`: circles, rectangles, capsules, convex polygons and collision polygons; tipping and righting; waves, currents, air, wind, sails and splashes. Lengths and speeds are in pixels, as everywhere in Godot 2D, and densities in kg/m³. A circle's added-mass coefficient in 2D is 1, so a light ball rises no faster than g.
 
+Flooding and cannons work in 2D too. `BoundedBuoyancyCompartment2D` is a rectangle inside the body (as deep into the screen as the body's **Thickness**) that fills through its holes by the orifice law and drains through holes above the water; its water lies level, so a holed boat trims toward the flooded end, settles and sinks when it has taken in more than its reserve of buoyancy. `BoundedBuoyancyCannon2D` fires along its own +x, with the same guns, recoil and reload as in 3D; its shot (`BoundedBuoyancyCannonball2D`) flies with a cannonball's drag, skips off the water below about 6.5° for iron, and goes through the planking of any body with a `BoundedBuoyancyHull2D` (Poncelet's law, as in 3D), holing the nearest compartment where it goes in and out. The shot is worked out as a ball, though it is drawn as a circle.
+
+![The 2D battle: two ships trading fire until they flood and sink](docs/2d_battle.gif)
+
+## Made Of
+
+Every body (3D and 2D) has **Made Of**, a list of twenty-one materials: foam, balsa, cork, pine, plywood, teak, oak, ice, plastic, ebony, rubber, PVC, brick, concrete, glass, stone, aluminium, iron, steel, lead and gold. Choosing one sets **Density** to that material's (typical values: oak 720 kg/m³, ice 917, steel 7850); setting Density by hand sets Made Of back to Custom. From code, `BoundedBuoyancyMaterials.density_of(kind)` gives the density and `name_of(kind)` the name.
+
+## Rolling and pitching: the water's share
+
+A raft or a boat rolling sets water moving too, and that water adds to what has to be turned. **Added Turning** (on by default) adds it for rolling and pitching: for each axis, Lamb's value for an elliptic cylinder of the body's size across that axis, with the depth taken from how far the body is under. A long, flat raft rolls a little more slowly, as real ones do; a ball, and turning about the upright axis, are unchanged. It eases in and out over half a second as the body enters and leaves the water.
+
 ![The 2D version: boats with sails, crates, barrels, a log and balloons](docs/2d.gif)
 
 ## Hundreds of bodies, and fast ones
@@ -281,11 +293,13 @@ Damping strong enough to stop the bouncing also stops a body following the waves
 | --- | --- | --- |
 | Model | `BOUNDED`, or `USUAL` for side-by-side comparisons | BOUNDED |
 | Density | Density of the body, kg/m³ (water is 1000); can be changed while running | 500 (wood) |
+| Made Of | A material that sets Density for you (oak, ice, steel and 18 more); Custom to set Density yourself | Custom |
 | Added Mass Coefficient | C for the shape: 0.5 sphere, about 1 long cylinder side-on | 0.5 |
 | Water Level / Water Surface | Water Level is the height of a flat surface, used when the body's world has no BoundedBuoyancyWater; Water Surface, if set, takes priority over both | 0 / none |
 | Water Density | kg/m³ (a BoundedBuoyancyWater uses its own) | 1000 |
 | Drag Coefficient | Quadratic drag, in the water and in the air | 0.47 |
 | Angular Drag | Damping of rolling and pitching in the water, per second when fully submerged; in air, in proportion to how light the body is against the air | 3.0 |
+| Added Turning | Add the water's share to rolling and pitching (Lamb's elliptic cylinder) | on |
 | Keep Momentum On Entry | Water set moving takes its share of momentum as the body enters | on |
 | Wave Damping | The energy bobbing sends out as ripples, from linear wave theory: 1 is the physics, 0 leaves it out | 1 |
 | Air Density | Density of the air at height 0, kg/m³; 0 leaves air out | 1.2 |

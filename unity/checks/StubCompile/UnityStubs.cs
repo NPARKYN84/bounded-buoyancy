@@ -85,6 +85,7 @@ namespace UnityEngine
         public float x, y;
         public Vector2(float x, float y) { this.x = x; this.y = y; }
         public static Vector2 zero { get { return default(Vector2); } }
+        public static Vector2 one { get { return new Vector2(1, 1); } }
         public static Vector2 right { get { return new Vector2(1, 0); } }
         public float magnitude { get { return 0f; } }
         public float sqrMagnitude { get { return 0f; } }
@@ -93,6 +94,7 @@ namespace UnityEngine
         public static Vector2 Max(Vector2 lhs, Vector2 rhs) { return lhs; }
         public static Vector2 operator +(Vector2 a, Vector2 b) { return a; }
         public static Vector2 operator -(Vector2 a, Vector2 b) { return a; }
+        public static Vector2 operator -(Vector2 a) { return a; }
         public static Vector2 operator *(Vector2 a, float d) { return a; }
         public static Vector2 operator *(float d, Vector2 a) { return a; }
         public static Vector2 operator /(Vector2 a, float d) { return a; }
@@ -181,6 +183,12 @@ namespace UnityEngine
         public Bounds(Vector3 center, Vector3 size) { }
         public Vector3 center { get { return default(Vector3); } set { } }
         public Vector3 extents { get { return default(Vector3); } set { } }
+        public Vector3 size { get { return default(Vector3); } set { } }
+    }
+
+    public struct Rect
+    {
+        public Rect(float x, float y, float width, float height) { }
     }
 
     public partial struct Color
@@ -452,6 +460,39 @@ namespace UnityEngine
         public RigidbodyInterpolation2D interpolation { get; set; }
         public void AddForce(Vector2 force, ForceMode2D mode) { }
         public void AddTorque(float torque, ForceMode2D mode) { }
+        public void AddForceAtPosition(Vector2 force, Vector2 position, ForceMode2D mode) { }
+        public Vector2 GetPointVelocity(Vector2 point) { return default(Vector2); }
+        public CollisionDetectionMode2D collisionDetectionMode { get; set; }
+    }
+
+    public enum CollisionDetectionMode2D { Discrete = 0, Continuous = 1 }
+
+    public struct RaycastHit2D
+    {
+        public Vector2 point { get; set; }
+        public Vector2 normal { get; set; }
+        public float distance { get; set; }
+        public Collider2D collider { get { return null; } }
+        public Rigidbody2D rigidbody { get { return null; } }
+    }
+
+    public struct ContactPoint2D
+    {
+        public Vector2 point { get { return default(Vector2); } }
+    }
+
+    public class Collision2D
+    {
+        public Collider2D collider { get { return null; } }
+        public Vector2 relativeVelocity { get { return default(Vector2); } }
+        public int contactCount { get { return 0; } }
+        public ContactPoint2D GetContact(int index) { return default(ContactPoint2D); }
+    }
+
+    public struct ContactFilter2D
+    {
+        public bool useTriggers;
+        public ContactFilter2D NoFilter() { return this; }
     }
 
     public partial class Collider2D : Behaviour
@@ -459,6 +500,7 @@ namespace UnityEngine
         public bool isTrigger { get; set; }
         public Vector2 offset { get; set; }
         public Rigidbody2D attachedRigidbody { get { return null; } }
+        public Bounds bounds { get { return default(Bounds); } }
     }
     public sealed partial class CircleCollider2D : Collider2D { public float radius { get; set; } }
     public sealed partial class CapsuleCollider2D : Collider2D { public Vector2 size { get; set; } public CapsuleDirection2D direction { get; set; } }
@@ -472,6 +514,8 @@ namespace UnityEngine
     {
         public static Vector2 gravity { get; set; }
         public static SimulationMode2D simulationMode { get; set; }
+        public static int Raycast(Vector2 origin, Vector2 direction, ContactFilter2D contactFilter, RaycastHit2D[] results, float distance) { return 0; }
+        public static void IgnoreCollision(Collider2D collider1, Collider2D collider2, bool ignore) { }
     }
 
     public partial struct PhysicsScene2D : IEquatable<PhysicsScene2D>
@@ -532,6 +576,17 @@ namespace UnityEngine
         public Texture mainTexture { get; set; }
         public int renderQueue { get; set; }
         public void SetInt(string name, int value) { }
+    }
+
+    public sealed class Sprite : Object
+    {
+        public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit) { return null; }
+    }
+
+    public sealed class SpriteRenderer : Renderer
+    {
+        public Sprite sprite { get; set; }
+        public Color color { get; set; }
     }
 
     public class Renderer : Component

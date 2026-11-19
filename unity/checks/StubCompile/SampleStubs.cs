@@ -43,11 +43,6 @@ namespace UnityEngine
     public enum RigidbodyInterpolation2D { None = 0, Interpolate = 1, Extrapolate = 2 }
     public enum TextAnchor { UpperLeft = 0, UpperCenter = 1, UpperRight = 2, MiddleLeft = 3, MiddleCenter = 4, MiddleRight = 5, LowerLeft = 6, LowerCenter = 7, LowerRight = 8 }
 
-    public struct Rect
-    {
-        public Rect(float x, float y, float width, float height) { }
-    }
-
     public sealed class Screen
     {
         public static int width { get { return 0; } }

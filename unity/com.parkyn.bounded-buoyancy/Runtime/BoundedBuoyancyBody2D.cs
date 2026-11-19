@@ -46,6 +46,9 @@ namespace BoundedBuoyancy
         [Tooltip("Damping of spin in the water, per second when fully submerged; in air, in proportion to how light the body is against the air.")]
         [Min(0f)] public float angularDrag = 3f;
 
+        [Tooltip("Turning moves water too: add the water's share to the body's turning (Lamb's value for an elliptic cylinder of the body's size), so a long, flat raft rolls a little more slowly, as real ones do. A circle is unchanged.")]
+        public bool addedTurning = true;
+
         [Tooltip("Keep momentum when the added mass grows as the body enters the water.")]
         public bool keepMomentumOnEntry = true;
 
@@ -96,6 +99,8 @@ namespace BoundedBuoyancy
         BoundedBuoyancyWater2D water;
         float savedGravityScale, savedLinearDamping, savedAngularDamping;
         bool savedAutoMass;
+        readonly List<BoundedBuoyancyCompartment2D> compartments = new List<BoundedBuoyancyCompartment2D>();
+        float appliedInertia = -1f;
 
         /// <summary>What the body is made of: setting it gives the body that material's density (Custom leaves the density as
         /// it is). Setting the density by hand makes it Custom.</summary>
@@ -138,6 +143,21 @@ namespace BoundedBuoyancy
         public Vector2 WindHere { get { return Bridge.U(core.WindHere); } }
         public BoundedBuoyancyWater2D Water { get { return water; } }
         public BodyCore2D Core { get { return core; } }
+        /// <summary>Water in the body's compartments now (kg).</summary>
+        public float FloodMass { get { return (float)core.FloodMass; } }
+        /// <summary>The body's compartments.</summary>
+        public IList<BoundedBuoyancyCompartment2D> Compartments { get { return compartments; } }
+
+        internal void AddCompartment(BoundedBuoyancyCompartment2D c)
+        {
+            if (!compartments.Contains(c))
+                compartments.Add(c);
+        }
+
+        internal void RemoveCompartment(BoundedBuoyancyCompartment2D c)
+        {
+            compartments.Remove(c);
+        }
 
         void Awake()
         {
@@ -183,6 +203,7 @@ namespace BoundedBuoyancy
                 }
                 appliedMass = -1f;
                 appliedDamp = -1f;
+                appliedInertia = -1f;
             }
         }
 
@@ -219,6 +240,7 @@ namespace BoundedBuoyancy
             if (setInertia)
                 ComputeInertia();
             appliedMass = -1f;
+            appliedInertia = -1f;
         }
 
         void FixedUpdate()
@@ -252,6 +274,8 @@ namespace BoundedBuoyancy
                 core.Frozen();
                 return;
             }
+            if (TryFastStep(dt))
+                return;
             core.Bounded = model == BoundedBuoyancyBody.Model.Bounded;
             core.Density = density;
             core.AddedMassCoefficient = addedMassCoefficient;
@@ -264,6 +288,11 @@ namespace BoundedBuoyancy
             core.SailSize = sailSize;
             core.SailCentre = Bridge.V(sailCentre);
             core.Thickness = thickness;
+            core.AddedTurning = addedTurning;
+            core.Compartments.Clear();
+            for (int i = 0; i < compartments.Count; i++)
+                if (compartments[i] != null && compartments[i].isActiveAndEnabled)
+                    core.Compartments.Add(compartments[i].Prepare(transform));
 
             var pose = new BodyPose2D(Bridge.V(rb.position), rb.rotation * Mathf.Deg2Rad);
             V2 cw = core.CentroidWorld(pose);
@@ -273,11 +302,20 @@ namespace BoundedBuoyancy
             Vector2 v = Bridge.GetVelocity(rb);
             core.Step(pose, Bridge.V(rb.worldCenterOfMass), Bridge.V(v), sample, wind, -Physics2D.gravity.y, dt);
 
+            for (int i = 0; i < compartments.Count; i++)
+                if (compartments[i] != null && compartments[i].isActiveAndEnabled)
+                    compartments[i].Finish();
             float m = Mathf.Max((float)core.InertialMass, 1e-4f);
-            if (Mathf.Abs(m - appliedMass) > 1e-6f * m)
+            // The body's own inertia, and the water's share in turning and the flood water's (set again when it has changed
+            // by 1%).
+            float wantInertia = inertia + (float)(core.TurningInertia + core.FloodInertia);
+            bool inertiaChanged = Mathf.Abs(wantInertia - appliedInertia) > 0.01f * wantInertia;
+            if (Mathf.Abs(m - appliedMass) > 1e-6f * m || inertiaChanged)
             {
                 rb.mass = m;
-                rb.inertia = inertia;
+                if (inertiaChanged)
+                    appliedInertia = wantInertia;
+                rb.inertia = appliedInertia;
                 appliedMass = m;
             }
             // An impulse of the body's own mass times the change lands exactly on the target velocity.
@@ -292,6 +330,28 @@ namespace BoundedBuoyancy
             }
             if (core.Crossing != Crossing.None)
                 ReportCrossing();
+        }
+
+        /// <summary>For a body that works out some steps itself (a ball in fast flight): return true when it has done this
+        /// step, and the buoyancy step is left out.</summary>
+        protected virtual bool TryFastStep(float dt) { return false; }
+
+        /// <summary>The water at the world point `p` (or the flat Water Level), without changing the body's own.</summary>
+        protected WaterSample2D SampleAt(V2 p)
+        {
+            PhysicsScene2D scene = gameObject.scene.GetPhysicsScene2D();
+            bool sceneHasWater = false;
+            List<BoundedBuoyancyWater2D> all = BoundedBuoyancyWater2D.active;
+            for (int i = 0; i < all.Count; i++)
+            {
+                BoundedBuoyancyWater2D w = all[i];
+                if (w.PhysicsScene != scene)
+                    continue;
+                sceneHasWater = true;
+                if (w.Core.Contains(p))
+                    return w.Core.Sample(p);
+            }
+            return sceneHasWater ? WaterSample2D.None(waterLevel, waterDensity) : WaterSample2D.Flat(waterLevel, waterDensity);
         }
 
         WaterSample2D FindWater(V2 cw, PhysicsScene2D scene)
@@ -357,6 +417,7 @@ namespace BoundedBuoyancy
                 inertia = rb.inertia;
             appliedMass = -1f;
             appliedDamp = 0f;
+            appliedInertia = -1f;
         }
 
         void ComputeInertia()
@@ -375,6 +436,7 @@ namespace BoundedBuoyancy
             appliedDensity = density;
             rb.inertia = inertia;
             appliedMass = -1f;
+            appliedInertia = -1f;
         }
 
         void BuildShape()

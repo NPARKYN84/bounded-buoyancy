@@ -670,6 +670,143 @@ func run() -> void:
 	check("2D raft on 20 px waves rises and falls (px)", raft_hi - raft_lo, 50.0, 30.0)
 	check("2D ball dropped 100 px: water_entered speed (px/s)", hits[0] if hits.size() > 0 else 0.0, sqrt(2.0 * g2 * 100.0), 8.0)
 
+	# 2D flooding (2.8): a boat 400 x 100 px (4 x 1 m at 100 px/m, 0.2 m thick) at 200 kg/m³ weighs
+	# 160 kg and floats 20 px deep. Two holds low in it, 1.8 x 0.5 m: holed low in the fore hold, the
+	# water inside rises to the sea's level, the boat settles lower and trims by the bow, and stays
+	# afloat; patched and pumped dry, it comes back level. A barge at 300 kg/m³ with one hold the length
+	# of it, 3.8 x 0.9 m (684 kg of water full, more than its 560 kg to spare), sinks.
+	var dock2 := BW2.new()
+	dock2.size = Vector2(4000, 2000)
+	dock2.position = Vector2(60000, 0)
+	dock2.show_water = false
+	root.add_child(dock2)
+	var holds2 := make_body_2d(_rect2(Vector2(400, 100)), 200.0, Vector2(59400, -30), 0.0)
+	for side in [-1.0, 1.0]:
+		var hc := BoundedBuoyancyCompartment2D.new()
+		hc.name = "Aft" if side < 0.0 else "Fore"
+		hc.size = Vector2(180, 50)
+		hc.position = Vector2(95.0 * side, 20)
+		holds2.add_child(hc)
+	var barge2 := make_body_2d(_rect2(Vector2(400, 100)), 300.0, Vector2(60400, -20), 0.0)
+	var bhold := BoundedBuoyancyCompartment2D.new()
+	bhold.size = Vector2(380, 90)
+	barge2.add_child(bhold)
+	await physics_frame
+	holds2.freeze = false
+	barge2.freeze = false
+	await _wait(2.0)
+	var fore2: Node2D = holds2.get_node("Fore")
+	fore2.add_hole(holds2.to_global(Vector2(180, 44)), 0.01)
+	bhold.add_hole(barge2.to_global(Vector2(0, 45)), 0.01)
+	await _wait(60.0)
+	var hole_at: Vector2 = fore2.to_global(Vector2(fore2.holes[0].x, fore2.holes[0].y))
+	print("  2D holds, fore hold holed: %.0f kg of water in, trimmed %.1f deg by the bow; inside %.1f px, outside %.1f px" % [holds2.flood_mass, rad_to_deg(holds2.rotation), fore2.water_level, dock2.height_at(hole_at.x)])
+	check("2D boat holed in its fore hold: water inside at the sea's level (px)", fore2.water_level, dock2.height_at(hole_at.x), 2.0)
+	check("  trims by the bow (deg, bow down)", float(rad_to_deg(holds2.rotation) > 1.0), 1.0, 0.0)
+	check("  stays afloat (px, centre above the surface)", float(holds2.global_position.y < 50.0), 1.0, 0.0)
+	check("  the aft hold stays dry (m³)", (holds2.get_node("Aft") as Node2D).flood_volume, 0.0, 0.0)
+	check("2D barge with one hold the length of it, holed: sinks (px down)", float(barge2.global_position.y > 200.0), 1.0, 0.0)
+	fore2.patch_holes()
+	fore2.pump_rate = 0.05
+	await _wait(20.0)
+	check("  patched and pumped dry: level again (deg)", absf(rad_to_deg(holds2.rotation)), 0.0, 0.5)
+	check("  and as high as before (px)", holds2.global_position.y, -30.0, 1.0)
+	holds2.queue_free()
+	barge2.queue_free()
+	dock2.queue_free()
+
+	# 2D cannons. A 24-pounder at 5 degrees from 3 m above the sea first grazes the water where the same
+	# drag law worked through in steps of 0.1 ms puts it (in air of fixed density here); iron shot meeting
+	# the water at 4 degrees skips and at 10 degrees goes in; a shot fired into a ship's side just below
+	# the waterline goes through the planking, holes the hold, pushes the ship, and the hold floods; the
+	# gun's recoil gives its ship the shot's and the powder gas's momentum.
+	var sea2c := BW2.new()
+	sea2c.size = Vector2(400000, 3000)
+	sea2c.position = Vector2(0, 80000)
+	sea2c.show_water = false
+	root.add_child(sea2c)
+	var g2c := float(ProjectSettings.get_setting("physics/2d/default_gravity")) / 100.0
+	var gun2c := BoundedBuoyancyCannon2D.new()
+	gun2c.spread = 0.0
+	gun2c.position = Vector2(-150000, 80000 - 300)
+	gun2c.rotation_degrees = -5.0
+	root.add_child(gun2c)
+	var shot2c: RigidBody2D = gun2c.fire()
+	shot2c.collision_layer = 0
+	shot2c.collision_mask = 0
+	var graze2c := [INF, 0.0, 0.0]
+	shot2c.water_entered.connect(func(_s: float, at: Vector2) -> void:
+		if graze2c[0] == INF:
+			graze2c[0] = (at.x + 150000.0) / 100.0
+			graze2c[1] = graze2c[2])
+	var t2c := 0.0
+	while graze2c[0] == INF and t2c < 15.0:
+		await physics_frame
+		t2c += dt
+		graze2c[2] = t2c
+	var ref2c := _flight2c(488.0, 5.0, 3.0, gun2c.shot_diameter, gun2c.shot_mass, g2c)
+	print("  2D 24-pounder at 5 degrees: grazes at %.1f m after %.2f s (worked through: %.1f m, %.2f s)" % [graze2c[0], graze2c[1], ref2c[0], ref2c[1]])
+	check("2D 24-pounder at 5 degrees: first graze (m)", graze2c[0], ref2c[0], 0.01 * ref2c[0])
+	check("  time of flight (s)", graze2c[1], ref2c[1], 0.05)
+	shot2c.queue_free()
+	gun2c.queue_free()
+	for case in [[4.0, true], [10.0, false]]:
+		var skip2c := await _skips2c(7200.0, 100.0, case[0])
+		check("2D iron shot at 100 m/s, %.0f degrees: %s" % [case[0], "skips" if case[1] else "goes in"], float(skip2c), float(case[1]), 0.0)
+	# The target: a boat 4 x 1 m at 300 kg/m³, oak sides 5 cm thick, one hold.
+	var ship2c := make_body_2d(_rect2(Vector2(400, 100)), 300.0, Vector2(100000, 80000 - 20), 0.0)
+	ship2c.collision_layer = 1
+	var planks2c := BoundedBuoyancyHull2D.new()
+	planks2c.thickness = 0.05
+	ship2c.add_child(planks2c)
+	var hold2c := BoundedBuoyancyCompartment2D.new()
+	hold2c.size = Vector2(380, 90)
+	ship2c.add_child(hold2c)
+	await physics_frame
+	ship2c.freeze = false
+	await _wait(2.0)
+	var struck2c := []
+	planks2c.struck.connect(func(_b: RigidBody2D, at: Vector2, through: bool, out: float) -> void:
+		struck2c.append([at, through, out]))
+	var low2c := BoundedBuoyancyCannon2D.new()
+	low2c.gun = BoundedBuoyancyCannon.Gun.POUNDER_6
+	low2c.spread = 0.0
+	low2c.muzzle_speed = 200.0
+	low2c.position = Vector2(ship2c.global_position.x - 260, 80000 + 15)
+	root.add_child(low2c)
+	var vx2c := ship2c.linear_velocity.x
+	var ball2c: RigidBody2D = low2c.fire()
+	await _wait(0.5)
+	print("  2D shot into a boat's side below the waterline: %s; %d holes; boat pushed %.2f m/s" % [str(struck2c), hold2c.holes.size(), (ship2c.linear_velocity.x - vx2c) / 100.0])
+	check("2D shot strikes the planking below the waterline (strikes)", float(struck2c.size() >= 1), 1.0, 0.0)
+	check("  goes in through it", float(struck2c.size() >= 1 and struck2c[0][1]), 1.0, 0.0)
+	check("  holes the hold (holes)", float(hold2c.holes.size() >= 1), 1.0, 0.0)
+	check("  pushes the boat away (m/s)", float(ship2c.linear_velocity.x > vx2c), 1.0, 0.0)
+	await _wait(10.0)
+	check("  and the hold floods (kg)", float(ship2c.flood_mass > 50.0), 1.0, 0.0)
+	if is_instance_valid(ball2c):
+		ball2c.queue_free()
+	low2c.queue_free()
+	ship2c.queue_free()
+	# Recoil: a 24-pounder on a free-floating raft gives it (m_shot + ½ m_charge) v of momentum.
+	var raft2c := make_body_2d(_rect2(Vector2(600, 60)), 500.0, Vector2(-50000, 80000 - 1), 0.0)
+	var rgun := BoundedBuoyancyCannon2D.new()
+	rgun.spread = 0.0
+	rgun.position = Vector2(0, -60)
+	raft2c.add_child(rgun)
+	await physics_frame
+	raft2c.freeze = false
+	await _wait(2.0)
+	var v0r := raft2c.linear_velocity.x
+	var rshot: RigidBody2D = rgun.fire()
+	rshot.collision_mask = 0
+	await physics_frame
+	var got_r := (raft2c.linear_velocity.x - v0r) / 100.0 * raft2c.mass
+	check("2D recoil: momentum given to the raft (kg m/s)", -got_r, rgun.recoil_momentum(), 0.1 * rgun.recoil_momentum())
+	rshot.queue_free()
+	raft2c.queue_free()
+	sea2c.queue_free()
+
 	# B13: the surface of another water system. A stand-in "ocean" gives the same waves as a water
 	# node 40 m away, so bodies on it must move exactly as their twins on the water node's own waves.
 	# Both twins cut the waterline in GDScript, so that only the surfaces differ: the native kernel
@@ -2815,6 +2952,63 @@ func make_air_ball(dens: float, model: int, at: Vector3, half_height: float) -> 
 	b.air_density = 1.2
 	b.air_half_height = half_height
 	return b
+
+
+## [range (m), time (s)] of a ball fired at `v0` m/s, `deg` up, from `h` m above still water to its first
+## graze, in air of 1.2 kg/m³ and sound at 343 m/s, worked through in steps of 0.1 ms.
+func _flight2c(v0: float, deg: float, h: float, d: float, m: float, g: float) -> Array:
+	var vol := PI / 6.0 * d * d * d
+	var area := PI * 0.25 * d * d
+	var a := 0.5 * d
+	var rho := 1.2
+	var p := Vector2(0.0, h)
+	var v := Vector2(cos(deg_to_rad(deg)), sin(deg_to_rad(deg))) * v0
+	var step := 1e-4
+	var t := 0.0
+	var mi := m + rho * vol
+	var up := (rho * vol - m) * g / mi
+	while p.y - a > 0.0 and t < 20.0:
+		var s := v.length()
+		var acc := -0.5 * BALL.drag_coefficient_at(s, d, rho, 343.0) * rho * area * s / mi * v + Vector2(0.0, up)
+		var vm := v + acc * 0.5 * step
+		var sm := vm.length()
+		var accm := -0.5 * BALL.drag_coefficient_at(sm, d, rho, 343.0) * rho * area * sm / mi * vm + Vector2(0.0, up)
+		var prev := p
+		p += vm * step
+		v += accm * step
+		t += step
+		if p.y - a <= 0.0:
+			var f := (prev.y - a) / (prev.y - p.y)
+			return [prev.x + f * (p.x - prev.x), t - step + f * step]
+	return [p.x, t]
+
+
+## Whether a 2D ball of `density`, 14 cm across, meeting the still sea of the 2D cannon checks at
+## `speed` m/s, `deg` below level, skips.
+func _skips2c(density: float, speed: float, deg: float) -> bool:
+	var ball := BoundedBuoyancyCannonball2D.new()
+	var cs := CollisionShape2D.new()
+	cs.shape = _circle2(7.0)
+	ball.add_child(cs)
+	ball.thickness = 4.0 * 0.07 / 3.0
+	ball.density = density
+	ball.air_density = 0.0
+	ball.lifetime = 0.0
+	ball.collision_layer = 0
+	ball.collision_mask = 0
+	ball.position = Vector2(0, 80000 - 7.0 - 0.01)
+	ball.linear_velocity = Vector2(cos(deg_to_rad(deg)), sin(deg_to_rad(deg))) * speed * 100.0
+	root.add_child(ball)
+	var skipped := false
+	for n in 90:
+		await physics_frame
+		if ball.skips > 0:
+			skipped = true
+			break
+		if ball.global_position.y > 80000 + 7.0:
+			break
+	ball.queue_free()
+	return skipped
 
 
 func make_body_2d(shape: Shape2D, dens: float, at: Vector2, rot_deg: float) -> RigidBody2D:
