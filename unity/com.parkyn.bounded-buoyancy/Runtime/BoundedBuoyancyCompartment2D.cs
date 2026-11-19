@@ -27,6 +27,9 @@ namespace BoundedBuoyancy
         [Tooltip("Discharge coefficient of the holes: 0.6 for a sharp-edged hole, up to about 0.95 for a smooth one.")]
         [Range(0.1f, 1f)] public float dischargeCoefficient = 0.6f;
 
+        [Tooltip("Area of a hatch in the top of the space, m² (0: closed). Once the hatch goes under, the sea pours in through it as through a hole, as into a real ship whose deck goes under.")]
+        [Min(0f)] public float hatchArea;
+
         [Tooltip("Water the pumps take out, in m³ per second, while there is water to take.")]
         [Min(0f)] public float pumpRate;
 
@@ -124,6 +127,7 @@ namespace BoundedBuoyancy
             core.Size = Bridge.V(size);
             core.DischargeCoefficient = dischargeCoefficient;
             core.PumpRate = pumpRate;
+            core.HatchArea = hatchArea;
             core.Holes.Clear();
             for (int i = 0; i < holes.Count; i++)
                 core.Holes.Add(new Hole2D(new V2(holes[i].x, holes[i].y), holes[i].z));

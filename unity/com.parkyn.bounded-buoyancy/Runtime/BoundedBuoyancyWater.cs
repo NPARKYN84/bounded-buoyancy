@@ -69,6 +69,10 @@ namespace BoundedBuoyancy
         [SerializeField, HideInInspector] int dataVersion;
 
         [Header("Waves")]
+        [Tooltip("How rough the sea is, from calm to phenomenal, by the sea state code sailors use: sets Wave Height and Wave Length to a real sea's (a rough sea's waves are 3 m high and over 100 m long). Custom: set them yourself. Changing either by hand makes it Custom.")]
+        [SerializeField] BoundedBuoyancySeaState seaState = BoundedBuoyancySeaState.Custom;
+        [SerializeField, HideInInspector] BoundedBuoyancySeaState seaStateBefore = BoundedBuoyancySeaState.Custom;
+
         [Tooltip("Height of the largest wave above the mean surface, in metres. 0 for still water.")]
         [Min(0f)] public float waveHeight = 0f;
 
@@ -245,8 +249,39 @@ namespace BoundedBuoyancy
             }
         }
 
+        /// <summary>How rough the sea is: setting it sets waveHeight and waveLength to a real sea's (Custom leaves them).
+        /// It can be changed while running.</summary>
+        public BoundedBuoyancySeaState SeaState
+        {
+            get { return seaState; }
+            set
+            {
+                seaState = seaStateBefore = value;
+                ApplySeaState();
+            }
+        }
+
+        void ApplySeaState()
+        {
+            if (seaState == BoundedBuoyancySeaState.Custom)
+                return;
+            waveHeight = BoundedBuoyancySea.WaveHeightOf(seaState);
+            float l = BoundedBuoyancySea.WaveLengthOf(seaState);
+            if (l > 0f)
+                waveLength = l;
+        }
+
         void OnValidate()
         {
+            // A sea state picked: take its waves. The waves changed by hand: no longer that sea state.
+            if (seaState != seaStateBefore)
+            {
+                seaStateBefore = seaState;
+                ApplySeaState();
+            }
+            else if (seaState != BoundedBuoyancySeaState.Custom && (Mathf.Abs(waveHeight - BoundedBuoyancySea.WaveHeightOf(seaState)) > 1e-4f
+                || (BoundedBuoyancySea.WaveLengthOf(seaState) > 0f && Mathf.Abs(waveLength - BoundedBuoyancySea.WaveLengthOf(seaState)) > 1e-3f)))
+                seaState = seaStateBefore = BoundedBuoyancySeaState.Custom;
             size = Vector3.Max(size, new Vector3(0.01f, 0.01f, 0.01f));
             waveLength = Mathf.Max(waveLength, 0.05f);
             if (isActiveAndEnabled)

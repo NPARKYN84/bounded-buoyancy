@@ -4,7 +4,8 @@
 
 - **Made Of** on Bounded Buoyancy Body and Body 2D: twenty-one materials from foam to gold; pick one and the body takes its density (`MadeOf`, `BoundedBuoyancyMaterials.DensityOf`). Setting the density by hand makes it Custom. As in the Godot plugin.
 - **Added Turning** (on): the water's share in rolling and pitching, Lamb's value for an elliptic cylinder of the body's size across each axis, halved at the surface and eased in over half a second; a ball, and turning about the upright axis, are unchanged. In 3D (`BodyCore3D.TurningInertia`) and 2D (`BodyCore2D.TurningInertia`). Core tests: a raft's roll period with and without it. As in the Godot plugin.
-- 2D flooding: **Bounded Buoyancy Compartment 2D** (core `Compartment2D`). Core tests: a boat holed in its fore hold fills to the sea's level there, trims by the bow and stays afloat with the aft hold dry, and comes back level when patched and pumped; a barge with one long hold sinks.
+- **Sea State** on Bounded Buoyancy Water and Water 2D: Calm to Phenomenal, by the sea state code sailors use; each sets the waves to a real sea's (`SeaState`, `BoundedBuoyancySea`). Changing the waves by hand makes it Custom. As in the Godot plugin.
+- 2D flooding: **Bounded Buoyancy Compartment 2D** (core `Compartment2D`), with an optional hatch (**Hatch Area**) that lets the sea in from the top once it goes under. Core tests: a boat holed in its fore hold fills to the sea's level there, trims by the bow and stays afloat with the aft hold dry, and comes back level when patched and pumped; a barge with one long hold sinks.
 - 2D cannons: **Bounded Buoyancy Cannon 2D**, **Bounded Buoyancy Cannonball 2D** (core `BallFlight2D`) and **Bounded Buoyancy Hull 2D**. Core tests: a 24-pounder at 5° grazes the sea where the drag law worked through in 0.1 ms steps puts it; iron shot at 100 m/s skips at 4° and goes in at 10°.
 
 ## [2.7.0] - 2026-11-16

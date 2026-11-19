@@ -30,6 +30,10 @@ extends Node2D
 	set(value):
 		holes = value
 		queue_redraw()
+## Area of a hatch in the top of the space, in m² (0: closed). Once the hatch goes under, the sea
+## pours in through it as through a hole, as it does into a real ship whose deck goes under: that is
+## what sinks a ship holed only at one end.
+@export_range(0.0, 100.0, 0.001, "or_greater", "suffix:m²") var hatch_area: float = 0.0
 ## Discharge coefficient of the holes: 0.6 for a sharp-edged hole, up to about 0.95 for a smooth one.
 @export_range(0.1, 1.0, 0.01) var discharge_coefficient: float = 0.6
 ## Water the pumps take out, in m³ per second, while there is water to take.
@@ -207,7 +211,11 @@ func flood_step(xf: Transform2D, surface: Callable, rho: float, g: float, dt: fl
 	var level: float = state[0]
 	var vol := flood_volume
 	var g_m := g / ppm
-	for hole in holes:
+	var openings := holes
+	if hatch_area > 0.0:
+		openings = holes.duplicate()
+		openings.append(Vector3(0.0, -0.5 * size.y, hatch_area))   # the top is at -y: y points down
+	for hole in openings:
 		if hole.z <= 0.0:
 			continue
 		var at := xf * Vector2(hole.x, hole.y)
@@ -261,7 +269,8 @@ func _draw() -> void:
 			poly.append(inv * a)
 		if (a.y >= water_level) != (b.y >= water_level):
 			poly.append(inv * (a + (b - a) * ((water_level - a.y) / (b.y - a.y))))
-	if poly.size() >= 3:
+	# A sliver of water (the level at a corner) has no area to draw.
+	if poly.size() >= 3 and not Geometry2D.triangulate_polygon(poly).is_empty():
 		draw_colored_polygon(poly, water_colour)
 	for hole in holes:
 		draw_circle(Vector2(hole.x, hole.y), 2.5, Color(0.1, 0.1, 0.1))

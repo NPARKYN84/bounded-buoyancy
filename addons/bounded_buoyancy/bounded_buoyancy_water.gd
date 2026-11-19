@@ -23,6 +23,12 @@ extends Node3D
 	set(value):
 		size = value.max(Vector3(0.01, 0.01, 0.01))
 		_update_surface()
+## Water that cannot get away: a tank, a bath, a pool, a lock, a flooded hold. What goes into it
+## raises its level by just the volume it pushes aside, spread over the water's area (Size X by Z),
+## and water let into a body's compartments lowers it again: drop a crate into a bath and the level
+## rises; flood a lock's chamber with a ship in it and she rises with it. Off: open water, too big to
+## notice (a lake, the sea).
+@export var confined: bool = false
 ## The water's density, kg/m³. By default it is real water's, worked out from its temperature, its
 ## salt and the pressure at each depth (below); setting a density here fixes it at that instead
 ## (Fixed Density), as earlier versions did. With layers, it is the top water's, at the surface.
@@ -89,17 +95,37 @@ extends Node3D
 		_update_layers()
 
 @export_group("Waves")
+## How rough the sea is, from calm to phenomenal, by the sea state code sailors use: sets Wave Height
+## and Wave Length to a real sea's (a rough sea's waves are 3 m high and over 100 m long; see
+## BoundedBuoyancySea). Custom: set them yourself. Setting either by hand makes it Custom. It can be
+## changed while running.
+@export var sea_state: BoundedBuoyancySea.State = BoundedBuoyancySea.State.CUSTOM:
+	set(value):
+		sea_state = value
+		if value != BoundedBuoyancySea.State.CUSTOM:
+			_from_sea = true
+			wave_height = BoundedBuoyancySea.wave_height_of(value)
+			var l := BoundedBuoyancySea.wave_length_of(value)
+			if l > 0.0:
+				wave_length = l
+			_from_sea = false
+		notify_property_list_changed()
 ## Height of the largest wave above the mean surface, in metres. 0 for still water.
 @export_range(0.0, 5.0, 0.001, "or_greater", "suffix:m") var wave_height: float = 0.0:
 	set(value):
 		wave_height = value
 		_place_time = NAN
 		_update_surface()
+		# Set by hand to something else (not as a scene loads it): no longer that sea state.
+		if not _from_sea and not is_equal_approx(value, BoundedBuoyancySea.wave_height_of(sea_state)):
+			sea_state = BoundedBuoyancySea.State.CUSTOM
 ## Distance from one crest to the next, in metres.
 @export_range(0.05, 200.0, 0.01, "or_greater", "suffix:m") var wave_length: float = 4.0:
 	set(value):
 		wave_length = maxf(value, 0.01)
 		_update_surface()
+		if not _from_sea and not is_equal_approx(wave_length, BoundedBuoyancySea.wave_length_of(sea_state)):
+			sea_state = BoundedBuoyancySea.State.CUSTOM
 ## Direction the waves travel, in degrees round the vertical (0 = along +X).
 @export_range(-180.0, 180.0, 0.1) var wave_direction: float = 0.0:
 	set(value):
@@ -207,6 +233,8 @@ var time: float = 0.0
 static var instances: Array[Node3D] = []
 ## The world this water is in; bodies only use water in their own world.
 var world: World3D
+
+var _from_sea := false   # Wave Height and Length being set by Sea State
 
 const GROUP := "bounded_buoyancy_water"
 const SECOND_LENGTH := 0.63     # second wave: shorter,
@@ -539,6 +567,41 @@ func _update_layers() -> void:
 func _physics_process(dt: float) -> void:
 	if not Engine.is_editor_hint():
 		time += dt
+		if confined:
+			_raise()
+
+
+## How far what is in the water has raised its level (m), with Confined.
+var level_rise: float = 0.0
+var _displaced := 0.0
+var _base_y := NAN
+var _set_y := NAN
+
+
+## Pour `volume_m3` of water into confined water (negative lets it out), as a lock is filled or a
+## bath run: its level goes up by that over its area, and what floats in it rises with it.
+func add_water(volume_m3: float) -> void:
+	var area := size.x * size.z
+	if area > 0.0:
+		global_position.y += volume_m3 / area
+
+
+## A body in the water reports what it pushes aside this step (m³; less any water let into it).
+func displace(volume_m3: float) -> void:
+	_displaced += volume_m3
+
+
+# Confined water: its level is where it was set, raised by what the bodies in it pushed aside last
+# step over its area. (It runs before the bodies each step.) Moved from elsewhere, it starts again
+# from there.
+func _raise() -> void:
+	if is_nan(_base_y) or not is_equal_approx(global_position.y, _set_y):
+		_base_y = global_position.y - level_rise
+	var area := size.x * size.z
+	level_rise = _displaced / area if area > 0.0 else 0.0
+	_displaced = 0.0
+	global_position.y = _base_y + level_rise
+	_set_y = global_position.y
 
 
 func _process(dt: float) -> void:

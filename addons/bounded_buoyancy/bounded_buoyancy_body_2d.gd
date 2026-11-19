@@ -43,6 +43,9 @@ enum Model {
 			own_mass = density * area * _kg
 			if _auto_inertia:
 				inertia = _unit_inertia * density
+		if Engine.is_editor_hint():
+			queue_redraw()   # the waterline preview
+			notify_property_list_changed()
 ## What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats,
 ## steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself.
 ## (Setting the density by hand makes it Custom.)
@@ -172,6 +175,160 @@ func _ready() -> void:
 		_set_up_body()
 
 
+## Where the body would float in still water as it is placed now, its tilt kept (it may then tip
+## over). Works in the editor, and is what the waterline drawn on a body there comes from. Returns {}
+## if it has no shape, else {"sinks", "fraction": share of it under water, "level": the waterline's
+## height (global y, pixels, with the body where it is now), "draft": how deep it floats below that
+## (m), "water_density"}. Air is left out.
+func floating_preview() -> Dictionary:
+	_build_shape()
+	if area <= 0.0:
+		return {}
+	var rho := water_density
+	for w in _Water2D.instances:
+		if is_instance_valid(w) and w.is_inside_tree() and w.world == get_world_2d():
+			rho = w.density
+			break
+	var xf := global_transform
+	var top := INF
+	var bottom := -INF
+	if _circle:
+		var c := xf * _circle_centre
+		top = c.y - _radius
+		bottom = c.y + _radius
+	else:
+		for poly in _polys:
+			for q in poly:
+				var y := (xf * q).y
+				top = minf(top, y)
+				bottom = maxf(bottom, y)
+	var ppm := pixels_per_metre
+	var fraction := density / rho
+	if fraction >= 1.0:
+		return {"sinks": true, "fraction": 1.0, "level": top, "draft": (bottom - top) / ppm, "water_density": rho}
+	# The area under a level grows as the level rises (y falls): find the one that holds the body's
+	# weight. The flat Water Level is borrowed for the measuring and put back.
+	var keep := [water_level, submerged_area, centre_of_buoyancy]
+	var want := fraction * area
+	var lo := top
+	var hi := bottom
+	for i in 40:
+		var mid := 0.5 * (lo + hi)
+		water_level = mid
+		_immerse(xf, null)
+		if submerged_area < want:
+			hi = mid
+		else:
+			lo = mid
+	water_level = keep[0]
+	submerged_area = keep[1]
+	centre_of_buoyancy = keep[2]
+	var level := 0.5 * (lo + hi)
+	return {"sinks": false, "fraction": fraction, "level": level, "draft": (bottom - level) / ppm, "water_density": rho}
+
+
+func _get_property_list() -> Array[Dictionary]:
+	if not Engine.is_editor_hint():
+		return []
+	return [{"name": "Floating preview", "type": TYPE_NIL, "usage": PROPERTY_USAGE_GROUP, "hint_string": "floating_"},
+		{"name": "floating_preview_text", "type": TYPE_STRING, "usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY}]
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"floating_preview_text":
+		var p := floating_preview()
+		if p.is_empty():
+			return "Add a shape to see where it floats."
+		if p.sinks:
+			return "Sinks: denser than the water (%.0f kg/m³)." % p.water_density
+		return "Floats %.0f%% under, %.2f m deep, as placed." % [100.0 * p.fraction, p.draft]
+	return null
+
+
+var _preview_clock := 0.0
+
+
+func _process(dt: float) -> void:
+	if not Engine.is_editor_hint():
+		set_process(false)
+		return
+	# In the editor: redraw the waterline now and then, as shapes are moved and resized.
+	_preview_clock += dt
+	if _preview_clock >= 0.25:
+		_preview_clock = 0.0
+		queue_redraw()
+
+
+func _draw() -> void:
+	if not Engine.is_editor_hint():
+		return
+	var p := floating_preview()
+	if p.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	var inv := global_transform.affine_inverse()
+	if p.sinks:
+		draw_string(font, inv * (global_transform * _centroid) + Vector2(-20, 5), "sinks", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.3, 0.2))
+		return
+	var level: float = p.level
+	# Where the level crosses the shape's outline.
+	var x0 := INF
+	var x1 := -INF
+	var xf := global_transform
+	if _circle:
+		var c := xf * _circle_centre
+		var q := _radius * _radius - (level - c.y) * (level - c.y)
+		if q > 0.0:
+			x0 = c.x - sqrt(q)
+			x1 = c.x + sqrt(q)
+	else:
+		for poly in _polys:
+			for j in poly.size():
+				var a := xf * poly[j]
+				var b := xf * poly[(j + 1) % poly.size()]
+				if (a.y < level) != (b.y < level):
+					var x := a.x + (b.x - a.x) * (level - a.y) / (b.y - a.y)
+					x0 = minf(x0, x)
+					x1 = maxf(x1, x)
+	if x0 >= x1:
+		return
+	var colour := Color(0.15, 0.6, 1.0, 0.9)
+	draw_dashed_line(inv * Vector2(x0, level), inv * Vector2(x1, level), colour, 2.0, 6.0)
+	draw_string(font, inv * Vector2(x1 + 6.0, level + 5.0), "%.0f%% under" % (100.0 * p.fraction), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, colour)
+
+
+var _confined_mine := 0.0   # the area this body pushed aside last step in confined water (px²)
+
+
+## In confined water, the level this body sees includes the rise it makes itself, found here so that
+## what it pushes aside and the rise it makes agree at the end of the step (secant steps), as in
+## BoundedBuoyancyBody: a body nearly filling a tank neither lags its own rise nor chases it.
+func _confined_immerse(xf: Transform2D, w: Node2D) -> void:
+	var width: float = w.size.x
+	if width <= 0.0:
+		return
+	var keep := water_level
+	var surface: float = w.height_at(xf.origin.x)
+	var f := func(d: float) -> float:
+		water_level = surface - d   # raised by d (y points down)
+		_immerse(xf, null)
+		return d - (submerged_area - _confined_mine) / width
+	var d0 := 0.0
+	var f0: float = f.call(d0)
+	var d1 := -f0
+	for i in 6:
+		var f1: float = f.call(d1)
+		if absf(f1) < 1e-7 or absf(f1 - f0) < 1e-12:
+			break
+		var d2 := d1 - f1 * (d1 - d0) / (f1 - f0)
+		d0 = d1
+		f0 = f1
+		d1 = d2
+	water_level = surface - d1
+	_immerse(xf, null)
+	water_level = keep
+
+
 ## Warnings shown on the node in the editor: what it needs to float.
 func _get_configuration_warnings() -> PackedStringArray:
 	var w := PackedStringArray()
@@ -257,6 +414,8 @@ func _physics_process(dt: float) -> void:
 		rho = water.density
 		flow = water.current_at(cw)
 		_immerse(xf, water)
+		if water.confined and water.wave_height <= 0.0:
+			_confined_immerse(xf, water)
 	elif not _world_has_water:
 		_immerse(xf, null)
 	else:
@@ -270,6 +429,11 @@ func _physics_process(dt: float) -> void:
 	added_mass = added_mass_coefficient * displaced
 	# Water in the compartments: weight the body carries, at the water's own centre.
 	flood_mass = _flood(xf, rho, g, dt) if not _compartments.is_empty() else 0.0
+	if water and water.confined:
+		water.displace(submerged_area - flood_mass / rho * pixels_per_metre * pixels_per_metre / thickness)   # confined water rises with what it holds
+		_confined_mine = submerged_area
+	else:
+		_confined_mine = 0.0
 	if _compartments.is_empty():
 		_flood_inertia = 0.0
 		_flood_torque = 0.0

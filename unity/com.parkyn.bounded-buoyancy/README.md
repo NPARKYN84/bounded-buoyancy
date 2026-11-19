@@ -80,7 +80,7 @@ A body bobbing at the surface pushes the water out in rings, and the rings carry
 
 ### Bounded Buoyancy Water
 
-**Size**; the water's density, real water's by default or **Density** with **Fixed Density** (see Real water below); **Wave Height**, **Wave Length** and **Wave Direction** (two travelling sine waves with deep-water speeds); **Current** (in the object's own frame, so turning it turns the river) and **Current Edge** (slower water along the banks); **Splashes**, **Ripples**, **Splash Min Speed** and **Splash Color**; **Show Surface**, **Surface Color**, and optional **Surface Material** and **Effects Material**. Turn the object about Y to turn the waves and the current; keep its scale at 1 and set the size instead. Once a scene has any water volume, bodies float only inside one, so a pond, a pool and the sea can sit at different heights. The water moving up and down in the waves pushes on everything in it, so a small raft rises and falls as far as the water does (99% on waves 20 times its length, where exact wave theory gives 100%), and a ball as dense as water drifting under the surface moves up and down with the water round it.
+**Size**; the water's density, real water's by default or **Density** with **Fixed Density** (see Real water below); **Sea State** (Calm to Phenomenal, by the sea state code sailors use: sets the waves to a real sea's) or **Wave Height**, **Wave Length** and **Wave Direction** (two travelling sine waves with deep-water speeds); **Current** (in the object's own frame, so turning it turns the river) and **Current Edge** (slower water along the banks); **Splashes**, **Ripples**, **Splash Min Speed** and **Splash Color**; **Show Surface**, **Surface Color**, and optional **Surface Material** and **Effects Material**. Turn the object about Y to turn the waves and the current; keep its scale at 1 and set the size instead. Once a scene has any water volume, bodies float only inside one, so a pond, a pool and the sea can sit at different heights. The water moving up and down in the waves pushes on everything in it, so a small raft rises and falls as far as the water does (99% on waves 20 times its length, where exact wave theory gives 100%), and a ball as dense as water drifting under the surface moves up and down with the water round it.
 
 From scripts: `HeightAt(point)`, `CurrentAt(point)`, `Contains(point)`, `DensityAt(point)`, `MaxWave`, `WaveTime`, and `Splash(point, speed, width)` to throw up a splash of your own.
 
@@ -244,6 +244,10 @@ The physics and the settings are the same. In Unity the centre of mass is moved 
 Parkyn, N. (2026). *Bounded Buoyancy: Added Mass and Two Ceilings for Stable, Accurate Buoyancy in Game and Simulation Engines*, v1.1. Companion paper to *ValerieX (VXXX): The Density-State Drive*, v2.2. Zenodo. https://doi.org/10.5281/zenodo.23304509
 
 To cite the plugin itself: Parkyn, N. (2026). *Bounded Buoyancy: stable, accurate buoyancy for Godot and Unity* [Software]. Zenodo. https://doi.org/10.5281/zenodo.23305636 (this DOI always leads to the latest version).
+
+## Crediting
+
+The MIT licence only asks you to keep the licence file with the code. If you'd like to credit it in your game, this line is all it needs: *"Water physics: Bounded Buoyancy by Nicholas Parkyn"*. And do tell me about your game on GitHub: I'd love to see it.
 
 ## Licence
 

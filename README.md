@@ -4,7 +4,7 @@
 
 **Floating done properly, in one node.** Put a BoundedBuoyancyBody on your RigidBody3D and give it a density. It floats at the right depth, tilts and rights itself, rides the waves and never shoots out of the water. That is the whole setup.
 
-**Thirty seconds:** enable the plugin · add the node to a RigidBody3D that has a collision shape · set **Density**, or pick what it is **Made Of** (cork, oak, ice, concrete, steel and more). Water is at height 0 until you place a BoundedBuoyancyWater node where you want it.
+**Thirty seconds:** enable the plugin · add the node to a RigidBody3D that has a collision shape · set **Density**, or pick what it is **Made Of** (cork, oak, ice, concrete, steel and more). Water is at height 0 until you place a BoundedBuoyancyWater node where you want it. Select the body and the editor shows where it will float before you press Play.
 
 **"Isn't an upward force in an Area3D enough?"** For a box sitting still, yes. The moment anything lighter than water goes under (a ball thrown in, a crate off a jetty) a plain upward force on its own mass launches it out at tens of g. This node puts the water the body has to shove aside into its inertia, so it comes up as real things do. Same effort, right answer, and it stays right when you add waves, boats, wind, flooding and the rest below.
 
@@ -41,7 +41,7 @@ Each of these is a node or a setting, and the [guide](docs/GUIDE.md) has the det
 | --- | --- |
 | **Any shape, tilting and righting** — sphere, box, cylinder, capsule, convex, several in one body, or any mesh (open ones are closed for you); buoyancy acts at the centre of the immersed part, so things tip and right themselves | [guide](docs/GUIDE.md#any-shape-tilting-and-righting) |
 | **Settling** — a bobbing body sends out ripples and comes to rest in a few bobs, as real ones do, with no added damping | [guide](docs/GUIDE.md#settling-the-ripples-a-body-makes) |
-| **Water you can place, with waves** — BoundedBuoyancyWater nodes anywhere, each with its own level, density and waves; things rise and fall, sway and drift with them | [guide](docs/GUIDE.md#water-you-can-place-with-waves) |
+| **Water you can place, with waves** — BoundedBuoyancyWater nodes anywhere, each with its own level, density and waves (or a **Sea State**, Calm to Phenomenal); things rise and fall, sway and drift with them; **Confined** water (a bath, a lock) rises with what goes into it | [guide](docs/GUIDE.md#water-you-can-place-with-waves) |
 | **Real water** — density from temperature, salt and depth (UNESCO), a thermocline, and oil, brine or mud layers | [guide](docs/GUIDE.md#real-water-temperature-salt-depth-and-layers) |
 | **Your own ocean** — the ocean shader you already use draws the water; this does the physics on its surface | [guide](docs/GUIDE.md#your-own-ocean-with-this-physics) |
 | **Rivers and currents** — water that flows and carries things, slower by the banks | [guide](docs/GUIDE.md#rivers-and-currents) |
@@ -95,9 +95,10 @@ Open the project folder in Godot 4.4 or later and press Play. **Tab** moves to t
 13. **Float fishing from a jetty.** Hold **Space** and let go to cast, strike with **E** when the float goes under, play the fish with **W**/**S** (reel in, give line) and **+**/**-** (the reel's drag) until it tires. **F** catapults loose feed round the float, **A** lets the angler fish by himself (by what he sees of the float and feels on the line), **C** changes the camera.
 14. **A submarine in real sea water**, brackish over cold salty water from about 25 m down. **F** floods the main tanks and it settles on the salt layer, **Up**/**Down** pump the trim tank, **B** blows the tanks to surface, **W**/**S** and **A**/**D** drive and steer, **T** runs four times faster.
 15. **A pirate battle:** two brigs under sail, broadside to broadside, until one strikes her colours. You sail the pirate: **A**/**D** rudder, **W**/**S** sail, **Q**/**E** fire to port or starboard, **Up**/**Down** the guns, **P** sails her for you, **C** camera, **F** faster.
-16. **The 2D version.** Click to drop things in.
-17. **A 2D battle:** two ships trading fire with 12-pounders; shot goes through the planking, the holds flood and the ships settle and sink. **F** fires both now, **P** pumps one dry.
+16. **The 2D version.** Click to drop things in; **S** changes the sea state.
+17. **A 2D battle:** two ships at anchor trading fire with 12-pounders; shot goes through the planking, the holds flood, and a ship whose deck goes under sinks to the sea bed. **F** fires both now, **P** pumps one dry.
 18. **Made Of:** the same block in nine materials, from foam to steel, each set by one dropdown and floating as deep as that material does (or sinking). **B** switches blocks and balls.
+19. **A lock:** confined water. A boat and a crate raise the chamber's level by just the water they push aside; then it fills and the boat rises with it, and empties again. **F** fills, **E** empties, **C** drops a crate in.
 
 ## Check the numbers
 
@@ -131,6 +132,8 @@ Without the native kernel, lower **Curve Segments** to make cylinders and capsul
 ## Like it?
 
 If Bounded Buoyancy saves you time, a rating or a line on the [Asset Store page](https://store.godotengine.org/asset/valeriex/bounded-buoyancy/) helps other people find it, and bug reports and requests on GitHub decide what comes next.
+
+**Crediting.** The MIT licence only asks you to keep the licence file with the code. If you'd like to credit it in your game, this line is all it needs: *"Water physics: Bounded Buoyancy by Nicholas Parkyn"*. And do tell me about your game, in the [forum thread](https://forum.godotengine.org/t/bounded-buoyancy-free-plugin-for-stable-accurate-buoyancy-3d-and-2d-godot-4-4/145320) or on GitHub: I'd love to see it.
 
 ## Prior work
 

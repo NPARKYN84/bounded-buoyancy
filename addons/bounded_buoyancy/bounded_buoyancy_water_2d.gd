@@ -13,20 +13,42 @@ extends Node2D
 	set(value):
 		size = value.max(Vector2(1.0, 1.0))
 		queue_redraw()
+## Water that cannot get away: a tank, a bath, a lock. What goes into it raises its level by just
+## the area it pushes aside, spread over the water's width, and water let into a body's compartments
+## lowers it again. Off: open water (a lake, the sea).
+@export var confined: bool = false
 ## Density of the water: 1000 kg/m³ fresh, about 1025 sea.
 @export_range(1.0, 20000.0, 1.0, "or_greater", "suffix:kg/m³") var density: float = 1000.0
 
 @export_group("Waves")
+## How rough the sea is, from calm to phenomenal, by the sea state code sailors use: sets Wave Height
+## and Wave Length to a real sea's, at Pixels Per Metre (see BoundedBuoyancySea). Custom: set them
+## yourself. Setting either by hand makes it Custom. It can be changed while running.
+@export var sea_state: BoundedBuoyancySea.State = BoundedBuoyancySea.State.CUSTOM:
+	set(value):
+		sea_state = value
+		_apply_sea_state()
+		notify_property_list_changed()
+## Pixels a metre, for Sea State: the same as your bodies' (100 by default).
+@export_range(1.0, 10000.0, 0.1, "or_greater") var pixels_per_metre: float = 100.0:
+	set(value):
+		pixels_per_metre = value
+		_apply_sea_state()
 ## Height of the largest wave above the mean surface, in pixels. 0 for still water.
 @export_range(0.0, 500.0, 0.1, "or_greater", "suffix:px") var wave_height: float = 0.0:
 	set(value):
 		wave_height = value
 		_update_waves()
+		# Set by hand to something else (not as a scene loads it): no longer that sea state.
+		if not _from_sea and not is_equal_approx(value, BoundedBuoyancySea.wave_height_of(sea_state) * pixels_per_metre):
+			sea_state = BoundedBuoyancySea.State.CUSTOM
 ## Distance from one crest to the next, in pixels.
 @export_range(1.0, 100000.0, 0.1, "or_greater", "suffix:px") var wave_length: float = 400.0:
 	set(value):
 		wave_length = maxf(value, 0.01)
 		_update_waves()
+		if not _from_sea and not is_equal_approx(wave_length, BoundedBuoyancySea.wave_length_of(sea_state) * pixels_per_metre):
+			sea_state = BoundedBuoyancySea.State.CUSTOM
 
 @export_group("Current")
 ## Velocity of the flowing water, in pixels per second (positive x flows right).
@@ -62,6 +84,19 @@ var world: World2D
 
 const SECOND_LENGTH := 0.63
 const SECOND_HEIGHT := 0.4
+
+var _from_sea := false   # Wave Height and Length being set by Sea State
+
+
+func _apply_sea_state() -> void:
+	if sea_state == BoundedBuoyancySea.State.CUSTOM:
+		return
+	_from_sea = true
+	wave_height = BoundedBuoyancySea.wave_height_of(sea_state) * pixels_per_metre
+	var l := BoundedBuoyancySea.wave_length_of(sea_state)
+	if l > 0.0:
+		wave_length = l * pixels_per_metre
+	_from_sea = false
 var _k1 := 0.0
 var _k2 := 0.0
 var _w1 := 0.0
@@ -85,6 +120,36 @@ func _exit_tree() -> void:
 func _physics_process(dt: float) -> void:
 	if not Engine.is_editor_hint():
 		time += dt
+		if confined:
+			_raise()
+
+
+## How far what is in the water has raised its level (pixels, up), with Confined.
+var level_rise: float = 0.0
+var _displaced := 0.0
+var _base_y := NAN
+var _set_y := NAN
+
+
+## Pour `area_px2` of water (as seen in the side view, px²) into confined water (negative lets it
+## out): its level goes up by that over its width, and what floats in it rises with it.
+func add_water(area_px2: float) -> void:
+	if size.x > 0.0:
+		global_position.y -= area_px2 / size.x
+
+
+## A body in the water reports what it pushes aside this step (px²; less any water let into it).
+func displace(area_px2: float) -> void:
+	_displaced += area_px2
+
+
+func _raise() -> void:
+	if is_nan(_base_y) or not is_equal_approx(global_position.y, _set_y):
+		_base_y = global_position.y + level_rise
+	level_rise = _displaced / size.x if size.x > 0.0 else 0.0
+	_displaced = 0.0
+	global_position.y = _base_y - level_rise   # y points down
+	_set_y = global_position.y
 
 
 func _process(dt: float) -> void:

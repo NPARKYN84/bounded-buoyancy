@@ -33,6 +33,9 @@ namespace BoundedBuoyancy.Core
         public V2 Size = new V2(1, 1);
         public readonly List<Hole2D> Holes = new List<Hole2D>();
         public double DischargeCoefficient = 0.6;
+        /// <summary>Area of a hatch in the top of the space, m² (0: closed): once it goes under, the sea pours in through
+        /// it as through a hole.</summary>
+        public double HatchArea;
         /// <summary>Water the pumps take out, m³/s.</summary>
         public double PumpRate;
         /// <summary>Water inside now, m³.</summary>
@@ -188,9 +191,10 @@ namespace BoundedBuoyancy.Core
             double level = LevelFor(c, FloodVolume / thickness, out centre);
             double vol = FloodVolume;
             V2 ignore;
-            for (int k = 0; k < Holes.Count; k++)
+            int count = Holes.Count + (HatchArea > 0.0 ? 1 : 0);
+            for (int k = 0; k < count; k++)
             {
-                Hole2D h = Holes[k];
+                Hole2D h = k < Holes.Count ? Holes[k] : new Hole2D(new V2(0.0, 0.5 * Size.y), HatchArea);
                 if (h.Area <= 0.0)
                     continue;
                 V2 at = pose.Apply(h.Position);

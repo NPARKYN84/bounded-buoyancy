@@ -3,7 +3,8 @@ extends Node2D
 ## cannonball's drag, skips if it meets the water at a shallow angle, and goes through the planking it
 ## strikes (BoundedBuoyancyHull2D), holing the compartment behind it. Holes below the waterline let the
 ## sea in (BoundedBuoyancyCompartment2D): the ships settle, list toward the flooded end, and sink. The
-## recoil of every gun pushes its ship back; each rides to an anchor, so she stays in view.
+## recoil of every gun pushes its ship back. Each rides to an anchor on the sea bed by a cable
+## (BoundedBuoyancyLine2D) that hangs slack until the recoil and the shot push her to the end of it.
 ##   F       fire both now
 ##   P       pumps on the teal ship
 ##   Space   run again
@@ -24,20 +25,34 @@ var _tracers: Array = []  # [ball, Line2D]
 var _status: Label
 var _t := 0.0
 var _rng := RandomNumberGenerator.new()
+var _cables: Array = []
 
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.84, 0.91, 0.97))
 	var cam := Camera2D.new()
-	cam.position = Vector2(0, -120)
+	cam.position = Vector2(0, 40)
 	cam.zoom = Vector2(0.36, 0.36)
 	add_child(cam)
 	_water = BW2.new()
-	_water.size = Vector2(12000, 1400)
+	_water.size = Vector2(12000, 760)
 	_water.wave_height = 4.0
 	_water.wave_length = 500.0
 	_water.water_color = Color(0.22, 0.48, 0.72, 0.65)
 	add_child(_water)
+	# The sea bed, 7 m down, for a sunk ship to come to rest on.
+	var bed := StaticBody2D.new()
+	var bs := CollisionShape2D.new()
+	var br := RectangleShape2D.new()
+	br.size = Vector2(12000, 100)
+	bs.shape = br
+	bed.add_child(bs)
+	var sand := Polygon2D.new()
+	sand.polygon = PackedVector2Array([Vector2(-6000, -50), Vector2(6000, -50), Vector2(6000, 50), Vector2(-6000, 50)])
+	sand.color = Color(0.62, 0.56, 0.42)
+	bed.add_child(sand)
+	bed.position = Vector2(0, 750)
+	add_child(bed)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var title := Label.new()
@@ -83,13 +98,6 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(dt: float) -> void:
 	_t += dt
-	# Each ship rides to an anchor: a slack cable that pulls her back toward her station once she has
-	# been pushed more than a few metres off it, so the recoil and the shot do not carry her out of view.
-	for i in _ships.size():
-		var body: RigidBody2D = _ships[i][0]
-		var off := body.global_position.x - (-APART if i == 0 else APART)
-		var taut := signf(off) * maxf(absf(off) - 100.0, 0.0)
-		body.apply_central_force(Vector2(-taut * body.mass * 0.1 - body.linear_velocity.x * body.mass * 0.4 * float(taut != 0.0), 0.0))
 	if _t > 1.5:
 		for s in _ships:
 			if s[1].is_loaded():
@@ -148,6 +156,9 @@ func _reset() -> void:
 		s[0].queue_free()
 		s[5].queue_free()
 	_ships.clear()
+	for c in _cables:
+		c.queue_free()
+	_cables.clear()
 	for t in _tracers:
 		if is_instance_valid(t[0]):
 			t[0].queue_free()
@@ -158,6 +169,24 @@ func _reset() -> void:
 	_ships.append(_ship(Vector2(-APART, -30), 1.0, TEAL, "Teal"))
 	_ships.append(_ship(Vector2(APART, -30), -1.0, ORANGE, "Orange"))
 	_ships[1][1].reload_left = 1.2   # not quite together
+	# Each anchored by the bow, toward the other ship, so the recoil and the shot pull her cable taut;
+	# a little slack in it.
+	for i in 2:
+		var side := -1.0 if i == 0 else 1.0
+		var cable := BoundedBuoyancyLine2D.new()
+		cable.position = Vector2(side * (APART - 700.0), 700.0)
+		cable.body = _ships[i][0]
+		cable.end_offset = Vector2(-side * 380.0, -40.0)   # her bow, at the deck
+		var reach: float = cable.global_position.distance_to(_ships[i][0].to_global(cable.end_offset))
+		cable.length = reach / 100.0 + 0.3
+		cable.diameter = 0.03
+		cable.width = 3.0
+		add_child(cable)
+		_cables.append(cable)
+		var anchor := Polygon2D.new()
+		anchor.polygon = PackedVector2Array([Vector2(-30, 0), Vector2(30, 0), Vector2(0, -50)])
+		anchor.color = Color(0.2, 0.2, 0.22)
+		cable.add_child(anchor)
 
 
 ## A ship 8 m long, 1.6 m deep and 3 m in the beam, three holds, a 12-pounder on deck facing `facing`.
@@ -205,6 +234,7 @@ func _ship(at: Vector2, facing: float, flag: Color, caption: String) -> Array:
 		c.size = Vector2(240, 120)
 		c.position = Vector2((float(k) - 1.0) * 245.0, 12.0)
 		c.water_colour = Color(0.2, 0.45, 0.75, 0.75)
+		c.hatch_area = 0.6   # a hatch on deck over each hold: once the deck goes under, the sea pours in
 		b.add_child(c)
 		holds.append(c)
 	var gun := BoundedBuoyancyCannon2D.new()

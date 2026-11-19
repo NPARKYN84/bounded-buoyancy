@@ -293,6 +293,153 @@ func run() -> void:
 	for mb in mat_bodies:
 		mb.queue_free()
 	await physics_frame
+	# The floating preview (shown in the editor): an oak block 0.2 m on a side, upright, floats 72%
+	# under, 0.144 m deep; its waterline is that far above its bottom; a ball of half water's density
+	# floats with its centre at the waterline; steel sinks. And the 2D body the same.
+	var pv := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 720.0, Vector3(40.0, 5.0, 0.0), 0.0)
+	var pball := make_shape_body(_sphere(0.1), 500.0, Vector3(41.0, 5.0, 0.0), 0.0)
+	var psteel := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 7850.0, Vector3(42.0, 5.0, 0.0), 0.0)
+	await physics_frame
+	var pp: Dictionary = pv.floating_preview()
+	check("preview: oak block floats 72% under (share)", pp.fraction, 0.72, 1e-6)
+	check("  0.144 m deep (m)", pp.draft, 0.144, 1e-4)
+	check("  its waterline 0.144 m above its bottom (m)", pp.level - (5.0 - 0.1), 0.144, 1e-4)
+	check("  the waterline drawn round it: four sides (lines)", float(pv.waterline_at(pp.level).size() / 2 >= 4), 1.0, 0.0)
+	check("preview: ball at half density, waterline through its centre (m)", pball.floating_preview().level, 5.0, 1e-4)
+	check("preview: steel sinks", float(psteel.floating_preview().sinks), 1.0, 0.0)
+	var pv2 := make_body_2d(_rect2(Vector2(100, 40)), 720.0, Vector2(9000, -500), 0.0)
+	await physics_frame
+	var pp2: Dictionary = pv2.floating_preview()
+	check("preview 2D: plank at oak's density, 72% of its 40 px under (px above its bottom)", -500.0 + 20.0 - pp2.level, 28.8, 0.01)
+	for b in [pv, pball, psteel, pv2]:
+		b.queue_free()
+	await physics_frame
+	# Sea State: Rough sets the waves of a rough sea: 3.25 m from trough to crest (the main wave 1.16 m
+	# above the mean, the second 0.4 of it on top) and 127 m long; a scene loading the same values
+	# keeps it Rough; setting the height by hand makes it Custom. The 2D water the same, in pixels.
+	var seaw := BW.new()
+	seaw.size = Vector3(10, 10, 10)
+	seaw.position = Vector3(0, -5000, 0)
+	seaw.show_surface = false
+	root.add_child(seaw)
+	seaw.sea_state = BoundedBuoyancySea.State.ROUGH
+	check("sea state Rough: trough to crest of the highest waves (m)", 2.0 * seaw.max_wave(), 3.25, 1e-4)
+	check("  wave length (m)", seaw.wave_length, 126.75, 1e-3)
+	seaw.wave_height = seaw.wave_height
+	seaw.wave_length = seaw.wave_length
+	check("  the same values set again (a scene loading): still Rough", float(seaw.sea_state), float(BoundedBuoyancySea.State.ROUGH), 0.0)
+	seaw.wave_height = 0.2
+	check("  a height set by hand: Custom", float(seaw.sea_state), float(BoundedBuoyancySea.State.CUSTOM), 0.0)
+	seaw.queue_free()
+	var sea2s := BW2.new()
+	sea2s.show_water = false
+	sea2s.position = Vector2(0, 90000)
+	root.add_child(sea2s)
+	sea2s.sea_state = BoundedBuoyancySea.State.MODERATE
+	check("2D sea state Moderate at 100 px a metre: trough to crest (px)", 2.0 * sea2s.max_wave(), 187.5, 1e-3)
+	sea2s.queue_free()
+	await physics_frame
+	# Confined water: a bath 2 x 2 m. A bath_crate 0.5 m on a side at 500 kg/m³ dropped into it pushes aside
+	# 0.0625 m³ and raises the level 15.6 mm; a steel ball 0.2 m across that sinks raises it by its whole
+	# volume over the area, 1.05 mm more. A raft filling 81% of the bath (1.8 x 1.8 m) settles without
+	# shaking, the level up by its weight's worth, 202.5 mm. Running in 0.4 m³ more (a lock filling)
+	# raises the level 100 mm and the bath_crate with it.
+	var bath := BW.new()
+	bath.size = Vector3(2, 3, 2)   # its floor (below) is 2 m down; the water goes deeper, so it still holds what sits on the floor as it rises
+	bath.position = Vector3(300, -2000, 0)
+	bath.density = 1000.0
+	bath.confined = true
+	bath.show_surface = false
+	bath.splashes = false
+	bath.ripples = false
+	root.add_child(bath)
+	var bath_floor := StaticBody3D.new()
+	var bfs := CollisionShape3D.new()
+	bfs.shape = _box(Vector3(2, 0.2, 2))
+	bath_floor.add_child(bfs)
+	bath_floor.position = Vector3(300, -2002.1, 0)
+	root.add_child(bath_floor)
+	var bath_crate := make_shape_body(_box(Vector3(0.5, 0.5, 0.5)), 500.0, Vector3(300, -2000.1, 0), 0.0)
+	await physics_frame
+	bath_crate.freeze = false
+	await _wait(10.0)
+	var bath_avg := 0.0
+	for n in 120:
+		await physics_frame
+		bath_avg += bath.level_rise / 120.0
+	check("confined water: a crate in a 2 x 2 m bath raises it (mm, over 2 s)", 1000.0 * bath_avg, 15.625, 0.2)
+	var bath_shot := make_shape_body(_sphere(0.1), 7850.0, Vector3(300.6, -2000.5, 0.6), 0.0)
+	bath_shot.collision_layer = 1   # it comes to rest on the bath's floor
+	bath_shot.collision_mask = 1
+	await physics_frame
+	bath_shot.freeze = false
+	await _wait(5.0)
+	check("  a steel ball sunk in it: its whole volume as well (mm)", 1000.0 * bath.level_rise, 15.625 + 4188.79 / 4000.0, 0.2)
+	var bath_crate_y := 0.0
+	for n in 120:
+		await physics_frame
+		bath_crate_y += bath_crate.global_position.y / 120.0
+	bath.add_water(0.4)
+	await _wait(10.0)
+	check("  0.4 m³ run in: the level up 100 mm more (mm above where it began)", 1000.0 * (bath.global_position.y + 2000.0), 15.625 + 4188.79 / 4000.0 + 100.0, 0.3)
+	var bath_cy := 0.0
+	for n in 120:
+		await physics_frame
+		bath_cy += bath_crate.global_position.y / 120.0
+	check("  and the crate with it (mm, over 2 s)", 1000.0 * (bath_cy - bath_crate_y), 100.0, 1.0)
+	bath_crate.queue_free()
+	bath_shot.queue_free()
+	await physics_frame
+	var bath_raft := make_shape_body(_box(Vector3(1.8, 0.5, 1.8)), 500.0, Vector3(300, -1999.9, 0), 0.0)
+	await physics_frame
+	bath_raft.freeze = false
+	await _wait(15.0)
+	var bath_rise := bath.level_rise
+	var bath_lo := INF
+	var bath_hi := -INF
+	for n in 60:
+		await physics_frame
+		bath_lo = minf(bath_lo, bath_raft.global_position.y)
+		bath_hi = maxf(bath_hi, bath_raft.global_position.y)
+	check("  a raft filling 81% of the bath: the level up its weight's worth (mm)", 1000.0 * bath_rise, 202.5, 1.0)
+	check("  and it settles: still to within 1 mm", 1000.0 * (bath_hi - bath_lo), 0.0, 1.0)
+	bath_raft.queue_free()
+	bath.queue_free()
+	bath_floor.queue_free()
+	await physics_frame
+	# 2D confined water, a tank 200 px wide: a plank 100 x 40 px at half water's density pushes aside
+	# 2000 px² and raises it 10 px; one 180 px long (90% of the width) raises it 18 px and settles still.
+	var tank2 := BW2.new()
+	tank2.size = Vector2(200, 300)
+	tank2.position = Vector2(-90000, 0)
+	tank2.confined = true
+	tank2.show_water = false
+	root.add_child(tank2)
+	var plank2 := make_body_2d(_rect2(Vector2(100, 40)), 500.0, Vector2(-90000, 0), 0.0)
+	await physics_frame
+	plank2.freeze = false
+	await _wait(10.0)
+	var t2avg := 0.0
+	for n in 120:
+		await physics_frame
+		t2avg += tank2.level_rise / 120.0
+	check("2D confined water: a plank in a 200 px tank raises it (px, over 2 s)", t2avg, 10.0, 0.1)
+	plank2.queue_free()
+	var long2 := make_body_2d(_rect2(Vector2(180, 40)), 500.0, Vector2(-90000, 0), 0.0)
+	await physics_frame
+	long2.freeze = false
+	await _wait(10.0)
+	var l2lo := INF
+	var l2hi := -INF
+	for n in 60:
+		await physics_frame
+		l2lo = minf(l2lo, long2.global_position.y)
+		l2hi = maxf(l2hi, long2.global_position.y)
+	check("  one 90% as long as the tank: raises it 18 px (px)", tank2.level_rise, 18.0, 0.2)
+	check("  and settles: still to within 0.2 px", l2hi - l2lo, 0.0, 0.2)
+	long2.queue_free()
+	tank2.queue_free()
+	await physics_frame
 
 	# Turning moves water too. A raft 0.6 x 0.15 x 0.4 m at 400 kg/m³ tipped 5° rolls back and forth
 	# with the period 2π √(I / (m g GM)): GM = B²/12T + T/2 - h/2 = 0.177 m. On its own inertia

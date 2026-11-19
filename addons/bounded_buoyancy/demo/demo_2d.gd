@@ -33,6 +33,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			_reset()
 		elif event.keycode == KEY_TAB:
 			get_tree().change_scene_to_file(NEXT_SCENE)
+		elif event.keycode == KEY_S:
+			# The sea state, round from the demo's own small waves through Calm to Moderate.
+			var states := [BoundedBuoyancySea.State.CUSTOM, BoundedBuoyancySea.State.CALM, BoundedBuoyancySea.State.SMOOTH,
+				BoundedBuoyancySea.State.SLIGHT, BoundedBuoyancySea.State.MODERATE]
+			var next: int = states[(states.find(_water.sea_state) + 1) % states.size()]
+			if next == BoundedBuoyancySea.State.CUSTOM:
+				_water.wave_height = 6.0
+				_water.wave_length = 320.0
+			else:
+				_water.sea_state = next
 		elif event.keycode == KEY_LEFT or event.keycode == KEY_RIGHT:
 			_wind.velocity.x = -_wind.velocity.x
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -45,7 +55,8 @@ func _physics_process(_dt: float) -> void:
 		if absf(p.x) > HALF_WIDTH:
 			b.global_position = Vector2(-signf(p.x) * (HALF_WIDTH - 10.0), p.y)
 	var w: Vector2 = _wind.velocity_at(Vector2.ZERO)
-	_wind_label.text = "Wind now %.1f m/s towards the %s (gusting)" % [w.length() / 100.0, "right" if w.x > 0.0 else "left"]
+	var sea: String = "the demo's small waves" if _water.sea_state == BoundedBuoyancySea.State.CUSTOM else BoundedBuoyancySea.name_of(_water.sea_state)
+	_wind_label.text = "Wind now %.1f m/s towards the %s (gusting).   Sea: %s" % [w.length() / 100.0, "right" if w.x > 0.0 else "left", sea]
 
 
 func _reset() -> void:
@@ -198,7 +209,7 @@ func _build_world() -> void:
 	_wind_label.add_theme_font_size_override("font_size", 18)
 	layer.add_child(_wind_label)
 	var keys := Label.new()
-	keys.text = "Click: drop something     Space: run again     Left / Right: turn the wind round     Tab: next scene"
+	keys.text = "Click: drop something     Space: run again     Left / Right: turn the wind round     S: sea state     Tab: next scene"
 	keys.anchor_top = 1.0
 	keys.anchor_bottom = 1.0
 	keys.offset_left = 24

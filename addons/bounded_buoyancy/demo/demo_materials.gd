@@ -11,7 +11,7 @@ const LOOK := preload("res://addons/bounded_buoyancy/demo/demo_look.gd")
 const BB := preload("res://addons/bounded_buoyancy/bounded_buoyancy_body.gd")
 const BW := preload("res://addons/bounded_buoyancy/bounded_buoyancy_water.gd")
 const MAT := preload("res://addons/bounded_buoyancy/bounded_buoyancy_materials.gd")
-const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo.tscn"
+const NEXT_SCENE := "res://addons/bounded_buoyancy/demo/demo_lock.tscn"
 
 const INK := Color(0.12, 0.14, 0.18)
 const SIZE := 0.6        # m, the blocks' side and the balls' diameter
