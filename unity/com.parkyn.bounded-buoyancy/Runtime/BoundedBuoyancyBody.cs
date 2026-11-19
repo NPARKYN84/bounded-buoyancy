@@ -39,6 +39,10 @@ namespace BoundedBuoyancy
         [Tooltip("Density of the body, kg/m³ (water is 1000). Its own mass is density x volume. It can be changed while running: ballast tanks, or a hot-air balloon whose air is heated (helium balloon about 0.5).")]
         [SerializeField, Min(0.001f)] float density = 500f;
 
+        [Tooltip("What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats, steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself. (Setting the density by hand makes it Custom.)")]
+        [SerializeField] BoundedBuoyancyMaterial madeOf = BoundedBuoyancyMaterial.Custom;
+        [SerializeField, HideInInspector] BoundedBuoyancyMaterial madeOfBefore = BoundedBuoyancyMaterial.Custom;
+
         [Tooltip("Added-mass coefficient C of the shape: 0.5 for a sphere, about 1 for a long cylinder moving side-on. Buoyancy-driven rising is capped at g/C.")]
         [Range(0f, 5f)] public float addedMassCoefficient = 0.5f;
 
@@ -56,6 +60,9 @@ namespace BoundedBuoyancy
 
         [Tooltip("Damping of spin in the water, per second when fully submerged; it scales with the submerged fraction. In air it acts in proportion to how light the body is against the air, so balloons are steadied and stones are not.")]
         [Min(0f)] public float angularDrag = 3f;
+
+        [Tooltip("Rolling and pitching move water too: a boat rolling or pitching pushes water aside, so it rolls and pitches as if heavier than it is (Lamb's added inertia for its shape; nothing for a ball). On by default; off rolls it on its own inertia alone, as before 2.8.")]
+        public bool addedTurning = true;
 
         [Tooltip("Keep momentum when the added mass grows as the body enters the water (von Kármán, 1929).")]
         public bool keepMomentumOnEntry = true;
@@ -133,6 +140,22 @@ namespace BoundedBuoyancy
         bool savedGravity, savedAutoCom, savedAutoTensor;
         float savedLinearDamping, savedAngularDamping;
 
+        /// <summary>What the body is made of: setting it gives the body that material's density (Custom leaves the density as
+        /// it is). Setting the density by hand makes it Custom.</summary>
+        public BoundedBuoyancyMaterial MadeOf
+        {
+            get { return madeOf; }
+            set
+            {
+                madeOf = madeOfBefore = value;
+                if (value != BoundedBuoyancyMaterial.Custom)
+                {
+                    density = BoundedBuoyancyMaterials.DensityOf(value);
+                    ApplyDensity();
+                }
+            }
+        }
+
         /// <summary>Density of the body (kg/m³). Can be changed while running; mass and inertia follow.</summary>
         public float Density
         {
@@ -140,6 +163,8 @@ namespace BoundedBuoyancy
             set
             {
                 density = Mathf.Max(value, 0.001f);
+                if (madeOf != BoundedBuoyancyMaterial.Custom && Mathf.Abs(density - BoundedBuoyancyMaterials.DensityOf(madeOf)) > 0.001f)
+                    madeOf = madeOfBefore = BoundedBuoyancyMaterial.Custom;
                 ApplyDensity();
             }
         }
@@ -283,6 +308,15 @@ namespace BoundedBuoyancy
         void OnValidate()
         {
             density = Mathf.Max(density, 0.001f);
+            // A material picked: take its density. The density changed by hand: no longer that material.
+            if (madeOf != madeOfBefore)
+            {
+                if (madeOf != BoundedBuoyancyMaterial.Custom)
+                    density = BoundedBuoyancyMaterials.DensityOf(madeOf);
+                madeOfBefore = madeOf;
+            }
+            else if (madeOf != BoundedBuoyancyMaterial.Custom && Mathf.Abs(density - BoundedBuoyancyMaterials.DensityOf(madeOf)) > 0.001f)
+                madeOf = madeOfBefore = BoundedBuoyancyMaterial.Custom;
             curveSegments = Mathf.Clamp(curveSegments, 8, 64);
             if (Application.isPlaying && setUp)
                 ApplyDensity();
@@ -344,6 +378,7 @@ namespace BoundedBuoyancy
             core.AddedMassCoefficient = addedMassCoefficient;
             core.DragCoefficient = dragCoefficient;
             core.AngularDrag = angularDrag;
+            core.AddedTurning = addedTurning;
             core.KeepMomentumOnEntry = keepMomentumOnEntry;
             core.WaveDamping = waveDamping;
             core.AirDensity = airDensity;
@@ -453,20 +488,28 @@ namespace BoundedBuoyancy
         /// <summary>Mass of the water in the compartments this step (kg).</summary>
         public float FloodMass { get { return (float)core.FloodMass; } }
 
-        /// <summary>The rotational inertia with the compartments' water in it, as weight at its centres (it does not turn
-        /// with the body): worked out again when the water has changed it by 1%, and back to the body's own once dry.
+        /// <summary>The rotational inertia with the water in it: the compartments' water, as weight at its centres (it does
+        /// not turn with the body), and the water's share in turning (the core's TurningInertia): worked out again when the
+        /// water has changed it by 1%, and back to the body's own once there is none.
         /// Returns whether it changed.</summary>
         bool FloodInertia()
         {
-            if (core.FloodMass <= 0.0)
+            V3 turning = core.TurningInertia;
+            bool anyTurning = turning.x != 0.0 || turning.y != 0.0 || turning.z != 0.0;
+            if (core.FloodMass <= 0.0 && !anyTurning)
             {
                 if (!flooded)
                     return false;
                 flooded = false;
                 return true;
             }
-            // The body's own inertia plus the water's.
-            Sym3 i = Sym3.FromPrincipal(Bridge.V(tensor), Bridge.M(tensorRotation)) + core.FloodInertia;
+            // The body's own inertia plus the water's: the compartments' and its share in turning.
+            Sym3 i = Sym3.FromPrincipal(Bridge.V(tensor), Bridge.M(tensorRotation));
+            if (core.FloodMass > 0.0)
+                i = i + core.FloodInertia;
+            i.xx += turning.x;
+            i.yy += turning.y;
+            i.zz += turning.z;
             if (flooded)
             {
                 // Compare the whole tensor, so that a turn of its axes counts as well as a change in its moments.

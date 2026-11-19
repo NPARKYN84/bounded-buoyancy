@@ -295,7 +295,7 @@ namespace BoundedBuoyancy.Tests
                 }
             }
             Assert.AreEqual(10f, 100f * (hi - lo), 6f, "raft on 5 cm waves: rises and falls (cm)");
-            Assert.AreEqual(8f, tilt, 7.5f, "raft on 5 cm waves: rocks but stays upright (deg)");
+            Assert.AreEqual(15f, tilt, 15f, "raft on 5 cm waves: rocks but stays upright (deg, under 30; with the water's share in its rolling, its roll is slower and nearer the waves')");
         }
 
         // B7 -------------------------------------------------------------------------------------------------------
@@ -684,6 +684,7 @@ namespace BoundedBuoyancy.Tests
             Water(new Vector3(0f, 0f, 700f), new Vector3(60f, 30f, 60f));
             // A ship with two side compartments, holed in the starboard (+X) one below the waterline.
             BoundedBuoyancyBody ship = Box(new Vector3(3f, 1.2f, 8f), 350f, new Vector3(0f, 0.18f, 700f));
+            ship.addedTurning = false;   // its inertia checked against its own and the flood water's
             BoundedBuoyancyCompartment port = null, starboard = null;
             foreach (float side in new[] { -1f, 1f })
             {

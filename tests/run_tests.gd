@@ -257,6 +257,82 @@ func run() -> void:
 	await physics_frame
 
 	# B6: water nodes. Once a scene has one, bodies float only inside water nodes.
+	# Made of: pick a material and the body takes its density, and floats or sinks as it does: a block
+	# of oak floats 72% under, of ice 91.7% under; ebony and steel sink. Setting the density by hand
+	# makes it Custom.
+	var mat_bodies := []
+	var mat_list := [BoundedBuoyancyMaterials.Kind.OAK, BoundedBuoyancyMaterials.Kind.ICE,
+		BoundedBuoyancyMaterials.Kind.CORK, BoundedBuoyancyMaterials.Kind.EBONY, BoundedBuoyancyMaterials.Kind.STEEL]
+	for mi in mat_list.size():
+		var mb := make_shape_body(_box(Vector3(0.2, 0.2, 0.2)), 500.0, Vector3(30.0 + mi, 0.0, 0.0), 0.0)
+		mb.made_of = mat_list[mi]
+		mat_bodies.append(mb)
+	await physics_frame
+	for mb in mat_bodies:
+		mb.freeze = false
+	await _wait(15.0)
+	# (The share under water, averaged over 3 s: they may still bob a little.)
+	var under := [0.0, 0.0, 0.0]
+	var frames_m := 0
+	var tm := 0.0
+	while tm < 3.0:
+		await physics_frame
+		tm += dt
+		frames_m += 1
+		for mi in 3:
+			under[mi] += mat_bodies[mi].submerged_volume / mat_bodies[mi].volume
+	for mi in 3:
+		var mb: Variant = mat_bodies[mi]
+		var share: float = 100.0 * under[mi] / frames_m
+		print("  %s: %.0f kg/m³, %.1f%% under" % [BoundedBuoyancyMaterials.name_of(mb.made_of), mb.density, share])
+		check("made of %s: floats as far under as its density over water's (%%)" % BoundedBuoyancyMaterials.name_of(mb.made_of),
+			share, mb.density / 10.0, 1.0)
+	check("made of Ebony and of Steel: both sink (more than 0.3 m under)", minf(minf(-mat_bodies[3].global_position.y, -mat_bodies[4].global_position.y), 0.3), 0.3, 0.0)
+	mat_bodies[0].density = 650.0
+	check("setting the density by hand makes it Custom", float(mat_bodies[0].made_of), float(BoundedBuoyancyMaterials.Kind.CUSTOM), 0.0)
+	for mb in mat_bodies:
+		mb.queue_free()
+	await physics_frame
+
+	# Turning moves water too. A raft 0.6 x 0.15 x 0.4 m at 400 kg/m³ tipped 5° rolls back and forth
+	# with the period 2π √(I / (m g GM)): GM = B²/12T + T/2 - h/2 = 0.177 m. On its own inertia
+	# (0.219 kg m²) that is 0.59 s; with the water's share (Lamb's for its section, π/8 ρ (a² - b²)² L,
+	# halved at the surface, with the draft doubled by the surface's mirror: 0.156 kg m²) it is 0.77 s.
+	# A ball has none.
+	var periods := []
+	for turning in [false, true]:
+		var rr := make_shape_body(_box(Vector3(0.6, 0.15, 0.4)), 400.0, Vector3(40.0 + (3.0 if turning else 0.0), 0.075 - 0.06, 0.0), 0.0)
+		rr.added_turning = turning
+		rr.angular_drag = 0.0
+		rr.rotation_degrees = Vector3(5.0, 0.0, 0.0)
+		await physics_frame
+		rr.freeze = false
+		var crossings := []
+		var prev_a := 5.0
+		var tr := 0.0
+		while tr < 6.0 and crossings.size() < 5:
+			await physics_frame
+			tr += dt
+			var a := rad_to_deg(asin(clampf(rr.global_transform.basis.y.normalized().z, -1.0, 1.0)))
+			if tr > 0.5 and signf(a) != signf(prev_a) and prev_a != 0.0:
+				crossings.append(tr)
+			prev_a = a
+		periods.append(2.0 * (crossings[-1] - crossings[0]) / (crossings.size() - 1) if crossings.size() > 1 else 0.0)
+		rr.queue_free()
+	var gm := 0.4 * 0.4 / (12.0 * 0.06) + 0.03 - 0.075
+	var m_r := 400.0 * 0.6 * 0.15 * 0.4
+	var i_own := m_r * (0.4 * 0.4 + 0.15 * 0.15) / 12.0
+	var i_add := PI / 8.0 * 1000.0 * pow(0.2 * 0.2 - 0.06 * 0.06, 2.0) * 0.6 * 0.5
+	print("  raft rolling: %.3f s on its own inertia, %.3f s with the water's share" % [periods[0], periods[1]])
+	check("raft rolls on its own inertia: period (s)", periods[0], TAU * sqrt(i_own / (m_r * G * gm)), 0.05 * TAU * sqrt(i_own / (m_r * G * gm)))
+	check("  with the water's share in turning: period (s)", periods[1], TAU * sqrt((i_own + i_add) / (m_r * G * gm)), 0.05 * TAU * sqrt((i_own + i_add) / (m_r * G * gm)))
+	var ball_t := make_shape_body(_sphere(0.1), 500.0, Vector3(46.0, 0.0, 0.0), 0.0)
+	await physics_frame
+	ball_t._immerse(ball_t.global_transform, 0.0)
+	check("  a ball has none (kg m²)", ball_t._added_turning_inertia(ball_t.global_transform, 1000.0).length(), 0.0, 1e-9)
+	ball_t.queue_free()
+	await physics_frame
+
 	print("B6  Water nodes and waves")
 	var pond := BW.new()
 	pond.density = 1000.0   # fixed, as the checks below are worked out for
@@ -319,7 +395,9 @@ func run() -> void:
 	check("cube in a raised pool bobs about its level (cm)", 100.0 * cube_sum / cube_n, 100.0 + 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5)
 	check("cube in sea water floats at its sea-water level (cm)", 100.0 * salt.global_position.y, 100.0 * 0.1 * (1.0 - 2.0 * 900.0 / 1025.0), 0.15)
 	check("raft on 5 cm waves: rises and falls (cm)", 100.0 * (highest - lowest), 10.0, 6.0)
-	check("raft on 5 cm waves: rocks but stays upright (deg)", max_tilt, 8.0, 7.5)
+	# (It rocks most when its roll is slow enough to meet the waves: with the water's share in its
+	# turning, its roll takes 0.77 s against 0.59 s on its own inertia, nearer the waves' 1.4 s.)
+	check("raft on 5 cm waves: rocks but stays upright (deg, under 30)", max_tilt, 15.0, 15.0)
 	for b in [tt, dry, cube, salt, rider]:
 		b.queue_free()
 	await physics_frame
@@ -1504,6 +1582,7 @@ func run() -> void:
 
 	# Side damage: a hole in the starboard (+x) compartment below the waterline lists the ship to starboard.
 	var ship17 := make_shape_body(_box(Vector3(3, 1.2, 8)), 350.0, Vector3(40, 0.18, 6000), 0.0)
+	ship17.added_turning = false   # its inertia checked against its own and the flood water's
 	for side in [-1.0, 1.0]:
 		var sidec: Node3D = COMPARTMENT.new()
 		sidec.size = Vector3(1.4, 1.2, 3)
@@ -1530,6 +1609,7 @@ func run() -> void:
 
 	# Taken out while flooded, a compartment takes its water's inertia with it.
 	var tub17 := make_shape_body(_box(Vector3(2, 1, 2)), 300.0, Vector3(50, 0.0, 6000), 0.0)
+	tub17.added_turning = false   # the flood water's inertia alone
 	var tubhold17: Node3D = COMPARTMENT.new()
 	tubhold17.size = Vector3(1.8, 0.8, 1.8)
 	tubhold17.flood_volume = 0.3

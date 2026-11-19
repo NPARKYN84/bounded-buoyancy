@@ -27,6 +27,10 @@ namespace BoundedBuoyancy
         [Tooltip("Density of the body, kg/m³ (water is 1000). It can be changed while running.")]
         [SerializeField, Min(0.001f)] float density = 500f;
 
+        [Tooltip("What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats, steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself. (Setting the density by hand makes it Custom.)")]
+        [SerializeField] BoundedBuoyancyMaterial madeOf = BoundedBuoyancyMaterial.Custom;
+        [SerializeField, HideInInspector] BoundedBuoyancyMaterial madeOfBefore = BoundedBuoyancyMaterial.Custom;
+
         [Tooltip("Added-mass coefficient C of the shape in 2D: 1 for a circle, more for a flat plate moving face-on. Buoyancy-driven rising is capped at g/C.")]
         [Range(0f, 5f)] public float addedMassCoefficient = 1f;
 
@@ -93,12 +97,30 @@ namespace BoundedBuoyancy
         float savedGravityScale, savedLinearDamping, savedAngularDamping;
         bool savedAutoMass;
 
+        /// <summary>What the body is made of: setting it gives the body that material's density (Custom leaves the density as
+        /// it is). Setting the density by hand makes it Custom.</summary>
+        public BoundedBuoyancyMaterial MadeOf
+        {
+            get { return madeOf; }
+            set
+            {
+                madeOf = madeOfBefore = value;
+                if (value != BoundedBuoyancyMaterial.Custom)
+                {
+                    density = BoundedBuoyancyMaterials.DensityOf(value);
+                    ApplyDensity();
+                }
+            }
+        }
+
         public float Density
         {
             get { return density; }
             set
             {
                 density = Mathf.Max(value, 0.001f);
+                if (madeOf != BoundedBuoyancyMaterial.Custom && Mathf.Abs(density - BoundedBuoyancyMaterials.DensityOf(madeOf)) > 0.001f)
+                    madeOf = madeOfBefore = BoundedBuoyancyMaterial.Custom;
                 ApplyDensity();
             }
         }
@@ -167,6 +189,15 @@ namespace BoundedBuoyancy
         void OnValidate()
         {
             density = Mathf.Max(density, 0.001f);
+            // A material picked: take its density. The density changed by hand: no longer that material.
+            if (madeOf != madeOfBefore)
+            {
+                if (madeOf != BoundedBuoyancyMaterial.Custom)
+                    density = BoundedBuoyancyMaterials.DensityOf(madeOf);
+                madeOfBefore = madeOf;
+            }
+            else if (madeOf != BoundedBuoyancyMaterial.Custom && Mathf.Abs(density - BoundedBuoyancyMaterials.DensityOf(madeOf)) > 0.001f)
+                madeOf = madeOfBefore = BoundedBuoyancyMaterial.Custom;
             thickness = Mathf.Max(thickness, 0.001f);
             if (Application.isPlaying && setUp)
                 ApplyDensity();

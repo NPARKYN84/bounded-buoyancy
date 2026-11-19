@@ -59,10 +59,25 @@ enum Model {
 @export_range(0.01, 20000.0, 0.01, "or_greater", "suffix:kg/m³") var density: float = 500.0:
 	set(value):
 		density = maxf(value, 0.001)
+		# Set by hand: no longer a listed material.
+		if not _from_material and made_of != BoundedBuoyancyMaterials.Kind.CUSTOM \
+				and not is_equal_approx(density, BoundedBuoyancyMaterials.density_of(made_of)):
+			made_of = BoundedBuoyancyMaterials.Kind.CUSTOM
 		if volume > 0.0:
 			own_mass = density * volume
 			if _auto_inertia:
 				inertia = _unit_inertia * density
+## What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats,
+## steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself.
+## (Setting the density by hand makes it Custom.)
+@export var made_of: BoundedBuoyancyMaterials.Kind = BoundedBuoyancyMaterials.Kind.CUSTOM:
+	set(value):
+		made_of = value
+		if value != BoundedBuoyancyMaterials.Kind.CUSTOM:
+			_from_material = true
+			density = BoundedBuoyancyMaterials.density_of(value)
+			_from_material = false
+		notify_property_list_changed()
 ## Added-mass coefficient C of the shape: 0.5 for a sphere, about 1 for a long cylinder
 ## moving side-on. Buoyancy-driven rising is capped at g/C.
 @export_range(0.0, 5.0, 0.01) var added_mass_coefficient: float = 0.5
@@ -82,6 +97,10 @@ enum Model {
 ## fraction. It stands in for the energy that rolling and pitching lose to the water. In air it acts in
 ## proportion to how light the body is against the air, so balloons are steadied and stones are not.
 @export_range(0.0, 20.0, 0.01, "or_greater", "suffix:1/s") var angular_drag: float = 3.0
+## Rolling and pitching move water too: a boat rolling or pitching pushes water aside, so it rolls and
+## pitches as if heavier than it is (Lamb's added inertia for its shape; nothing for a ball). On by
+## default; off rolls it on its own inertia alone, as before 2.8.
+@export var added_turning := true
 ## Keep momentum when the added mass grows as the body enters the water (von Kármán, 1929).
 @export var keep_momentum_on_entry: bool = true
 ## Wave-making damping: a body bobbing at the surface sends out ripples that carry its energy away,
@@ -198,6 +217,7 @@ var _face_area := Vector3.ZERO                # area seen looking along each bod
 var _box_size := Vector3.ZERO                 # bounding box along the body axes
 var _prev_added_mass := -1.0
 var _auto_inertia := false
+var _from_material := false                 # density being set from Made Of
 var _was_in_water := false
 var _first_step := true
 var _unit_inertia := Vector3.ZERO             # own rotational inertia per unit density
@@ -215,7 +235,9 @@ var _foils: Array = []                        # BoundedBuoyancyFoil nodes under 
 var _thrusters: Array = []                    # BoundedBuoyancyThruster nodes under the body
 var _compartments: Array = []                 # BoundedBuoyancyCompartment nodes under the body
 var _prev_flood := 0.0                        # flood water's mass last step
-var _flooded := false                         # the inertia includes flood water
+var _extra_on := false                        # the inertia includes water (flood, turning)
+var _flood_spin := Vector3.ZERO               # the flood water's share of the inertia, this step
+var _turning_added := Vector3.ZERO            # the water's share in turning, this step
 var _dry_inertia := Vector3.ZERO              # the inertia without it, when set by hand
 var _wet_inertia := Vector3.ZERO              # the inertia as last set with it
 var _interfaces: Array = []                   # boundaries between layers the body is across: [jump in density, volume below, depth of its centre]
@@ -353,7 +375,14 @@ func _physics_process(dt: float) -> void:
 	var displaced := rho * submerged_volume + air_density_here * air_volume   # mass of water and air displaced
 	added_mass = added_mass_coefficient * displaced
 	# Water in the compartments: weight the body carries, at the water's own centre.
-	flood_mass = _flood(xf, rho, g, dt) if not _compartments.is_empty() or _flooded else 0.0
+	_flood_spin = Vector3.ZERO
+	flood_mass = _flood(xf, rho, g, dt) if not _compartments.is_empty() else 0.0
+	# Turning moves water too: the water's share in rolling, pitching and turning, added to the inertia
+	# with the flood water's.
+	# (Eased in over about half a second, so that it does not flicker with each wave.)
+	var turning_now := _added_turning_inertia(xf, rho) if model == Model.BOUNDED and submerged_volume > 0.0 and added_turning else Vector3.ZERO
+	_turning_added = turning_now if not added_turning or turning_now == Vector3.ZERO else _turning_added.lerp(turning_now, 1.0 - exp(-dt / 0.5))
+	_set_extra_inertia(_flood_spin + _turning_added)
 	if _prev_added_mass < 0.0:
 		# The first step, or the first since it was frozen: the water it carries and takes along now
 		# is its own.
@@ -592,26 +621,66 @@ func _flood(xf: Transform3D, rho: float, g: float, dt: float) -> float:
 		var e := axes.transposed() * arm   # in the body's own axes
 		spin += m * Vector3(e.y * e.y + e.z * e.z, e.x * e.x + e.z * e.z, e.x * e.x + e.y * e.y)
 	_flood_torque = torque
-	if _flooded and inertia != _wet_inertia:
-		# Set from elsewhere while flooded (by hand, or the density or the shape changed): that is the
+	_flood_spin = spin
+	return total
+
+
+## Sets the body's inertia to its own plus `extra` (the flood water's, the water's share in turning),
+## each along the body's own axes. Godot's inertia is along the body's own axes only, so the water's
+## products of inertia (from water off to one side and below, say) are left out; Unity's port includes
+## them for the flood water.
+func _set_extra_inertia(extra: Vector3) -> void:
+	if _extra_on and inertia != _wet_inertia:
+		# Set from elsewhere meanwhile (by hand, or the density or the shape changed): that is the
 		# body's own inertia now.
 		_dry_inertia = inertia
-	if total <= 0.0:
-		if _flooded:
-			# Dry again: back to the body's own inertia.
-			_flooded = false
+	if extra.length_squared() <= 0.0:
+		if _extra_on:
+			# Back to the body's own inertia.
+			_extra_on = false
 			inertia = _own_inertia_now()
-		return 0.0
-	if not _flooded:
-		_flooded = true
+		return
+	if not _extra_on:
+		_extra_on = true
 		_dry_inertia = inertia
-	# Godot's inertia is along the body's own axes only, so the water's products of inertia (from
-	# water off to one side and below, say) are left out; Unity's port includes them.
-	var i := _own_inertia_now() + spin
+	var i := _own_inertia_now() + extra
 	if (i - inertia).length_squared() > 1e-4 * i.length_squared():   # set when it has changed by 1%
 		inertia = i
 	_wet_inertia = inertia
-	return total
+
+
+## The water's share in the body's rolling and pitching, along its own axes (kg m²): about its two
+## level axes (none about the upright one, so steering is as before). Rolling or pitching a body that is
+## not round about that axis pushes water aside, as moving it does; a ball, or a log rolling on its own
+## axis, moves none. For each axis it is Lamb's for an elliptic cylinder turning in water,
+## π/8 ρ (a² − b²)² L, with a and b half the body's widths across the axis and L its length along it.
+## At the surface the water above is missing, and the surface acts as a mirror (the body and its
+## reflection turn together), so the width up and down is twice the draft and the share is halved.
+func _added_turning_inertia(xf: Transform3D, rho: float) -> Vector3:
+	if _single_sphere or _box_size == Vector3.ZERO or volume <= 0.0:
+		return Vector3.ZERO   # (a ball turning moves no water)
+	var share := clampf(submerged_volume / volume, 0.0, 1.0)
+	var axes := xf.basis.orthonormalized()
+	# Which of the body's axes is nearest upright, and how much of its height is under water.
+	var up := 0
+	for k in 3:
+		if absf(axes[k].y) > absf(axes[up].y):
+			up = k
+	var h := _box_size * 0.5
+	var floating := share < 0.999
+	var hv := h
+	if floating:
+		hv[up] = h[up] * minf(2.0 * share, 1.0)
+	var out := Vector3.ZERO
+	for k in 3:
+		if k == up:
+			continue   # turning on the spot (yaw) is left to the rudder and the water's drag
+		var a: float = hv[(k + 1) % 3]
+		var b: float = hv[(k + 2) % 3]
+		var length: float = 2.0 * hv[k]
+		var d := a * a - b * b
+		out[k] = PI / 8.0 * rho * d * d * length * (0.5 if floating else 1.0)
+	return out
 
 
 ## The body's own rotational inertia, without any flood water.

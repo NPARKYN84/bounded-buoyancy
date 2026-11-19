@@ -35,10 +35,25 @@ enum Model {
 @export_range(0.01, 20000.0, 0.01, "or_greater", "suffix:kg/m³") var density: float = 500.0:
 	set(value):
 		density = maxf(value, 0.001)
+		# Set by hand: no longer a listed material.
+		if not _from_material and made_of != BoundedBuoyancyMaterials.Kind.CUSTOM \
+				and not is_equal_approx(density, BoundedBuoyancyMaterials.density_of(made_of)):
+			made_of = BoundedBuoyancyMaterials.Kind.CUSTOM
 		if area > 0.0:
 			own_mass = density * area * _kg
 			if _auto_inertia:
 				inertia = _unit_inertia * density
+## What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats,
+## steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself.
+## (Setting the density by hand makes it Custom.)
+@export var made_of: BoundedBuoyancyMaterials.Kind = BoundedBuoyancyMaterials.Kind.CUSTOM:
+	set(value):
+		made_of = value
+		if value != BoundedBuoyancyMaterials.Kind.CUSTOM:
+			_from_material = true
+			density = BoundedBuoyancyMaterials.density_of(value)
+			_from_material = false
+		notify_property_list_changed()
 ## Added-mass coefficient C of the shape in 2D: 1 for a circle, more for a flat plate moving face-on.
 ## Buoyancy-driven rising is capped at g/C.
 @export_range(0.0, 5.0, 0.01) var added_mass_coefficient: float = 1.0
@@ -53,6 +68,10 @@ enum Model {
 ## Damping of spin in the water, per second when fully submerged; in air, in proportion to how light
 ## the body is against the air.
 @export_range(0.0, 20.0, 0.01, "or_greater", "suffix:1/s") var angular_drag: float = 3.0
+## Turning moves water too: a body that is not round, tipping or turning, pushes water aside, so it
+## turns as if heavier than it is (Lamb's added inertia for its shape; nothing for a circle). On by
+## default; off turns it on its own inertia alone, as before 2.8.
+@export var added_turning := true
 ## Keep momentum when the added mass grows as the body enters the water.
 @export var keep_momentum_on_entry: bool = true
 ## Wave-making damping: a body bobbing at the surface sends out ripples (here to the left and right)
@@ -115,7 +134,12 @@ var _bound_radius := 0.0
 var _box := Vector2.ZERO                 # bounding box size, body space
 var _fill := 1.0
 var _auto_inertia := false
+var _from_material := false                 # density being set from Made Of
 var _unit_inertia := 0.0
+var _turning_added := 0.0               # the water's share in turning (engine units), eased
+var _extra_on := false                  # the inertia includes it
+var _dry_inertia := 0.0                 # the inertia without it, when set by hand
+var _wet_inertia := 0.0                 # the inertia as last set with it
 var _prev_added_mass := -1.0
 var _was_in_water := false
 var _first_step := true
@@ -322,7 +346,52 @@ func _physics_process(dt: float) -> void:
 	var damp := angular_drag * (submerged_area + air_area * minf(1.0, rho_air / density)) / area
 	if absf(damp - angular_damp) > 1e-6:
 		angular_damp = damp
+	# Turning moves water too: the water's share in it, added to the inertia (eased in over about half
+	# a second, so that it does not flicker with each wave).
+	var turning_now := _added_turning_inertia(xf, rho) if model == Model.BOUNDED and submerged_area > 0.0 and added_turning else 0.0
+	_turning_added = turning_now if turning_now == 0.0 else lerpf(_turning_added, turning_now, 1.0 - exp(-dt / 0.5))
+	_set_extra_inertia(_turning_added)
 	_prev_added_mass = added_mass
+
+
+## Sets the body's inertia to its own plus `extra`.
+func _set_extra_inertia(extra: float) -> void:
+	if _extra_on and inertia != _wet_inertia:
+		_dry_inertia = inertia   # set from elsewhere meanwhile: the body's own inertia now
+	if extra <= 0.0:
+		if _extra_on:
+			_extra_on = false
+			inertia = _unit_inertia * density if _auto_inertia else _dry_inertia
+		return
+	if not _extra_on:
+		_extra_on = true
+		_dry_inertia = inertia
+	var i := (_unit_inertia * density if _auto_inertia else _dry_inertia) + extra
+	if absf(i - inertia) > 0.01 * i:   # set when it has changed by 1%
+		inertia = i
+	_wet_inertia = inertia
+
+
+## The water's share in the body's turning (engine units, kg px²). Turning a body that is not round
+## pushes water aside, as moving it does; a circle moves none. It is Lamb's for an elliptic cylinder
+## turning in water, π/8 ρ (a² − b²)² per metre of thickness, a and b half its width and height. At the
+## surface the water above is missing and the surface acts as a mirror, so the height is twice the
+## draft and the share is halved.
+func _added_turning_inertia(xf: Transform2D, rho: float) -> float:
+	if _circle or _box == Vector2.ZERO or area <= 0.0:
+		return 0.0
+	var share := clampf(submerged_area / area, 0.0, 1.0)
+	var ppm := pixels_per_metre
+	var h := _box * 0.5 / ppm
+	var floating := share < 0.999
+	if floating:
+		# The body's axis nearest upright (y is down in 2D): its height under water, doubled by the mirror.
+		if absf(xf.y.normalized().y) >= absf(xf.x.normalized().y):
+			h.y *= minf(2.0 * share, 1.0)
+		else:
+			h.x *= minf(2.0 * share, 1.0)
+	var d := h.x * h.x - h.y * h.y
+	return PI / 8.0 * rho * d * d * thickness * (0.5 if floating else 1.0) * ppm * ppm
 
 
 ## Damping ratio of bobbing from the waves a body makes in a side view, where the waves it sends out

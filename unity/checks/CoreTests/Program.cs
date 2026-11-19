@@ -349,6 +349,39 @@ namespace BoundedBuoyancy.Checks
             }
 
             Console.WriteLine("B5  Shapes, centre of buoyancy and righting");
+            // Turning moves water too. A raft 0.4 wide, 0.15 deep and 0.6 m long at 400 kg/m³ tipped 5° rolls back and forth
+            // with the period 2π √(I / (m g GM)), GM = 0.177 m: 0.59 s on its own inertia, 0.77 s with the water's share
+            // (Lamb's for its section, halved at the surface, the draft doubled by the surface's mirror). A ball has none.
+            {
+                var periods = new double[2];
+                for (int k = 0; k < 2; k++)
+                {
+                    var w = new SimWorld();
+                    var raft = Body(w, Box(0.4, 0.15, 0.6), 400.0, new V3(0, 0.075 - 0.06, 0), 5.0);
+                    raft.Core.AngularDrag = 0.0;
+                    raft.Core.AddedTurning = k == 1;
+                    var crossings = new List<double>();
+                    double prev = raft.Basis.Y.x;
+                    Run(w, 6.0, t =>
+                    {
+                        double now = raft.Basis.Y.x;
+                        if (t > 0.5 && crossings.Count < 5 && Math.Sign(now) != Math.Sign(prev) && prev != 0.0)
+                            crossings.Add(t);
+                        prev = now;
+                    });
+                    periods[k] = crossings.Count > 1 ? 2.0 * (crossings[crossings.Count - 1] - crossings[0]) / (crossings.Count - 1) : 0.0;
+                }
+                double gm = 0.4 * 0.4 / (12.0 * 0.06) + 0.03 - 0.075, m = 400.0 * 0.4 * 0.15 * 0.6;
+                double own = m * (0.4 * 0.4 + 0.15 * 0.15) / 12.0;
+                double add = Math.PI / 8.0 * 1000.0 * Math.Pow(0.2 * 0.2 - 0.06 * 0.06, 2.0) * 0.6 * 0.5;
+                double t0 = 2.0 * Math.PI * Math.Sqrt(own / (m * 9.80665 * gm)), t1 = 2.0 * Math.PI * Math.Sqrt((own + add) / (m * 9.80665 * gm));
+                Console.WriteLine("  raft rolling: {0:F3} s on its own inertia, {1:F3} s with the water's share", periods[0], periods[1]);
+                Check("raft rolls on its own inertia: period (s)", periods[0], t0, 0.05 * t0);
+                Check("  with the water's share in turning: period (s)", periods[1], t1, 0.05 * t1);
+                var ballW = new SimWorld();
+                var ball = Body(ballW, Sphere(0.1), 500.0, new V3(0, 0, 0));
+                Check("  a ball has none (kg m^2)", ball.Core.AddedTurningInertia(ball.BodyPose, 1000.0).Length, 0.0, 1e-9);
+            }
             {
                 var flat = WaterSurface.Flat(0.0);
                 double vol;
@@ -486,7 +519,9 @@ namespace BoundedBuoyancy.Checks
                 Check("cube in a raised pool bobs about its level (cm)", 100.0 * cubeSum / cubeN, 100.0 + 100.0 * 0.1 * (1.0 - 2.0 * 0.85), 0.5);
                 Check("cube in sea water floats at its sea-water level (cm)", 100.0 * salt.Position.y, 100.0 * 0.1 * (1.0 - 2.0 * 900.0 / 1025.0), 0.15);
                 Check("raft on 5 cm waves: rises and falls (cm)", 100.0 * (highest - lowest), 10.0, 6.0);
-                Check("raft on 5 cm waves: rocks but stays upright (deg)", maxTilt, 8.0, 7.5);
+                // (It rocks most when its roll is slow enough to meet the waves: with the water's share in its rolling, its
+                // roll takes 0.77 s against 0.59 s on its own inertia, nearer the waves' 1.4 s.)
+                Check("raft on 5 cm waves: rocks but stays upright (deg, under 30)", maxTilt, 15.0, 15.0);
             }
 
             Console.WriteLine("B7  Air: balloons, thin air and changing density");

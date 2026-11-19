@@ -66,6 +66,25 @@ namespace BoundedBuoyancy.Checks
         public event Action<double, V3> Exited;
 
         public M3 Basis { get { return Rot.Matrix; } }
+
+        /// <summary>The body's inertia with the water in it (the flood water's, and the water's share in rolling and
+        /// pitching), as principal moments and axes in the body's own frame: what BoundedBuoyancyBody gives the Rigidbody.</summary>
+        public void WholeInertia(out V3 moments, out M3 axes)
+        {
+            moments = Moments;
+            axes = Axes;
+            V3 turning = Core.TurningInertia;
+            if (Core.FloodMass > 0.0 || turning.x != 0.0 || turning.y != 0.0 || turning.z != 0.0)
+            {
+                Sym3 i = Sym3.FromPrincipal(Moments, Axes);
+                if (Core.FloodMass > 0.0)
+                    i = i + Core.FloodInertia;
+                i.xx += turning.x;
+                i.yy += turning.y;
+                i.zz += turning.z;
+                i.Principal(out moments, out axes);
+            }
+        }
         public BodyPose BodyPose { get { M3 r = Basis; return new BodyPose(Com - r.Mul(ComLocal), r); } }
         public V3 Position { get { return BodyPose.Position; } }
         public double TiltDegrees { get { return Math.Acos(Math.Max(-1.0, Math.Min(1.0, Basis.Y.y))) * 180.0 / Math.PI; } }
@@ -122,7 +141,10 @@ namespace BoundedBuoyancy.Checks
             }
             V3 v = Core.VelocityTarget;
             V3 w = W;
-            Appendages.Apply(foilList, thrusterList, Core.InertialMass, Com, pose.Basis * Axes, Moments, ref v, ref w, sample, wind, Core.AirDensityHere, dt);
+            V3 moments;
+            M3 axes;
+            WholeInertia(out moments, out axes);
+            Appendages.Apply(foilList, thrusterList, Core.InertialMass, Com, pose.Basis * axes, moments, ref v, ref w, sample, wind, Core.AirDensityHere, dt);
             Core.VelocityTarget = v;
             W = w;
         }
@@ -189,13 +211,12 @@ namespace BoundedBuoyancy.Checks
                 b.ApplyAppendages(pose, sample, wind, Dt);
                 // AddForce(VelocityChange): the body lands on the target velocity.
                 b.V = b.Core.VelocityTarget;
-                // Torque about the centre of mass, through the body's own rotational inertia, with any flood water's
-                // added as BoundedBuoyancyBody does (there only when it has changed by 1%; here every step).
+                // Torque about the centre of mass, through the body's own rotational inertia, with any flood water's and the
+                // water's share in turning added as BoundedBuoyancyBody does (there only when it has changed by 1%; here every step).
                 M3 r = b.Basis;
-                M3 axes = b.Axes;
-                V3 moments = b.Moments;
-                if (b.Core.FloodMass > 0.0)
-                    (Sym3.FromPrincipal(b.Moments, b.Axes) + b.Core.FloodInertia).Principal(out moments, out axes);
+                M3 axes;
+                V3 moments;
+                b.WholeInertia(out moments, out axes);
                 V3 tl = axes.MulT(r.MulT(b.Core.Torque));
                 V3 al = new V3(tl.x / moments.x, tl.y / moments.y, tl.z / moments.z);
                 b.W += r.Mul(axes.Mul(al)) * Dt;

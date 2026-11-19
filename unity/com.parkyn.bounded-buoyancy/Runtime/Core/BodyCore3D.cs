@@ -81,6 +81,12 @@ namespace BoundedBuoyancy.Core
         /// <summary>The compartments' water as weight at its centres: its inertia about the centre of mass, in the
         /// body's own axes (the water does not turn with the body, so only as weight at its centre).</summary>
         public Sym3 FloodInertia;
+        /// <summary>Turning moves water too: whether the water's share in the body's rolling, pitching and turning is
+        /// added to its inertia (TurningInertia).</summary>
+        public bool AddedTurning = true;
+        /// <summary>The water's share in the body's turning about its own axes (kg m²), set each step: Lamb's added
+        /// inertia for its shape (AddedTurningInertia).</summary>
+        public V3 TurningInertia;
 
         /// <summary>Spaces inside the body that can flood (see Compartment3D).</summary>
         public readonly List<Compartment3D> Compartments = new List<Compartment3D>();
@@ -208,6 +214,13 @@ namespace BoundedBuoyancy.Core
                 FloodMass = 0.0;
                 FloodInertia = new Sym3();
             }
+            // Turning moves water too: the water's share in rolling, pitching and turning (eased in over about half a
+            // second, so that it does not flicker with each wave).
+            V3 turningNow = Bounded && AddedTurning && SubmergedVolume > 0.0 ? AddedTurningInertia(pose, rho) : V3.Zero;
+            if (turningNow.x == 0.0 && turningNow.y == 0.0 && turningNow.z == 0.0)
+                TurningInertia = turningNow;
+            else
+                TurningInertia = TurningInertia + (turningNow - TurningInertia) * (1.0 - Math.Exp(-dt / 0.5));
             if (prevAddedMass < 0.0)
             {
                 // The first step, or the first since it was frozen: the water it carries and takes along now is its own.
@@ -454,6 +467,37 @@ namespace BoundedBuoyancy.Core
             MediumDrag = dragSum / SubmergedVolume;
             CentreOfBuoyancy = weighed / mass;
             return mass / SubmergedVolume;
+        }
+
+        /// <summary>The water's share in the body's rolling and pitching, about its own axes (kg m²): about its two level
+        /// axes (none about the upright one, so steering is as before). Rolling or pitching a body that is not round about
+        /// that axis pushes water aside, as moving it does; a ball moves none. For each axis it is Lamb's for
+        /// an elliptic cylinder turning in water, π/8 ρ (a² − b²)² L, with a and b half the body's widths across the axis and
+        /// L its length along it. At the surface the water above is missing, and the surface acts as a mirror (the body and
+        /// its reflection turn together), so the width up and down is twice the draft and the share is halved.</summary>
+        public V3 AddedTurningInertia(BodyPose pose, double rho)
+        {
+            V3 size = Shape.Size;
+            double volume = Shape.Volume;
+            if (Shape.SingleSphere || volume <= 0.0 || (size.x == 0.0 && size.y == 0.0 && size.z == 0.0))
+                return V3.Zero;
+            double share = Math.Max(0.0, Math.Min(1.0, SubmergedVolume / volume));
+            double[] up = { Math.Abs(pose.Basis.X.y / Math.Max(pose.Basis.X.Length, 1e-12)), Math.Abs(pose.Basis.Y.y / Math.Max(pose.Basis.Y.Length, 1e-12)),
+                Math.Abs(pose.Basis.Z.y / Math.Max(pose.Basis.Z.Length, 1e-12)) };
+            int u = up[1] >= up[0] && up[1] >= up[2] ? 1 : (up[0] >= up[2] ? 0 : 2);
+            double[] h = { 0.5 * size.x, 0.5 * size.y, 0.5 * size.z };
+            bool floating = share < 0.999;
+            if (floating)
+                h[u] *= Math.Min(2.0 * share, 1.0);
+            double[] r = new double[3];
+            for (int k = 0; k < 3; k++)
+            {
+                if (k == u)
+                    continue;   // turning on the spot (yaw) is left to the rudder and the water's drag
+                double a = h[(k + 1) % 3], b = h[(k + 2) % 3], d = a * a - b * b;
+                r[k] = Math.PI / 8.0 * rho * d * d * 2.0 * h[k] * (floating ? 0.5 : 1.0);
+            }
+            return new V3(r[0], r[1], r[2]);
         }
 
         /// <summary>The compartments for one step: moves water through their holes and pumps, and sets FloodMass and
