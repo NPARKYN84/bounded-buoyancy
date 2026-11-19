@@ -314,6 +314,39 @@ func run() -> void:
 	for b in [pv, pball, psteel, pv2]:
 		b.queue_free()
 	await physics_frame
+	# Will it behave? A raft 2 x 0.5 x 4 m at half density has a metacentric height of 1.208 m (KB +
+	# BM - KG, BM = B² / 12 T); a square post 0.4 x 1 x 0.4 m at half density -0.223 m, so a boat built
+	# like it is warned that it will capsize, by about that much. A cube 1 mm across bobs too fast for 60
+	# steps a second; a crate 900 m across is asked whether that is the size meant. And the 2D body the same.
+	var hraft := make_shape_body(_box(Vector3(2, 0.5, 4)), 500.0, Vector3(50.0, 5.0, 0.0), 0.0)
+	var hpost := make_shape_body(_box(Vector3(0.4, 1.0, 0.4)), 500.0, Vector3(52.0, 5.0, 0.0), 0.0)
+	hpost.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	hpost.center_of_mass = Vector3.ZERO
+	hpost._auto_com = false   # its centre of mass set by hand, as a boat's is in the editor
+	var hdot := make_shape_body(_box(Vector3(0.001, 0.001, 0.001)), 500.0, Vector3(54.0, 5.0, 0.0), 0.0)
+	var hbig := make_shape_body(_box(Vector3(900, 2, 900)), 500.0, Vector3(3000.0, 5.0, 0.0), 0.0)
+	await physics_frame
+	var hp: Dictionary = hraft.floating_preview()
+	check("will it behave: a raft's metacentric height (m)", hraft._metacentric_height(hraft.global_transform, hp.level, hraft._centroid), 1.2083, 0.01)
+	var hq: Dictionary = hpost.floating_preview()
+	check("  a square post's, at half density (m)", hpost._metacentric_height(hpost.global_transform, hq.level, Vector3.ZERO), -0.2233, 0.005)
+	var hw: PackedStringArray = hpost.behaviour_check()
+	check("  a boat built like the post is warned it will capsize", float(_says(hw, "It will capsize") and _says(hw, "0.22 m too high")), 1.0, 0.0)
+	check("  the raft (not a boat) is not warned it will capsize", float(_says(hraft.behaviour_check(), "capsize")), 0.0, 0.0)
+	var hd: PackedStringArray = hdot.behaviour_check()
+	check("  a 1 mm cube: bobs too fast at 60 steps a second, use 120", float(_says(hd, "to 120 or more")), 1.0, 0.0)
+	check("  a crate 900 m across: is that the size meant?", float(_says(hbig.behaviour_check(), "900 m across")), 1.0, 0.0)
+	var hpost2 := make_body_2d(_rect2(Vector2(40, 100)), 500.0, Vector2(12000, -500), 0.0)
+	hpost2.center_of_mass_mode = RigidBody2D.CENTER_OF_MASS_MODE_CUSTOM
+	hpost2.center_of_mass = Vector2.ZERO
+	hpost2._auto_com = false
+	await physics_frame
+	var hq2: Dictionary = hpost2.floating_preview()
+	check("  2D: the post's metacentric height (px)", hpost2._metacentric_height_2d(hpost2.global_transform, hq2.level, Vector2.ZERO), -22.333, 0.05)
+	check("  and it is warned it will capsize", float(_says(hpost2.behaviour_check(), "It will capsize")), 1.0, 0.0)
+	for b in [hraft, hpost, hdot, hbig, hpost2]:
+		b.queue_free()
+	await physics_frame
 	# Sea State: Rough sets the waves of a rough sea: 3.25 m from trough to crest (the main wave 1.16 m
 	# above the mean, the second 0.4 of it on top) and 127 m long; a scene loading the same values
 	# keeps it Rough; setting the height by hand makes it Custom. The 2D water the same, in pixels.
@@ -3156,6 +3189,14 @@ func _skips2c(density: float, speed: float, deg: float) -> bool:
 			break
 	ball.queue_free()
 	return skipped
+
+
+## Whether any of the warnings `w` contains `text`.
+func _says(w: PackedStringArray, text: String) -> bool:
+	for line in w:
+		if line.contains(text):
+			return true
+	return false
 
 
 func make_body_2d(shape: Shape2D, dens: float, at: Vector2, rot_deg: float) -> RigidBody2D:

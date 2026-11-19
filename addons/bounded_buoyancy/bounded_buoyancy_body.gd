@@ -70,6 +70,7 @@ enum Model {
 		if Engine.is_editor_hint() and is_inside_tree():
 			update_gizmos()   # the waterline preview
 			notify_property_list_changed()
+			update_configuration_warnings()
 ## What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats,
 ## steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself.
 ## (Setting the density by hand makes it Custom.)
@@ -247,8 +248,22 @@ var _interfaces: Array = []                   # boundaries between layers the bo
 var _flood_torque := Vector3.ZERO             # the flood water's weight about the centre of mass, this step
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSFORM_CHANGED and Engine.is_editor_hint() and not _check_queued:
+		# Moved in the editor: check it again (once, at the end of the frame).
+		_check_queued = true
+		(func() -> void:
+			_check_queued = false
+			if is_inside_tree():
+				update_configuration_warnings()).call_deferred()
+
+
+var _check_queued := false
+
+
 func _ready() -> void:
 	if Engine.is_editor_hint():
+		set_notify_transform(true)
 		# In the editor: keep the warning on the node up to date as shapes are added and taken away.
 		child_entered_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
 		child_exiting_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
@@ -408,8 +423,115 @@ func _get_configuration_warnings() -> PackedStringArray:
 			w.append("Add a CollisionShape3D child (sphere, box, cylinder, capsule or convex polygon), or set a Buoyancy Mesh: the body floats by the shape of what it is.")
 		elif other > 0:
 			w.append("Only spheres, boxes, cylinders, capsules and convex polygons are floated: a concave, height-map or other shape is left out. Use a convex shape, or set a Buoyancy Mesh.")
+	if w.is_empty() and is_inside_tree():
+		w.append_array(behaviour_check())
 	return w
 
+
+## Will it behave? Checks, before the game runs, for the things that make a floating body misbehave,
+## and says how to put each right: a size that is probably a slip of scale; a body that is not over any
+## water; a boat (a body with its own centre of mass, foils, propellers or a sail) whose centre of mass
+## is too high, so that it will capsize; and a body so small or light that it bobs faster than the
+## physics steps can follow. Shown as warnings on the node in the editor; call it from code too.
+func behaviour_check() -> PackedStringArray:
+	var out := PackedStringArray()
+	var p := floating_preview()
+	if p.is_empty():
+		return out
+	var size := _box_size * global_transform.basis.get_scale().abs()
+	var biggest := maxf(size.x, maxf(size.y, size.z))
+	var smallest := minf(size.x, minf(size.y, size.z))
+	if biggest > 500.0:
+		out.append("It is %.0f m across: is that the size you meant? Godot's units are metres. Set the shape's size rather than scaling the node." % biggest)
+	elif smallest < 0.002:
+		out.append("It is only %.1f mm across at its thinnest: is that the size you meant? Godot's units are metres." % (1000.0 * smallest))
+	# Over water?
+	var here := global_position
+	var waters := []
+	for wn in BoundedBuoyancyWater.instances:
+		if is_instance_valid(wn) and wn.is_inside_tree() and wn.world == get_world_3d():
+			waters.append(wn)
+	if not waters.is_empty():
+		var over := false
+		for wn in waters:
+			if wn.contains(Vector3(here.x, wn.global_position.y - 0.001, here.z)):
+				over = true
+				break
+		if not over:
+			out.append("It is not over any BoundedBuoyancyWater: once the game runs it will fall, as nothing holds it up. Move it over the water, or the water under it.")
+	if p.sinks:
+		return out
+	# Bobbing faster than the physics can follow?
+	var ticks := float(ProjectSettings.get_setting("physics/common/physics_ticks_per_second", 60))
+	var g := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var rho: float = p.water_density
+	var level: float = p.level
+	var e := 0.01 * maxf(float(p.draft), 1e-5)
+	var xf := global_transform
+	var waterplane := (float(_below_plane(xf, level + e)[0]) - float(_below_plane(xf, level - e)[0])) / (2.0 * e)
+	if waterplane > 0.0:
+		var under := float(p.fraction) * volume
+		var m := density * volume + added_mass_coefficient * rho * under
+		var period := TAU * sqrt(m / (rho * g * waterplane))
+		if period < 5.0 / ticks:
+			var need := 60
+			while float(need) * period < 5.0 and need < 1920:
+				need *= 2
+			out.append("It bobs %.0f times a second, too fast for %d physics steps a second to follow smoothly: it may jitter. Set Physics Ticks Per Second to %d or more, or make it bigger." % [1.0 / period, int(ticks), need])
+	if float(p.draft) < 0.001:
+		out.append("It floats only %.2f mm deep: floats this shallow bob faster than they should. Make it a little heavier or smaller across, or use more physics steps a second." % (1000.0 * float(p.draft)))
+	# A boat that will capsize?
+	if _is_boat():
+		var com := center_of_mass if center_of_mass_mode == RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM and not _auto_com else _centroid
+		var gm := _metacentric_height(xf, level, com)
+		if gm < 0.0:
+			out.append("It will capsize: as placed, its centre of mass is %.2f m too high for it to stay upright. Lower its Center of Mass (ballast) by at least that, or make it wider." % -gm)
+	return out
+
+
+## Whether the body looks like a boat: its own centre of mass, foils, propellers or a sail.
+func _is_boat() -> bool:
+	if center_of_mass_mode == RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM and not _auto_com:
+		return true
+	if sail_area > 0.0:
+		return true
+	for n in find_children("*", "", true, false):
+		if n is _Foil or n is BoundedBuoyancyThruster:
+			return true
+	return false
+
+
+## The metacentric height (m) for the weaker of its two ways of heeling over, with its centre of mass
+## at `com` (body space), floating as at `level`: tilted 3° each way about each horizontal axis, the
+## righting arm over the sine of the angle. Negative: it capsizes.
+func _metacentric_height(xf: Transform3D, level: float, com: Vector3) -> float:
+	var target := float(_below_plane(xf, level)[0])
+	var worst := INF
+	var g_world := xf * com
+	for ax in [Vector3(1, 0, 0), Vector3(0, 0, 1)]:
+		var axis: Vector3 = ax
+		for sgn in [-1.0, 1.0]:
+			var phi: float = deg_to_rad(3.0) * float(sgn)
+			var xf1 := Transform3D(Basis(axis, phi) * xf.basis, g_world + Basis(axis, phi) * (xf.origin - g_world))
+			# The level at which it displaces as much as before.
+			var lo := level - _bound_radius - 1.0
+			var hi := level + _bound_radius + 1.0
+			for i in 50:
+				var mid := 0.5 * (lo + hi)
+				if float(_below_plane(xf1, mid)[0]) < target:
+					lo = mid
+				else:
+					hi = mid
+			var r: Array = _below_plane(xf1, 0.5 * (lo + hi))
+			var b: Vector3 = r[1]
+			# Torque of buoyancy about the centre of mass, along the heel axis; righting opposes the heel.
+			var torque := (b - g_world).cross(Vector3.UP).dot(axis)
+			var gm := -torque / sin(phi)
+			worst = minf(worst, gm)
+	return worst
+
+
+## Warnings shown on the node in the editor: what it needs to float.
 
 ## Re-read the body's collision shapes or buoyancy mesh. Call it after adding, removing or resizing
 ## shapes while the game runs; the mass, centre of mass and inertia follow (unless set by hand).

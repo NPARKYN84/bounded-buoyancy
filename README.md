@@ -4,7 +4,7 @@
 
 **Floating done properly, in one node.** Put a BoundedBuoyancyBody on your RigidBody3D and give it a density. It floats at the right depth, tilts and rights itself, rides the waves and never shoots out of the water. That is the whole setup.
 
-**Thirty seconds:** enable the plugin · add the node to a RigidBody3D that has a collision shape · set **Density**, or pick what it is **Made Of** (cork, oak, ice, concrete, steel and more). Water is at height 0 until you place a BoundedBuoyancyWater node where you want it. Select the body and the editor shows where it will float before you press Play.
+**Thirty seconds:** enable the plugin · add the node to a RigidBody3D that has a collision shape · set **Density**, or pick what it is **Made Of** (cork, oak, ice, concrete, steel and more). Water is at height 0 until you place a BoundedBuoyancyWater node where you want it. Select the body and the editor shows where it will float before you press Play, and warns you if it will capsize, jitter or fall.
 
 **"Isn't an upward force in an Area3D enough?"** For a box sitting still, yes. The moment anything lighter than water goes under (a ball thrown in, a crate off a jetty) a plain upward force on its own mass launches it out at tens of g. This node puts the water the body has to shove aside into its inertia, so it comes up as real things do. Same effort, right answer, and it stays right when you add waves, boats, wind, flooding and the rest below.
 

@@ -46,6 +46,8 @@ enum Model {
 		if Engine.is_editor_hint():
 			queue_redraw()   # the waterline preview
 			notify_property_list_changed()
+			if is_inside_tree():
+				update_configuration_warnings()
 ## What the body is made of: pick one and it takes that material's density (oak 720 kg/m³ floats,
 ## steel 7850 sinks), so it floats or sinks as the real thing does. Custom: set the density yourself.
 ## (Setting the density by hand makes it Custom.)
@@ -164,8 +166,21 @@ var _prev_com := Vector2.ZERO            # where its centre of mass was
 var _prev_frame := -1                    # and which physics frame that was
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSFORM_CHANGED and Engine.is_editor_hint() and not _check_queued:
+		_check_queued = true
+		(func() -> void:
+			_check_queued = false
+			if is_inside_tree():
+				update_configuration_warnings()).call_deferred()
+
+
+var _check_queued := false
+
+
 func _ready() -> void:
 	if Engine.is_editor_hint():
+		set_notify_transform(true)
 		# In the editor: keep the warning on the node up to date as shapes are added and taken away.
 		child_entered_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
 		child_exiting_tree.connect(func(_n: Node) -> void: update_configuration_warnings.call_deferred())
@@ -346,7 +361,111 @@ func _get_configuration_warnings() -> PackedStringArray:
 		w.append("Add a CollisionShape2D (rectangle, circle, capsule or convex polygon) or a CollisionPolygon2D child: the body floats by the shape of what it is.")
 	elif other > 0:
 		w.append("Only rectangles, circles, capsules and convex polygons (and CollisionPolygon2D) are floated: other shapes are left out.")
+	if w.is_empty() and is_inside_tree():
+		w.append_array(behaviour_check())
 	return w
+
+
+## Will it behave? As BoundedBuoyancyBody's: a size that is probably a slip of scale, a body not over
+## any water, a boat (a body with its own centre of mass, a sail or compartments) that will capsize, and
+## a body that bobs faster than the physics steps can follow. Shown as warnings on the node in the editor.
+func behaviour_check() -> PackedStringArray:
+	var out := PackedStringArray()
+	var p := floating_preview()
+	if p.is_empty():
+		return out
+	var ppm := pixels_per_metre
+	var size := _box * global_transform.get_scale().abs() / ppm
+	var biggest := maxf(size.x, size.y)
+	var smallest := minf(size.x, size.y)
+	if biggest > 500.0:
+		out.append("It is %.0f m across at %.0f pixels a metre: is that the size you meant? Check Pixels Per Metre." % [biggest, ppm])
+	elif smallest < 0.002:
+		out.append("It is only %.1f mm across at its thinnest at %.0f pixels a metre: is that the size you meant? Check Pixels Per Metre." % [1000.0 * smallest, ppm])
+	var here := global_position
+	var any := false
+	var over := false
+	for wn in _Water2D.instances:
+		if is_instance_valid(wn) and wn.is_inside_tree() and wn.world == get_world_2d():
+			any = true
+			if wn.contains(here):
+				over = true
+				break
+	if any and not over:
+		out.append("It is not over any BoundedBuoyancyWater2D: once the game runs it will fall, as nothing holds it up. Move it over the water, or the water under it.")
+	if p.sinks:
+		return out
+	var ticks := float(ProjectSettings.get_setting("physics/common/physics_ticks_per_second", 60))
+	var g := float(ProjectSettings.get_setting("physics/2d/default_gravity", 980.0)) / ppm
+	var rho: float = p.water_density
+	var level: float = p.level
+	var xf := global_transform
+	var e := maxf(0.01 * float(p.draft) * ppm, 1e-4)
+	var waterline := (_area_below(xf, level - e) - _area_below(xf, level + e)) / (2.0 * e) / ppm   # m
+	if waterline > 0.0:
+		var under := float(p.fraction) * area / (ppm * ppm)
+		var m := (density * area / (ppm * ppm) + added_mass_coefficient * rho * under) * thickness
+		var period := TAU * sqrt(m / (rho * g * waterline * thickness))
+		if period < 5.0 / ticks:
+			var need := 60
+			while float(need) * period < 5.0 and need < 1920:
+				need *= 2
+			out.append("It bobs %.0f times a second, too fast for %d physics steps a second to follow smoothly: it may jitter. Set Physics Ticks Per Second to %d or more, or make it bigger." % [1.0 / period, int(ticks), need])
+	if _is_boat_2d():
+		var com := center_of_mass if center_of_mass_mode == RigidBody2D.CENTER_OF_MASS_MODE_CUSTOM and not _auto_com else _centroid
+		var gm := _metacentric_height_2d(xf, level, com) / ppm
+		if gm < 0.0:
+			out.append("It will capsize: as placed, its centre of mass is %.2f m too high for it to stay upright. Lower its Center of Mass (ballast) by at least that, or make it wider." % -gm)
+	return out
+
+
+func _is_boat_2d() -> bool:
+	return (center_of_mass_mode == RigidBody2D.CENTER_OF_MASS_MODE_CUSTOM and not _auto_com) or sail_size > 0.0 \
+		or not find_children("*", "BoundedBuoyancyCompartment2D", true, false).is_empty()
+
+
+## Area (px²) of the body at `xf` below the global height `level` (y down), and its centre.
+func _area_below(xf: Transform2D, level: float) -> float:
+	var keep := [water_level, submerged_area, centre_of_buoyancy]
+	water_level = level
+	_immerse(xf, null)
+	var a := submerged_area
+	water_level = keep[0]
+	submerged_area = keep[1]
+	centre_of_buoyancy = keep[2]
+	return a
+
+
+## The metacentric height (px) for heeling 3° either way, with the centre of mass at `com` (body space),
+## floating as at `level`. Negative: it capsizes.
+func _metacentric_height_2d(xf: Transform2D, level: float, com: Vector2) -> float:
+	var target := _area_below(xf, level)
+	var g_world := xf * com
+	var worst := INF
+	var keep := [water_level, submerged_area, centre_of_buoyancy]
+	for sgn in [-1.0, 1.0]:
+		var phi: float = deg_to_rad(3.0) * float(sgn)
+		# Turned by phi about the centre of mass.
+		var xf1 := Transform2D(0.0, g_world) * Transform2D(phi, Vector2.ZERO) * Transform2D(0.0, -g_world) * xf
+		var lo := level - _bound_radius - 100.0
+		var hi := level + _bound_radius + 100.0
+		for i in 50:
+			var mid := 0.5 * (lo + hi)
+			if _area_below(xf1, mid) < target:
+				hi = mid   # more under as the level rises (y falls)
+			else:
+				lo = mid
+		water_level = 0.5 * (lo + hi)
+		_immerse(xf1, null)
+		var b := centre_of_buoyancy
+		# Buoyancy (upwards: -y) at b; its turning about the centre of mass, against the heel.
+		var torque := (b - g_world).cross(Vector2(0.0, -1.0))
+		var gm := -torque / sin(phi)
+		worst = minf(worst, gm)
+	water_level = keep[0]
+	submerged_area = keep[1]
+	centre_of_buoyancy = keep[2]
+	return worst
 
 
 ## Re-read the body's collision shapes. Call it after adding, removing or resizing shapes while the

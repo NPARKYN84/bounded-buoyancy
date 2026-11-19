@@ -257,6 +257,17 @@ Every body (3D and 2D) has **Made Of**, a list of twenty-one materials: foam, ba
 
 Select a body in the editor and it shows where it will float in still water as it is placed: in 3D a see-through sheet of water at that level round it with the waterline drawn on it, in 2D a dashed waterline with the share under water beside it; and the inspector's **Floating Preview** says it in words ("Floats 72% under, 0.43 m deep, as placed", or "Sinks"). It comes from the body's density (or Made Of) and its shape, and from the density of the water in the scene. It keeps the tilt the body is placed at: a body that would roll over when let go (a cube of half water's density rolls onto an edge) is shown as placed. From code, `floating_preview()` gives the same as numbers.
 
+## Will it behave?
+
+The plugin knows its own limits, so it checks each body before you press Play and puts a warning on the node, saying how to put it right:
+
+- **A boat that will capsize.** A body with its own centre of mass, foils, propellers, a sail (or, in 2D, compartments) is tilted a few degrees each way in the check, and its righting moment worked out: if its metacentric height comes out negative it will roll over, and the warning says how far too high its centre of mass is ("Lower its Center of Mass by at least 0.22 m"). A plain crate or block that rolls onto its side is left alone, as that is what it should do.
+- **Bobbing faster than the physics can follow.** Its bobbing period is worked out from its mass, the water it takes along and its waterplane; under five physics steps a bob, the warning gives the Physics Ticks Per Second it needs. Floats under a millimetre deep are warned too.
+- **Not over any water.** In a scene with water nodes, a body that is over none of them will simply fall.
+- **A slip of scale.** A body over 500 m across, or under 2 mm, is asked whether that is the size meant (Godot's units are metres; in 2D, check Pixels Per Metre).
+
+`behaviour_check()` gives the same list from code. The numbers are checked against naval architecture: a raft's metacentric height comes out at 1.21 m against 1.208 m from KB + BM − KG, a square post's at −0.223 m against −0.223 m.
+
 ## Rolling and pitching: the water's share
 
 A raft or a boat rolling sets water moving too, and that water adds to what has to be turned. **Added Turning** (on by default) adds it for rolling and pitching: for each axis, Lamb's value for an elliptic cylinder of the body's size across that axis, with the depth taken from how far the body is under. A long, flat raft rolls a little more slowly, as real ones do; a ball, and turning about the upright axis, are unchanged. It eases in and out over half a second as the body enters and leaves the water.
